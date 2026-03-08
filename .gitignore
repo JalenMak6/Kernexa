@@ -52,7 +52,9 @@ Thumbs.db
 *.log
 
 
+# Claude AI context (keep private)
+CLAUDE.md
+
 # My own command file
 curl_command
 docker-command
-CLAUDE.md
