@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Ansible runner artifacts and credentials
+artifacts/
+env/extravars
+
+# Ansible inventory (written at runtime)
+inventory/hosts
+
+# Fact cache
+fact_cache/
+
+# Frontend build output
+patch-scan-ui/node_modules/
+patch-scan-ui/dist/
+patch-scan-ui/.vite/
+
+# Built frontend served by FastAPI (generated from patch-scan-ui/dist)
+dist/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+
+# My own command file
+curl_command
+docker-command

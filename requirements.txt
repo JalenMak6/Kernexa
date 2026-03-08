@@ -1,0 +1,10 @@
+ansible
+ansible-runner
+psycopg2-binary 
+sqlalchemy
+fastapi
+uvicorn
+pydantic
+python-multipart
+apscheduler
+requests

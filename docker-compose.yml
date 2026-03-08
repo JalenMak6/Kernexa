@@ -1,0 +1,58 @@
+services:
+  app:
+    build: .
+    container_name: patch-scan-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app          # mount your code so changes reflect without rebuild
+      - /app/dist
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - patch-net
+
+  db:
+    image: postgres:16
+    container_name: patch-scan-db
+    environment:
+      POSTGRES_USER: patchadmin
+      POSTGRES_PASSWORD: patchpassword
+      POSTGRES_DB: patchscan
+    ports:
+      - "5432:5432"
+    volumes:
+      - patch-scan-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patchadmin -d patchscan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - patch-net
+
+  adminer:
+    image: adminer
+    container_name: patch-scan-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - patch-net
+  # frontend:
+  #     build:
+  #       context: ./patch-scan-ui
+  #       dockerfile: Dockerfile
+  #     ports:
+  #       - "3000:3000"
+  #     networks:
+  #       - patch-net
+
+networks:
+  patch-net:
+
+volumes:
+  patch-scan-data:

@@ -1,0 +1,75 @@
+---
+- name: scanning kernel version
+  hosts: all
+  gather_facts: true
+  become: true
+  become_method: sudo
+  tasks:
+    - name: get kernel version
+      ansible.builtin.shell: uname -r
+      register: kernel_version
+
+    - name: Get latest available kernel version
+      ansible.builtin.shell: |
+        if [ "{{ ansible_os_family }}" = "RedHat" ]; then
+          yum --showduplicates list kernel | sort -V | tail -n 1 | awk '{print $2}'
+        else
+          apt-cache policy linux-image-generic | grep "Candidate:" | awk '{print $2}'
+        fi
+      register: latest_kernel_version
+
+    - name: Get pending security packages
+      ansible.builtin.shell: |
+        if [ "{{ ansible_os_family }}" = "RedHat" ]; then
+          if [ "{{ ansible_distribution_major_version }}" = "7" ]; then
+            yum updateinfo list security | grep "x86_64\|noarch" | awk '{print $3}'
+          else
+            yum updateinfo list security | grep "x86_64\|noarch" | grep -v "Red Hat " | awk '{print $3}'
+          fi
+        else
+          apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}'
+        fi
+      register: pending_security_packages
+      changed_when: false
+      ignore_errors: true
+
+    - name: Check the last reboot time
+      ansible.builtin.shell: who -b | awk '{ print $3 " " $4 }'
+      register: last_reboot_time
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get RLSA advisory IDs
+      ansible.builtin.shell: |
+        yum updateinfo list security 2>/dev/null | awk '{print $1}' | grep -E '^RLSA' | sort -u
+      register: advisory_ids
+      when: ansible_os_family == "RedHat"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get source package names for pending packages (Ubuntu)
+      ansible.builtin.shell: |
+        apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}' | while read pkg; do
+          src=$(dpkg-query -f='${Source}\n' -W "$pkg" 2>/dev/null | head -1)
+          if [ -z "$src" ]; then
+            echo "$pkg:$pkg"
+          else
+            echo "$pkg:$src"
+          fi
+        done
+      register: debian_based_package_source_map
+      when: ansible_os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Print kernel version and packages
+      ansible.builtin.debug:
+          msg:
+            current_kernel_version: "{{ kernel_version.stdout | trim }}"
+            latest_available_kernel_version: "{% if ansible_os_family == 'RedHat' %}{{ latest_kernel_version.stdout | trim }}.x86_64{% else %}{{ latest_kernel_version.stdout | trim | regex_replace('^(\\d+\\.\\d+\\.\\d+-\\d+)\\..*$', '\\1') }}-generic{% endif %}"
+            pending_security_packages: "{{ pending_security_packages.stdout_lines | default([]) }}"
+            os_version: "{{ ansible_distribution }}{{ ansible_distribution_version }}"
+            last_reboot_time: "{{ last_reboot_time.stdout }}"
+            advisory_ids: "{{ advisory_ids.stdout_lines | default([]) }}"
+            package_source_map: "{{ debian_based_package_source_map.stdout_lines | default([]) }}"
+

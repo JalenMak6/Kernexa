@@ -1,0 +1,1157 @@
+import { useState, useEffect, useCallback } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
+} from "recharts";
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function kernelOutdated(current, latest) {
+  return current && latest && current !== latest;
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-CA", {
+    year: "numeric", month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit"
+  });
+}
+
+function badge(text, color) {
+  const colors = {
+    green:  "background:#d1fae5;color:#065f46;border:1px solid #6ee7b7",
+    red:    "background:#fee2e2;color:#991b1b;border:1px solid #fca5a5",
+    yellow: "background:#fef9c3;color:#854d0e;border:1px solid #fde047",
+    blue:   "background:#dbeafe;color:#1e40af;border:1px solid #93c5fd",
+    gray:   "background:#f1f5f9;color:#475569;border:1px solid #cbd5e1",
+  };
+  return (
+    <span style={{
+      ...Object.fromEntries((colors[color] || colors.gray).split(";").map(s => {
+        const [k, v] = s.split(":");
+        return [k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v?.trim()];
+      })),
+      padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+      letterSpacing: "0.04em", whiteSpace: "nowrap", fontFamily: "inherit"
+    }}>
+      {text}
+    </span>
+  );
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const r = await fetch(`${API_BASE}${path}`);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+async function apiDelete(path) {
+  const r = await fetch(`${API_BASE}${path}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+// ── ICONS ─────────────────────────────────────────────────────────────────────
+const Icon = ({ d, size = 16, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <path d={d} />
+  </svg>
+);
+
+const Icons = {
+  scan:    "M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18",
+  host:    "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 01-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 011-.97l7-2.25 7 2.25A1 1 0 0120 6z",
+  package: "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
+  kernel:  "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+  history: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z",
+  export:  "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
+  refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15",
+  check:   "M20 6L9 17l-5-5",
+  warning: "M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01",
+  search:  "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0",
+  chevron: "M19 9l-7 7-7-7",
+  close:   "M18 6L6 18M6 6l12 12",
+  servers: "M2 3h20v6H2zM2 15h20v6H2zM12 9v6M6 9v6M18 9v6",
+  plus:    "M12 5v14M5 12h14",
+  file:    "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  upload:  "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12",
+  key:     "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
+  eye:     "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 100 6 3 3 0 000-6z",
+  eyeOff:  "M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22",
+  lock:    "M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4",
+};
+
+// ── STAT CARD ─────────────────────────────────────────────────────────────────
+function StatCard({ icon, label, value, sub, accent }) {
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14,
+      padding: "20px 24px", display: "flex", flexDirection: "column", gap: 6,
+      boxShadow: "0 1px 4px rgba(0,0,0,0.05)"
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon d={Icons[icon]} size={18} color={accent || "#64748b"} />
+        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#64748b" }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ fontSize: 32, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: "#94a3b8" }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── CSV EXPORT ────────────────────────────────────────────────────────────────
+function exportToCSV(data) {
+  if (!data?.hosts?.length) return;
+  const rows = [];
+  data.hosts.forEach(h => {
+    if (!h.pending_security_packages?.length) {
+      rows.push({
+        Host: h.host,
+        "Current Kernel": h.current_kernel_version,
+        "Latest Kernel": h.latest_available_kernel_version,
+        "Kernel Outdated": kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version) ? "Yes" : "No",
+        "Package": "—",
+        "Scan Time": fmtDate(data.scanned_at),
+      });
+    } else {
+      h.pending_security_packages.forEach(pkg => {
+        rows.push({
+          Host: h.host,
+          "Current Kernel": h.current_kernel_version,
+          "Latest Kernel": h.latest_available_kernel_version,
+          "Kernel Outdated": kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version) ? "Yes" : "No",
+          "Package": pkg,
+          "Scan Time": fmtDate(data.scanned_at),
+        });
+      });
+    }
+  });
+  const headers = Object.keys(rows[0]);
+  const csv = [
+    headers.join(","),
+    ...rows.map(r => headers.map(h => `"${(r[h] || "").toString().replace(/"/g, '""')}"`).join(","))
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `patch-scan-${data.scan_id?.slice(0, 8)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── HOST ROW ──────────────────────────────────────────────────────────────────
+function HostRow({ host }) {
+  const [expanded, setExpanded] = useState(false);
+  const outdated = kernelOutdated(host.current_kernel_version, host.latest_available_kernel_version);
+  const pkgCount = host.pending_security_packages?.length || 0;
+
+  return (
+    <>
+      <tr style={{ borderBottom: "1px solid #f1f5f9", transition: "background 0.15s" }}
+        onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
+        onMouseLeave={e => e.currentTarget.style.background = ""}>
+        <td style={{ padding: "14px 16px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>{host.host}</div>
+        </td>
+        <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {host.current_kernel_version}
+        </td>
+        <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {host.latest_available_kernel_version}
+        </td>
+        <td style={{ padding: "14px 16px", width: 130 }}>
+          {outdated ? badge("Outdated", "red") : badge("Up to date", "green")}
+        </td>
+        <td style={{ padding: "14px 16px", width: 140 }}>
+          {pkgCount > 0 ? badge(`${pkgCount} packages`, "yellow") : badge("Clean", "green")}
+        </td>
+        <td style={{ padding: "14px 16px", width: 80 }}>
+          {pkgCount > 0 && (
+            <button onClick={() => setExpanded(!expanded)} style={{
+              background: "none", border: "1px solid #e2e8f0", borderRadius: 6,
+              padding: "4px 10px", cursor: "pointer", fontSize: 12, color: "#475569",
+              display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit"
+            }}>
+              {expanded ? "Hide" : "View"}
+              <div style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                <Icon d={Icons.chevron} size={12} />
+              </div>
+            </button>
+          )}
+        </td>
+      </tr>
+      {expanded && pkgCount > 0 && (
+        <tr style={{ background: "#f8fafc" }}>
+          <td colSpan={6} style={{ padding: "0 16px 16px 16px" }}>
+            <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {host.pending_security_packages.map((pkg, i) => (
+                <span key={i} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: "monospace", color: "#334155" }}>
+                  {pkg}
+                </span>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ── CREDENTIALS FORM ──────────────────────────────────────────────────────────
+function CredentialsForm({ inventoryId, inventoryName, onClose }) {
+  const [username, setUsername]       = useState("");
+  const [password, setPassword]       = useState("");
+  const [showPass, setShowPass]       = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [saved, setSaved]             = useState(false);
+  const [existingUser, setExistingUser] = useState(null);
+  const [loadingCreds, setLoadingCreds] = useState(true);
+
+  useEffect(() => {
+    setLoadingCreds(true);
+    apiFetch(`/api/credentials/${inventoryId}`)
+      .then(d => {
+        if (d.has_credentials) setExistingUser(d.username);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCreds(false));
+  }, [inventoryId]);
+
+  const save = async () => {
+    if (!username.trim() || !password.trim()) return;
+    setSaving(true);
+    try {
+      await apiPost("/api/credentials", {
+        inventory_id: inventoryId,
+        username: username.trim(),
+        password: password,
+      });
+      setSaved(true);
+      setExistingUser(username.trim());
+      setTimeout(() => setSaved(false), 2000);
+      setUsername(""); setPassword("");
+    } catch (e) {
+      alert("Failed to save credentials: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+      zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center"
+    }} onClick={onClose}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "min(460px,95vw)",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden"
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* header */}
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#0f172a" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon d={Icons.key} size={16} color="#93c5fd" />
+              <span style={{ fontWeight: 800, fontSize: 15, color: "#f8fafc" }}>SSH Credentials</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{inventoryName}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#475569" }}>
+            <Icon d={Icons.close} size={18} />
+          </button>
+        </div>
+
+        {/* existing creds notice */}
+        {!loadingCreds && existingUser && (
+          <div style={{ margin: "16px 24px 0", padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <Icon d={Icons.check} size={14} color="#16a34a" />
+            <span style={{ fontSize: 12, color: "#15803d" }}>
+              Credentials set for <strong>{existingUser}</strong>. Enter new values below to update.
+            </span>
+          </div>
+        )}
+
+        {/* form */}
+        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+              SSH Username
+            </label>
+            <input
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder={existingUser ? `Current: ${existingUser}` : "e.g. ansible, ubuntu, root"}
+              style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+              SSH Password <span style={{ color: "#94a3b8", fontWeight: 400 }}>(also used for sudo/become)</span>
+            </label>
+            <div style={{ position: "relative" }}>
+              <input
+                type={showPass ? "text" : "password"}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && save()}
+                placeholder="••••••••"
+                style={{ width: "100%", padding: "9px 40px 9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+              />
+              <button
+                onClick={() => setShowPass(s => !s)}
+                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 2 }}
+              >
+                <Icon d={showPass ? Icons.eyeOff : Icons.eye} size={15} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 12px", display: "flex", gap: 8 }}>
+            <Icon d={Icons.lock} size={13} color="#d97706" />
+            <span style={{ fontSize: 11, color: "#92400e", lineHeight: 1.5 }}>
+              Credentials are stored in the database and used by Ansible for SSH and sudo access. They are never returned to the UI after saving.
+            </span>
+          </div>
+        </div>
+
+        {/* footer */}
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onClose} style={{ padding: "9px 16px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, fontFamily: "inherit", color: "#475569" }}>
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || !username.trim() || !password.trim()}
+            style={{
+              padding: "9px 20px", border: "none", borderRadius: 8,
+              background: saved ? "#10b981" : (!username.trim() || !password.trim()) ? "#e2e8f0" : "#0f172a",
+              color: saved ? "#fff" : (!username.trim() || !password.trim()) ? "#94a3b8" : "#fff",
+              cursor: (!username.trim() || !password.trim()) ? "not-allowed" : "pointer",
+              fontSize: 13, fontWeight: 700, fontFamily: "inherit", minWidth: 110,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6
+            }}
+          >
+            {saved ? (
+              <><Icon d={Icons.check} size={13} color="#fff" /> Saved!</>
+            ) : saving ? "Saving..." : (
+              <><Icon d={Icons.key} size={13} color={(!username.trim() || !password.trim()) ? "#94a3b8" : "#fff"} /> Save Credentials</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── HOSTS MANAGER MODAL ───────────────────────────────────────────────────────
+function HostsManager({ onClose, onSaved }) {
+  const [hosts, setHosts] = useState([]);
+  const [newHost, setNewHost] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/api/hosts").then(d => setHosts(d.hosts || [])).catch(() => {});
+  }, []);
+
+  const addHost = () => {
+    const h = newHost.trim();
+    if (!h || hosts.includes(h)) { setNewHost(""); return; }
+    setHosts(prev => [...prev, h]);
+    setNewHost("");
+  };
+
+  const removeHost = (host) => setHosts(prev => prev.filter(h => h !== host));
+
+  const save = async () => {
+    if (!hosts.length) return;
+    setSaving(true);
+    try {
+      await apiPost("/api/hosts", { hosts });
+      setSaved(true);
+      setTimeout(() => { setSaved(false); onSaved?.(); onClose(); }, 1000);
+    } catch (e) {
+      alert("Failed to save: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 16, width: "min(540px,95vw)", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Manage Hosts</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hosts.length} host{hosts.length !== 1 ? "s" : ""} in inventory</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}><Icon d={Icons.close} size={20} /></button>
+        </div>
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={newHost} onChange={e => setNewHost(e.target.value)} onKeyDown={e => e.key === "Enter" && addHost()}
+              placeholder="192.168.1.10 or hostname.domain.com"
+              style={{ flex: 1, padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit" }} />
+            <button onClick={addHost} style={{ padding: "9px 16px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon d={Icons.plus} size={14} color="#fff" /> Add
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>Press Enter or click Add. Accepts IPs or hostnames.</div>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1, padding: "8px 0" }}>
+          {hosts.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts yet — add one above</div>
+          ) : hosts.map((h, i) => (
+            <div key={i} style={{ padding: "10px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f8fafc", background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981" }} />
+                <span style={{ fontSize: 13, fontFamily: "monospace", color: "#334155" }}>{h}</span>
+              </div>
+              <button onClick={() => removeHost(h)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 4 }}
+                onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
+                onMouseLeave={e => e.currentTarget.style.color = "#94a3b8"}>
+                <Icon d={Icons.close} size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>Changes update the Ansible inventory file</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{ padding: "9px 16px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, fontFamily: "inherit", color: "#475569" }}>Cancel</button>
+            <button onClick={save} disabled={saving || !hosts.length} style={{ padding: "9px 20px", border: "none", borderRadius: 8, background: saved ? "#10b981" : "#3b82f6", color: "#fff", cursor: !hosts.length ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", minWidth: 90, opacity: !hosts.length ? 0.5 : 1 }}>
+              {saved ? "✓ Saved!" : saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── INVENTORY MANAGER MODAL ───────────────────────────────────────────────────
+function InventoryManager({ onClose, onActivated }) {
+  const [inventories, setInventories] = useState([]);
+  const [invName, setInvName] = useState("");
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [activating, setActivating] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [credFormFor, setCredFormFor] = useState(null); // { id, name }
+
+  const load = useCallback(() => {
+    apiFetch("/api/inventories").then(setInventories).catch(() => {});
+  }, []);
+
+  useEffect(() => { load(); }, []);
+
+  const upload = async () => {
+    if (!file || !invName.trim()) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", invName.trim());
+      const r = await fetch(`${API_BASE}/api/inventories/upload`, { method: "POST", body: form });
+      if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+      setFile(null);
+      setInvName("");
+      load();
+    } catch (e) {
+      alert("Upload failed: " + e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const activate = async (id) => {
+    setActivating(id);
+    try {
+      await apiPost(`/api/inventories/${id}/activate`);
+      load();
+      onActivated?.();
+    } catch (e) {
+      alert("Failed to activate: " + e.message);
+    } finally {
+      setActivating(null);
+    }
+  };
+
+  const remove = async (id, isActive) => {
+    if (isActive) { alert("Cannot delete the active inventory. Activate another one first."); return; }
+    if (!confirm("Delete this inventory?")) return;
+    try { await apiDelete(`/api/inventories/${id}`); load(); }
+    catch (e) { alert("Failed to delete: " + e.message); }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) setFile(dropped);
+  };
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+        <div style={{ background: "#fff", borderRadius: 16, width: "min(680px,95vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }} onClick={e => e.stopPropagation()}>
+
+          {/* header */}
+          <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Inventory Files</div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Upload Ansible inventory files — activate one, then set its SSH credentials</div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
+              <Icon d={Icons.close} size={20} />
+            </button>
+          </div>
+
+          {/* upload form */}
+          <div style={{ padding: "16px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", flexDirection: "column", gap: 10 }}>
+            <input
+              value={invName}
+              onChange={e => setInvName(e.target.value)}
+              placeholder="Inventory name (e.g. Production Servers, Lab VMs)"
+              style={{ padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit" }}
+            />
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById("inv-file-input").click()}
+              style={{
+                border: `2px dashed ${dragOver ? "#3b82f6" : "#cbd5e1"}`, borderRadius: 10,
+                padding: "20px", textAlign: "center",
+                background: dragOver ? "#eff6ff" : "#fafbfc",
+                transition: "all 0.2s", cursor: "pointer"
+              }}
+            >
+              <Icon d={Icons.upload} size={24} color={dragOver ? "#3b82f6" : "#94a3b8"} />
+              <div style={{ marginTop: 8, fontSize: 13, color: "#64748b", fontWeight: 500 }}>
+                {file
+                  ? <span style={{ color: "#3b82f6", fontWeight: 600 }}>📄 {file.name}</span>
+                  : <>Drag & drop your inventory file, or <span style={{ color: "#3b82f6", textDecoration: "underline" }}>browse</span></>
+                }
+              </div>
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Accepts .txt or .ini Ansible inventory files</div>
+              <input id="inv-file-input" type="file" accept=".txt,.ini" onChange={e => setFile(e.target.files[0])} style={{ display: "none" }} />
+            </div>
+            <button onClick={upload} disabled={!file || !invName.trim() || uploading} style={{
+              padding: "10px", border: "none", borderRadius: 8,
+              background: !file || !invName.trim() ? "#f1f5f9" : "#0f172a",
+              color: !file || !invName.trim() ? "#94a3b8" : "#fff",
+              cursor: !file || !invName.trim() ? "not-allowed" : "pointer",
+              fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+            }}>
+              <Icon d={Icons.upload} size={14} color={!file || !invName.trim() ? "#94a3b8" : "#fff"} />
+              {uploading ? "Uploading..." : "Upload Inventory"}
+            </button>
+          </div>
+
+          {/* inventory list */}
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {inventories.length === 0 ? (
+              <div style={{ padding: "40px 32px", textAlign: "center" }}>
+                <Icon d={Icons.file} size={36} color="#e2e8f0" />
+                <div style={{ marginTop: 12, fontSize: 14, fontWeight: 600, color: "#334155" }}>No inventories uploaded yet</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Upload your first inventory file above</div>
+              </div>
+            ) : inventories.map((inv, i) => (
+              <div key={inv.id} style={{
+                padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                borderBottom: "1px solid #f1f5f9",
+                background: inv.is_active ? "#f0fdf4" : i % 2 === 0 ? "#fff" : "#fafbfc"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, background: inv.is_active ? "#dcfce7" : "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Icon d={Icons.file} size={16} color={inv.is_active ? "#16a34a" : "#64748b"} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>{inv.name}</span>
+                      {inv.is_active && badge("Active", "green")}
+                      {/* credentials badge */}
+                      {inv.has_credentials
+                        ? badge("Credentials set", "blue")
+                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
+                            <Icon d={Icons.warning} size={10} color="#c2410c" /> No credentials
+                          </span>
+                      }
+                    </div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                      {inv.host_count} host{inv.host_count !== 1 ? "s" : ""} · uploaded {fmtDate(inv.uploaded_at)}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }}>
+                  {/* set credentials button */}
+                  <button
+                    onClick={() => setCredFormFor({ id: inv.id, name: inv.name })}
+                    style={{
+                      padding: "6px 12px", border: `1px solid ${inv.has_credentials ? "#e2e8f0" : "#fdba74"}`,
+                      borderRadius: 6,
+                      background: inv.has_credentials ? "#f8fafc" : "#fff7ed",
+                      color: inv.has_credentials ? "#475569" : "#c2410c",
+                      cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                      display: "flex", alignItems: "center", gap: 5
+                    }}
+                  >
+                    <Icon d={Icons.key} size={12} color={inv.has_credentials ? "#475569" : "#c2410c"} />
+                    {inv.has_credentials ? "Edit Creds" : "Set Creds"}
+                  </button>
+                  {!inv.is_active && (
+                    <button onClick={() => activate(inv.id)} disabled={activating === inv.id} style={{
+                      padding: "6px 14px", border: "1px solid #3b82f6", borderRadius: 6,
+                      background: "#eff6ff", color: "#2563eb", cursor: "pointer",
+                      fontSize: 12, fontWeight: 600, fontFamily: "inherit"
+                    }}>
+                      {activating === inv.id ? "..." : "Use This"}
+                    </button>
+                  )}
+                  <button onClick={() => remove(inv.id, inv.is_active)} style={{
+                    padding: "6px 8px", border: "1px solid #fee2e2", borderRadius: 6,
+                    background: "#fff", color: inv.is_active ? "#fca5a5" : "#ef4444", cursor: "pointer"
+                  }} title={inv.is_active ? "Cannot delete active inventory" : "Delete"}>
+                    <Icon d={Icons.close} size={13} color={inv.is_active ? "#fca5a5" : "#ef4444"} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* footer */}
+          <div style={{ padding: "12px 24px", borderTop: "1px solid #f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
+            <Icon d={Icons.warning} size={13} color="#94a3b8" />
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              Activate an inventory, then click <strong>Set Creds</strong> to add SSH credentials before running a scan.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* credentials sub-modal — rendered above inventory modal */}
+      {credFormFor && (
+        <CredentialsForm
+          inventoryId={credFormFor.id}
+          inventoryName={credFormFor.name}
+          onClose={() => { setCredFormFor(null); load(); }}
+        />
+      )}
+    </>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("dashboard");
+  const [latestScan, setLatestScan] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanId, setScanId] = useState(null);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState("");
+  const [sortCol, setSortCol] = useState("host");
+  const [sortDir, setSortDir] = useState("asc");
+  const [loading, setLoading] = useState(true);
+  const [showHostsManager, setShowHostsManager] = useState(false);
+  const [showInventoryManager, setShowInventoryManager] = useState(false);
+  const [inventoryCount, setInventoryCount] = useState(0);
+  const [activeInventoryName, setActiveInventoryName] = useState(null);
+  const [activeInventoryId, setActiveInventoryId] = useState(null);
+  const [activeHasCredentials, setActiveHasCredentials] = useState(false);
+
+  const fetchLatest = useCallback(async () => {
+    try {
+      const data = await apiFetch("/api/scans/latest");
+      setLatestScan(data); setError(null);
+    } catch (e) {
+      if (!e.message.includes("404")) setError(e.message);
+    } finally { setLoading(false); }
+  }, []);
+
+  const fetchHistory = useCallback(async () => {
+    try { setHistory(await apiFetch("/api/scans/history")); } catch {}
+  }, []);
+
+  const fetchInventoryInfo = useCallback(async () => {
+    try {
+      const data = await apiFetch("/api/hosts");
+      setInventoryCount(data.hosts?.length || 0);
+    } catch {}
+    try {
+      const invs = await apiFetch("/api/inventories");
+      const active = invs.find(i => i.is_active);
+      setActiveInventoryName(active?.name || null);
+      setActiveInventoryId(active?.id || null);
+      setActiveHasCredentials(active?.has_credentials || false);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchLatest();
+    fetchHistory();
+    fetchInventoryInfo();
+  }, []);
+
+  // poll scan status
+  useEffect(() => {
+    if (!scanning || !scanId) return;
+    const iv = setInterval(async () => {
+      try {
+        const s = await apiFetch(`/api/scans/${scanId}/status`);
+        if (s.status === "complete") {
+          setScanning(false); setScanId(null);
+          await fetchLatest(); await fetchHistory();
+        } else if (s.status?.startsWith("failed")) {
+          setScanning(false); setScanId(null);
+          setError(`Scan failed: ${s.status}`);
+        }
+      } catch {}
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [scanning, scanId]);
+
+  const triggerScan = async () => {
+    if (inventoryCount === 0) { setError("No hosts in inventory. Upload or add hosts first."); return; }
+    if (!activeHasCredentials) { setError("No SSH credentials set for the active inventory. Open Inventories and click 'Set Creds'."); return; }
+    try {
+      setScanning(true); setError(null);
+      const res = await apiPost("/api/scans/trigger");
+      setScanId(res.scan_id);
+    } catch (e) {
+      setScanning(false);
+      setError(e.message.includes("400") ? "No credentials set for the active inventory. Open Inventories and click 'Set Creds'." : e.message);
+    }
+  };
+
+  // derived stats
+  const hosts = latestScan?.hosts || [];
+  const totalHosts = hosts.length;
+  const outdatedHosts = hosts.filter(h => kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version)).length;
+  const compliantHosts = totalHosts - outdatedHosts;
+  const totalPackages = hosts.reduce((s, h) => s + (h.pending_security_packages?.length || 0), 0);
+  const compliancePct = totalHosts ? Math.round((compliantHosts / totalHosts) * 100) : 0;
+
+  const complianceData = [
+    { name: "Compliant", value: compliantHosts, color: "#10b981" },
+    { name: "Outdated",  value: outdatedHosts,  color: "#ef4444" },
+  ];
+
+  const topPackages = (() => {
+    const counts = {};
+    hosts.forEach(h => (h.pending_security_packages || []).forEach(p => {
+      const name = p.split("-")[0];
+      counts[name] = (counts[name] || 0) + 1;
+    }));
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
+  })();
+
+  const filteredHosts = hosts
+    .filter(h => h.host.toLowerCase().includes(search.toLowerCase()) || (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      let av = a[sortCol] || "", bv = b[sortCol] || "";
+      if (sortCol === "package_count") { av = a.pending_security_packages?.length || 0; bv = b.pending_security_packages?.length || 0; }
+      if (typeof av === "number") return sortDir === "asc" ? av - bv : bv - av;
+      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+  const thStyle = (col) => ({
+    padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700,
+    letterSpacing: "0.06em", textTransform: "uppercase", color: "#64748b",
+    cursor: col ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap",
+    background: sortCol === col ? "#f1f5f9" : "transparent"
+  });
+
+  const sortBy = (col) => {
+    if (!col) return;
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  // whether scan button should be disabled
+  const scanDisabled = scanning || inventoryCount === 0 || !activeHasCredentials;
+  const scanTooltip = inventoryCount === 0
+    ? "No hosts — upload an inventory first"
+    : !activeHasCredentials
+      ? "Set SSH credentials before scanning"
+      : "";
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        @keyframes spin   { to { transform: rotate(360deg); } }
+        @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+      `}</style>
+
+      {/* ── SIDEBAR ── */}
+      <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 220, background: "#0f172a", display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", zIndex: 50 }}>
+
+        {/* logo */}
+        <div style={{ padding: "24px 20px", borderBottom: "1px solid #1e293b" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 32, height: 32, background: "linear-gradient(135deg,#3b82f6,#6366f1)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon d={Icons.host} size={16} color="#fff" />
+            </div>
+            <div>
+              <div style={{ color: "#f8fafc", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>Kernexa</div>
+              <div style={{ color: "#475569", fontSize: 10, letterSpacing: "0.05em" }}>The Security Compliance Platform</div>
+            </div>
+          </div>
+        </div>
+
+        {/* nav */}
+        <nav style={{ padding: "16px 12px", flex: 1, overflowY: "auto" }}>
+          {[
+            { id: "dashboard", label: "Dashboard",    icon: "host"    },
+            { id: "hosts",     label: "VM Inventory", icon: "kernel"  },
+            { id: "history",   label: "Scan History", icon: "history" },
+          ].map(item => (
+            <button key={item.id} onClick={() => setTab(item.id)} style={{
+              width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
+              display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+              marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
+              background: tab === item.id ? "#1e293b" : "transparent",
+              color: tab === item.id ? "#f8fafc" : "#64748b", transition: "all 0.15s"
+            }}>
+              <Icon d={Icons[item.icon]} size={15} color={tab === item.id ? "#3b82f6" : "#475569"} />
+              {item.label}
+            </button>
+          ))}
+
+          <div style={{ borderTop: "1px solid #1e293b", margin: "12px 0" }} />
+
+          {/* inventories button */}
+          <button onClick={() => setShowInventoryManager(true)} style={{
+            width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
+            background: "transparent", color: "#64748b", transition: "all 0.15s"
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1e293b"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon d={Icons.file} size={15} color="#475569" />
+              Inventories
+            </div>
+            {activeInventoryName && (
+              <span style={{ background: "#1e3a5f", color: "#93c5fd", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>active</span>
+            )}
+          </button>
+
+          {/* manage hosts button */}
+          <button onClick={() => setShowHostsManager(true)} style={{
+            width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
+            background: "transparent", color: "#64748b", transition: "all 0.15s"
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = "#1e293b"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon d={Icons.servers} size={15} color="#475569" />
+              Manage Hosts
+            </div>
+            {inventoryCount > 0 && (
+              <span style={{ background: "#1e3a5f", color: "#93c5fd", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{inventoryCount}</span>
+            )}
+          </button>
+
+          {/* active inventory info */}
+          {activeInventoryName && (
+            <div style={{ margin: "8px 4px 0", padding: "10px 12px", background: "#0f2d1f", borderRadius: 8, border: "1px solid #166534" }}>
+              <div style={{ fontSize: 10, color: "#4ade80", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>Active Inventory</div>
+              <div style={{ fontSize: 12, color: "#86efac", marginTop: 2, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeInventoryName}</div>
+              <div style={{ fontSize: 10, color: "#166534", marginTop: 1 }}>{inventoryCount} hosts</div>
+              {/* credential status indicator */}
+              <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                {activeHasCredentials ? (
+                  <>
+                    <Icon d={Icons.check} size={11} color="#4ade80" />
+                    <span style={{ fontSize: 10, color: "#4ade80" }}>Credentials set</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon d={Icons.warning} size={11} color="#fb923c" />
+                    <span style={{ fontSize: 10, color: "#fb923c" }}>No credentials —</span>
+                    <button
+                      onClick={() => setShowInventoryManager(true)}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fb923c", textDecoration: "underline", padding: 0, fontFamily: "inherit" }}
+                    >
+                      set now
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </nav>
+
+
+      </div>
+
+      {/* ── MAIN CONTENT ── */}
+      <div style={{ marginLeft: 220, padding: "32px", minHeight: "100vh", width: "calc(100vw - 220px)", overflowX: "hidden" }}>
+
+        {/* topbar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>
+              {tab === "dashboard" ? "Overview" : tab === "hosts" ? "VM Inventory" : "Scan History"}
+            </h1>
+            {latestScan && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Last scan: {fmtDate(latestScan.scanned_at)}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => { fetchLatest(); fetchHistory(); fetchInventoryInfo(); }} style={{ padding: "8px 14px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#475569", fontFamily: "inherit" }}>
+              <Icon d={Icons.refresh} size={13} /> Refresh
+            </button>
+            {latestScan && (
+              <button onClick={() => exportToCSV(latestScan)} style={{ padding: "8px 14px", border: "1px solid #3b82f6", borderRadius: 8, background: "#eff6ff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#2563eb", fontWeight: 600, fontFamily: "inherit" }}>
+                <Icon d={Icons.export} size={13} color="#2563eb" /> Export CSV
+              </button>
+            )}
+            <button
+              onClick={triggerScan}
+              disabled={scanDisabled}
+              title={scanTooltip}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "none",
+                background: scanDisabled ? "#e2e8f0" : "linear-gradient(135deg,#3b82f6,#6366f1)",
+                color: scanDisabled ? "#94a3b8" : "#fff",
+                fontWeight: 700, fontSize: 12, cursor: scanDisabled ? "not-allowed" : "pointer",
+                fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6,
+                boxShadow: scanDisabled ? "none" : "0 2px 8px rgba(59,130,246,0.35)"
+              }}
+            >
+              {scanning
+                ? <><div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Scanning...</>
+                : <><Icon d={Icons.scan} size={13} color={scanDisabled ? "#94a3b8" : "#fff"} />Run Scan</>
+              }
+            </button>
+          </div>
+        </div>
+        {scanning && <div style={{ fontSize: 11, color: "#64748b", textAlign: "right", marginTop: -20, marginBottom: 16, animation: "pulse 2s infinite" }}>Ansible playbook running...</div>}
+
+        {/* credentials warning banner (shown when active inventory has no creds) */}
+        {activeInventoryName && !activeHasCredentials && !error && (
+          <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#c2410c", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon d={Icons.key} size={16} color="#c2410c" />
+              <span>SSH credentials are not set for <strong>{activeInventoryName}</strong>. You must set credentials before running a scan.</span>
+            </div>
+            <button
+              onClick={() => setShowInventoryManager(true)}
+              style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap", marginLeft: 12 }}
+            >
+              Set Credentials
+            </button>
+          </div>
+        )}
+
+        {/* error banner */}
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#dc2626", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.warning} size={16} color="#dc2626" />{error}</div>
+            <button onClick={() => setError(null)} style={{ background: "none", border: "none", cursor: "pointer" }}><Icon d={Icons.close} size={14} color="#dc2626" /></button>
+          </div>
+        )}
+
+        {/* loading */}
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
+            <div style={{ width: 32, height: 32, border: "3px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+          </div>
+
+        ) : !latestScan ? (
+          <div style={{ textAlign: "center", padding: "80px 32px", background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+            <Icon d={Icons.scan} size={48} color="#cbd5e1" />
+            <div style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "#334155" }}>No scan data yet</div>
+            <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6, marginBottom: 20 }}>
+              {inventoryCount === 0
+                ? "Start by uploading an inventory file, then set credentials and run a scan"
+                : !activeHasCredentials
+                  ? `${inventoryCount} hosts ready — set SSH credentials, then click Run Scan`
+                  : `${inventoryCount} hosts ready — click Run Scan to start`}
+            </div>
+            {inventoryCount === 0 ? (
+              <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Icon d={Icons.upload} size={14} color="#fff" /> Upload Inventory
+              </button>
+            ) : !activeHasCredentials ? (
+              <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#c2410c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Icon d={Icons.key} size={14} color="#fff" /> Set SSH Credentials
+              </button>
+            ) : null}
+          </div>
+
+        ) : (
+          <div style={{ animation: "fadeIn 0.3s ease", width: "100%" }}>
+
+            {/* ── DASHBOARD ── */}
+            {tab === "dashboard" && (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
+                  <StatCard icon="host"    label="Total Hosts"      value={totalHosts}     sub="in latest scan"      accent="#3b82f6" />
+                  <StatCard icon="check"   label="Compliant"        value={compliantHosts} sub="kernel up to date"   accent="#10b981" />
+                  <StatCard icon="warning" label="Outdated"         value={outdatedHosts}  sub="kernel needs update" accent="#ef4444" />
+                  <StatCard icon="package" label="Pending Packages" value={totalPackages}  sub="security updates"    accent="#f59e0b" />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Kernel Compliance</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>{compliancePct}% of hosts up to date</div>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <PieChart>
+                        <Pie data={complianceData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value">
+                          {complianceData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <Tooltip />
+                        <Legend iconType="circle" iconSize={8} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Top Packages Pending</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>Most common security updates across all hosts</div>
+                    {topPackages.length === 0 ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 180, color: "#94a3b8", fontSize: 13 }}>No pending packages</div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={topPackages} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} allowDecimals={false} />
+                          <Tooltip cursor={{ fill: "#f1f5f9" }} />
+                          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                            {topPackages.map((_, i) => <Cell key={i} fill={`hsl(${220 + i * 12},70%,${55 + i * 3}%)`} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Host Summary</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                    <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+                      <tr>
+                        <th style={thStyle("host")} onClick={() => sortBy("host")}>Host</th>
+                        <th style={thStyle("current_kernel_version")} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
+                        <th style={thStyle(null)}>Latest Kernel</th>
+                        <th style={{ ...thStyle(null), width: 130 }}>Kernel Status</th>
+                        <th style={{ ...thStyle("package_count"), width: 140 }} onClick={() => sortBy("package_count")}>Pending Security Patches</th>
+                        <th style={{ ...thStyle(null), width: 80 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>{hosts.map(h => <HostRow key={h.host} host={h} />)}</tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {/* ── VM INVENTORY ── */}
+            {tab === "hosts" && (
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{filteredHosts.length} of {totalHosts} hosts</div>
+                  <div style={{ position: "relative" }}>
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search hosts or kernel..."
+                      style={{ padding: "8px 12px 8px 34px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", width: 260, fontFamily: "inherit" }} />
+                    <div style={{ position: "absolute", top: "50%", left: 10, transform: "translateY(-50%)" }}>
+                      <Icon d={Icons.search} size={14} color="#94a3b8" />
+                    </div>
+                  </div>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+                    <tr>
+                      <th style={thStyle("host")} onClick={() => sortBy("host")}>Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+                      <th style={thStyle("current_kernel_version")} onClick={() => sortBy("current_kernel_version")}>Current Kernel {sortCol === "current_kernel_version" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+                      <th style={thStyle(null)}>Latest Kernel</th>
+                      <th style={{ ...thStyle(null), width: 130 }}>Status</th>
+                      <th style={{ ...thStyle("package_count"), width: 160 }} onClick={() => sortBy("package_count")}>Pending Packages {sortCol === "package_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+                      <th style={{ ...thStyle(null), width: 80 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHosts.length === 0
+                      ? <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your search</td></tr>
+                      : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
+                    }
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* ── SCAN HISTORY ── */}
+            {tab === "history" && (
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
+                  {history.length} scan run{history.length !== 1 ? "s" : ""}
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+                  <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+                    <tr>
+                      <th style={{ ...thStyle(null), width: 140 }}>Scan ID</th>
+                      <th style={thStyle(null)}>Triggered At</th>
+                      <th style={{ ...thStyle(null), width: 160 }}>Hosts Scanned</th>
+                      <th style={{ ...thStyle(null), width: 140 }}>Status</th>
+                      <th style={{ ...thStyle(null), width: 130 }}>Return Code</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.length === 0
+                      ? <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No scan history yet</td></tr>
+                      : history.map(s => (
+                        <tr key={s.scan_id} style={{ borderBottom: "1px solid #f1f5f9" }}
+                          onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
+                          onMouseLeave={e => e.currentTarget.style.background = ""}>
+                          <td style={{ padding: "14px 16px", fontSize: 11, fontFamily: "monospace", color: "#64748b" }}>{s.scan_id.slice(0, 8)}...</td>
+                          <td style={{ padding: "14px 16px", fontSize: 13, color: "#334155" }}>{fmtDate(s.scanned_at)}</td>
+                          <td style={{ padding: "14px 16px", fontSize: 13, color: "#334155" }}>{s.host_count} hosts</td>
+                          <td style={{ padding: "14px 16px" }}>{s.status === "successful" ? badge("Successful", "green") : badge(s.status, "red")}</td>
+                          <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: s.rc === 0 ? "#10b981" : "#ef4444" }}>{s.rc}</td>
+                        </tr>
+                      ))
+                    }
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── MODALS ── */}
+      {showHostsManager && <HostsManager onClose={() => setShowHostsManager(false)} onSaved={fetchInventoryInfo} />}
+      {showInventoryManager && <InventoryManager onClose={() => { setShowInventoryManager(false); fetchInventoryInfo(); }} onActivated={fetchInventoryInfo} />}
+    </div>
+  );
+}
