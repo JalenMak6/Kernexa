@@ -26,7 +26,7 @@ A web application for scanning Linux hosts for pending security patches using An
 ```bash
 # 1. Clone the repo
 git clone <your-repo-url>
-cd patch-scan-platform
+cd Kernexa
 
 # 2. Build and start services (app on :8000, postgres on :5432, adminer on :8080)
 docker compose up --build -d
