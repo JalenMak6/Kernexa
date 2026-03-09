@@ -4,6 +4,7 @@ from database import get_conn
 
 ROCKY_ERRATA_API = "https://errata.rockylinux.org/api/v2/advisories/{}"
 UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=20"
+RHEL_CVE_API = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
 
 UBUNTU_CODENAMES = {
     '20.04': 'focal',
@@ -45,7 +46,7 @@ def get_uncached_advisories() -> list:
         ''')
         all_ids = {row[0] for row in cursor.fetchall() if row[0]}
 
-        cursor.execute("SELECT advisory_id FROM cve_details WHERE advisory_id LIKE 'RLSA-%%'")
+        cursor.execute("SELECT advisory_id FROM cve_details WHERE advisory_id LIKE 'RLSA-%%' OR advisory_id LIKE 'RHSA-%%'")
         cached_ids = {row[0] for row in cursor.fetchall()}
 
         return list(all_ids - cached_ids)
@@ -125,18 +126,91 @@ def fetch_rocky_advisory(advisory_id: str) -> dict | None:
         print(f"Enricher: failed to fetch {advisory_id}: {e}")
         return None
 
+RHEL_CVE_API = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
+
+def fetch_rhel_advisory(advisory_id: str) -> dict | None:
+    try:
+        url  = RHEL_CVE_API.format(advisory_id)
+        resp = requests.get(url, timeout=(5, 15))
+        if resp.status_code != 200:
+            print(f"Enricher: {advisory_id} returned HTTP {resp.status_code}, skipping")
+            return None
+
+        cves = resp.json()
+        if not cves:
+            print(f"Enricher: {advisory_id} returned no CVEs, skipping")
+            return None
+
+        # collect all CVE IDs and determine highest severity
+        cve_ids  = [c['CVE'] for c in cves]
+        severity_order = {'critical': 1, 'important': 2, 'moderate': 3, 'low': 4}
+        severities = [c.get('severity', 'unknown').lower() for c in cves]
+        top_severity = min(severities, key=lambda s: severity_order.get(s, 99))
+        severity_map = {
+            'critical':  'Critical',
+            'important': 'Important',
+            'moderate':  'Moderate',
+            'low':       'Low',
+        }
+        severity = severity_map.get(top_severity, 'Moderate')
+
+        # build synopsis and description from first CVE
+        first = cves[0]
+        synopsis    = f"RHEL: {advisory_id} - {first.get('bugzilla_description', ', '.join(cve_ids))}"
+        description = first.get('bugzilla_description', '')
+
+        # build remediation from affected_packages
+        all_packages = []
+        for c in cves:
+            all_packages.extend(c.get('affected_packages', []))
+        
+        # filter to x86_64 rpms only, no debuginfo
+        x86_pkgs = sorted({
+            p for p in all_packages
+            if 'x86_64' in p and 'debuginfo' not in p and 'debugsource' not in p
+        })
+
+        if x86_pkgs:
+            pkg_names   = sorted({p.rsplit('-', 2)[0] for p in x86_pkgs})
+            remediation = (
+                f"Run: yum update {' '.join(pkg_names)}\n\n"
+                f"Patched versions:\n" +
+                "\n".join(f"  • {p}" for p in x86_pkgs[:20])  # cap at 20 to avoid huge output
+            )
+        else:
+            remediation = "Apply the latest available updates via: yum update"
+
+        return {
+            'advisory_id': advisory_id,
+            'cve_ids':     cve_ids,
+            'severity':    severity,
+            'description': description,
+            'synopsis':    synopsis,
+            'remediation': remediation,
+        }
+    except Exception as e:
+        print(f"Enricher: failed to fetch {advisory_id}: {e}")
+        return None
+        
 def enrich_advisories():
     pending = get_uncached_advisories()
     if not pending:
-        print("Enricher: all Rocky advisories already cached")
+        print("Enricher: all RedHat advisories already cached")
         return
 
-    print(f"Enricher: fetching {len(pending)} new Rocky advisories")
+    print(f"Enricher: fetching {len(pending)} new advisories")
     success = 0
     for advisory_id in pending:
         print(f"Enricher: fetching {advisory_id}...")
         try:
-            data = fetch_rocky_advisory(advisory_id)
+            if advisory_id.startswith('RLSA'):
+                data = fetch_rocky_advisory(advisory_id)
+            elif advisory_id.startswith('RHSA'):
+                data = fetch_rhel_advisory(advisory_id)
+            else:
+                print(f"Enricher: unknown advisory format {advisory_id}, skipping")
+                continue
+
             if data:
                 save_cve_details(
                     data['advisory_id'],
@@ -145,14 +219,14 @@ def enrich_advisories():
                     data['description'],
                     data['synopsis'],
                     data['remediation'],
-                    source_package=None,  # Rocky uses advisory_ids for host matching
+                    source_package=None,
                 )
                 success += 1
                 print(f"Enricher: {advisory_id} ✓")
         except Exception as e:
             print(f"Enricher: error processing {advisory_id}: {e}")
 
-    print(f"Enricher: cached {success}/{len(pending)} Rocky advisories")
+    print(f"Enricher: cached {success}/{len(pending)} advisories")
 
 # ── Ubuntu enrichment ─────────────────────────────────────────────────────────
 

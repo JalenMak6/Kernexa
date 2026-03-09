@@ -1,9 +1,6 @@
-# Kernexa - Security Compliance Platform
+# Patch Scan Platform
 
 A web application for scanning Linux hosts for pending security patches using Ansible. The platform provides a React frontend and a FastAPI backend, orchestrating Ansible playbooks to collect kernel version and pending package data from remote hosts.
-
-![Kernexa Dashboard](images/Dashboard1.png)
-![Kernexa Dashboard2](images/Dashboard2.png)
 
 ## Stack
 
@@ -26,7 +23,7 @@ A web application for scanning Linux hosts for pending security patches using An
 ```bash
 # 1. Clone the repo
 git clone <your-repo-url>
-cd Kernexa
+cd patch-scan-platform
 
 # 2. Build and start services (app on :8000, postgres on :5432, adminer on :8080)
 docker compose up --build -d
@@ -358,4 +355,3 @@ npm run dev   # Vite dev server on :5173
 ```
 
 > Point the Vite proxy to `http://localhost:8000` for API calls during development.
-

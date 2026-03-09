@@ -13,6 +13,25 @@ import { HostsManager } from "./components/HostsManager.jsx";
 import { InventoryManager } from "./components/InventoryManager.jsx";
 import { CveTab } from "./components/CveTab.jsx";
 
+// Normalize os_version to family group: "Rocky9.7" → "Rocky 9", "RedHat8.10" → "RHEL 8", "Ubuntu22.04" → "Ubuntu 22.04"
+function osFamily(osVersion) {
+  if (!osVersion) return "Unknown";
+  const lower = osVersion.toLowerCase();
+  if (lower.includes("ubuntu")) {
+    const m = osVersion.match(/(\d+\.\d+)/);
+    return m ? `Ubuntu ${m[1]}` : "Ubuntu";
+  }
+  if (lower.includes("rocky")) {
+    const m = osVersion.match(/(\d+)/);
+    return m ? `Rocky ${m[1]}` : "Rocky";
+  }
+  if (lower.includes("redhat")) {
+    const m = osVersion.match(/(\d+)/);
+    return m ? `RHEL ${m[1]}` : "RHEL";
+  }
+  return osVersion;
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [latestScan, setLatestScan] = useState(null);
@@ -34,6 +53,11 @@ export default function App() {
   const [activeHasCredentials, setActiveHasCredentials] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState(null);
+
+  // ── column filters ────────────────────────────────────────────────────────
+  const [filterOS, setFilterOS] = useState("all");
+  const [filterKernelStatus, setFilterKernelStatus] = useState("all");
+  const [filterPatchStatus, setFilterPatchStatus] = useState("all");
 
   const fetchLatest = useCallback(async () => {
     try {
@@ -83,12 +107,10 @@ export default function App() {
     fetchCves();
   }, []);
 
-  // fetch CVEs when switching to CVE tab
   useEffect(() => {
     if (tab === "cves") fetchCves();
   }, [tab]);
 
-  // poll scan status
   useEffect(() => {
     if (!scanning || !scanId) return;
     const iv = setInterval(async () => {
@@ -148,18 +170,46 @@ export default function App() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
   })();
 
+  // derive unique OS family groups for filter chips (e.g. "Rocky 9", "RHEL 8", "Ubuntu 22.04")
+  const osOptions = ["all", ...Array.from(new Set(hosts.map(h => osFamily(h.os_version)).filter(f => f !== "Unknown"))).sort()];
+
   const filteredHosts = hosts
-    .filter(h =>
-      h.host.toLowerCase().includes(search.toLowerCase()) ||
-      (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()) ||
-      (h.os_version || "").toLowerCase().includes(search.toLowerCase())
-    )
+    .filter(h => {
+      const matchSearch = h.host.toLowerCase().includes(search.toLowerCase()) ||
+        (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()) ||
+        (h.os_version || "").toLowerCase().includes(search.toLowerCase());
+
+      const matchOS = filterOS === "all" || osFamily(h.os_version) === filterOS;
+
+      const isOutdated = kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version);
+      const matchKernel =
+        filterKernelStatus === "all" ||
+        (filterKernelStatus === "outdated" && isOutdated) ||
+        (filterKernelStatus === "uptodate" && !isOutdated);
+
+      const pkgCount = h.pending_security_packages?.length || 0;
+      const matchPatch =
+        filterPatchStatus === "all" ||
+        (filterPatchStatus === "dirty" && pkgCount > 0) ||
+        (filterPatchStatus === "clean" && pkgCount === 0);
+
+      return matchSearch && matchOS && matchKernel && matchPatch;
+    })
     .sort((a, b) => {
       let av = a[sortCol] || "", bv = b[sortCol] || "";
       if (sortCol === "package_count") { av = a.pending_security_packages?.length || 0; bv = b.pending_security_packages?.length || 0; }
       if (typeof av === "number") return sortDir === "asc" ? av - bv : bv - av;
       return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
     });
+
+  const activeFilterCount = [filterOS !== "all", filterKernelStatus !== "all", filterPatchStatus !== "all"].filter(Boolean).length;
+
+  const clearFilters = () => {
+    setFilterOS("all");
+    setFilterKernelStatus("all");
+    setFilterPatchStatus("all");
+    setSearch("");
+  };
 
   const thStyle = (col) => ({
     padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700,
@@ -189,6 +239,20 @@ export default function App() {
     cves:      "CVE Advisories",
   }[tab] || "Overview";
 
+  const FilterChip = ({ label, active, onClick, color = "#3b82f6" }) => (
+    <button onClick={onClick} style={{
+      padding: "5px 12px", borderRadius: 6,
+      border: `1px solid ${active ? color : "#e2e8f0"}`,
+      background: active ? `${color}18` : "#fff",
+      cursor: "pointer", fontSize: 12,
+      fontWeight: active ? 700 : 500,
+      color: active ? color : "#475569",
+      fontFamily: "inherit", transition: "all 0.15s", whiteSpace: "nowrap"
+    }}>
+      {label}
+    </button>
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
       <style>{`
@@ -205,7 +269,6 @@ export default function App() {
 
       {/* ── SIDEBAR ── */}
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 220, background: "#0f172a", display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", zIndex: 50 }}>
-
         <div style={{ padding: "24px 20px", borderBottom: "1px solid #1e293b" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 32, height: 32, background: "linear-gradient(135deg,#3b82f6,#6366f1)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -236,7 +299,6 @@ export default function App() {
             </button>
           ))}
 
-          {/* CVE tab */}
           <button onClick={() => setTab("cves")} style={{
             width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -362,7 +424,6 @@ export default function App() {
         </div>
         {scanning && <div style={{ fontSize: 11, color: "#64748b", textAlign: "right", marginTop: -20, marginBottom: 16, animation: "pulse 2s infinite" }}>Ansible playbook running...</div>}
 
-        {/* credentials warning */}
         {activeInventoryName && !activeHasCredentials && !error && (
           <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#c2410c", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -376,7 +437,6 @@ export default function App() {
           </div>
         )}
 
-        {/* error banner */}
         {error && (
           <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#dc2626", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.warning} size={16} color="#dc2626" />{error}</div>
@@ -384,12 +444,8 @@ export default function App() {
           </div>
         )}
 
-        {/* ── CVE TAB — renders independently of scan data ── */}
-        {tab === "cves" && (
-          <CveTab cves={cves} loading={cvesLoading} />
-        )}
+        {tab === "cves" && <CveTab cves={cves} loading={cvesLoading} />}
 
-        {/* ── ALL OTHER TABS ── */}
         {tab !== "cves" && (
           loading ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
@@ -464,7 +520,42 @@ export default function App() {
                   </div>
 
                   <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                    <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, fontSize: 14, color: "#0f172a" }}>Host Summary</div>
+                    <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
+                          Host Summary — {filteredHosts.length} of {totalHosts} hosts
+                          {activeFilterCount > 0 && (
+                            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>
+                              {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active
+                            </span>
+                          )}
+                        </div>
+                        {(activeFilterCount > 0 || search) && (
+                          <button onClick={clearFilters} style={{
+                            padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5",
+                            background: "#fef2f2", cursor: "pointer", fontSize: 12,
+                            color: "#dc2626", fontFamily: "inherit"
+                          }}>Clear all ×</button>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>OS:</span>
+                        {osOptions.map(os => (
+                          <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os}
+                            onClick={() => setFilterOS(os)} color="#6366f1" />
+                        ))}
+                        <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+                        <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Kernel:</span>
+                        <FilterChip label="All"        active={filterKernelStatus === "all"}      onClick={() => setFilterKernelStatus("all")}      color="#64748b" />
+                        <FilterChip label="Outdated"   active={filterKernelStatus === "outdated"} onClick={() => setFilterKernelStatus("outdated")} color="#ef4444" />
+                        <FilterChip label="Up to date" active={filterKernelStatus === "uptodate"} onClick={() => setFilterKernelStatus("uptodate")} color="#10b981" />
+                        <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+                        <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Patches:</span>
+                        <FilterChip label="All"     active={filterPatchStatus === "all"}   onClick={() => setFilterPatchStatus("all")}   color="#64748b" />
+                        <FilterChip label="Pending" active={filterPatchStatus === "dirty"} onClick={() => setFilterPatchStatus("dirty")} color="#f59e0b" />
+                        <FilterChip label="Clean"   active={filterPatchStatus === "clean"} onClick={() => setFilterPatchStatus("clean")} color="#10b981" />
+                      </div>
+                    </div>
                     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                       <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
                         <tr>
@@ -478,7 +569,12 @@ export default function App() {
                           <th style={{ ...thStyle(null), width: 80 }}></th>
                         </tr>
                       </thead>
-                      <tbody>{hosts.map(h => <HostRow key={h.host} host={h} />)}</tbody>
+                      <tbody>
+                        {filteredHosts.length === 0
+                          ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
+                          : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
+                        }
+                      </tbody>
                     </table>
                   </div>
                 </>
@@ -487,16 +583,63 @@ export default function App() {
               {/* ── VM INVENTORY ── */}
               {tab === "hosts" && (
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{filteredHosts.length} of {totalHosts} hosts</div>
-                    <div style={{ position: "relative" }}>
-                      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search hosts, OS or kernel..."
-                        style={{ padding: "8px 12px 8px 34px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", width: 260, fontFamily: "inherit" }} />
-                      <div style={{ position: "absolute", top: "50%", left: 10, transform: "translateY(-50%)" }}>
-                        <Icon d={Icons.search} size={14} color="#94a3b8" />
+
+                  {/* search + filter bar */}
+                  <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
+                        {filteredHosts.length} of {totalHosts} hosts
+                        {activeFilterCount > 0 && (
+                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>
+                            {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {(activeFilterCount > 0 || search) && (
+                          <button onClick={clearFilters} style={{
+                            padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5",
+                            background: "#fef2f2", cursor: "pointer", fontSize: 12,
+                            color: "#dc2626", fontFamily: "inherit"
+                          }}>
+                            Clear all ×
+                          </button>
+                        )}
+                        <div style={{ position: "relative" }}>
+                          <input value={search} onChange={e => setSearch(e.target.value)}
+                            placeholder="Search by hostname..."
+                            style={{ padding: "8px 12px 8px 34px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", width: 240, fontFamily: "inherit" }} />
+                          <div style={{ position: "absolute", top: "50%", left: 10, transform: "translateY(-50%)" }}>
+                            <Icon d={Icons.search} size={14} color="#94a3b8" />
+                          </div>
+                        </div>
                       </div>
                     </div>
+
+                    {/* filter chips */}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>OS:</span>
+                      {osOptions.map(os => (
+                        <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os}
+                          onClick={() => setFilterOS(os)} color="#6366f1" />
+                      ))}
+
+                      <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+
+                      <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Kernel:</span>
+                      <FilterChip label="All"        active={filterKernelStatus === "all"}      onClick={() => setFilterKernelStatus("all")}      color="#64748b" />
+                      <FilterChip label="Outdated"   active={filterKernelStatus === "outdated"} onClick={() => setFilterKernelStatus("outdated")} color="#ef4444" />
+                      <FilterChip label="Up to date" active={filterKernelStatus === "uptodate"} onClick={() => setFilterKernelStatus("uptodate")} color="#10b981" />
+
+                      <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+
+                      <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Patches:</span>
+                      <FilterChip label="All"     active={filterPatchStatus === "all"}   onClick={() => setFilterPatchStatus("all")}   color="#64748b" />
+                      <FilterChip label="Pending" active={filterPatchStatus === "dirty"} onClick={() => setFilterPatchStatus("dirty")} color="#f59e0b" />
+                      <FilterChip label="Clean"   active={filterPatchStatus === "clean"} onClick={() => setFilterPatchStatus("clean")} color="#10b981" />
+                    </div>
                   </div>
+
                   <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                     <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
                       <tr>
@@ -512,7 +655,7 @@ export default function App() {
                     </thead>
                     <tbody>
                       {filteredHosts.length === 0
-                        ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your search</td></tr>
+                        ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
                         : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
                       }
                     </tbody>
