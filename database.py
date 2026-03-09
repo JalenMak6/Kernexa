@@ -1,13 +1,14 @@
 import psycopg2
 import json
 from datetime import datetime
+import os
 
 DB_CONFIG = {
-    'host':     'db',
-    'port':     5432,
-    'dbname':   'patchscan',
-    'user':     'patchadmin',
-    'password': 'patchpassword'
+    'host':     os.environ.get('DB_HOST', 'db'),
+    'port':     int(os.environ.get('DB_PORT', 5432)),
+    'dbname':   os.environ.get('DB_NAME', 'kernexa'),
+    'user':     os.environ.get('DB_USER', 'kernexa_user'),
+    'password': os.environ.get('DB_PASSWORD', 'supersecret'),
 }
 
 def get_conn():
