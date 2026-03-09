@@ -13,6 +13,9 @@ build/
 venv/
 env/
 
+# Docker compose DB credentials
+.env
+
 # Ansible runner artifacts and credentials
 artifacts/
 env/extravars
