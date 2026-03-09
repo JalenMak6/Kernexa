@@ -2,8 +2,8 @@
 
 A web application for scanning Linux hosts for pending security patches using Ansible. The platform provides a React frontend and a FastAPI backend, orchestrating Ansible playbooks to collect kernel version and pending package data from remote hosts.
 
-![Kernexa Dashboard1](images/dashboard1.png)
-![Kernexa Dashboard2](images/dashboard2.png)
+![Kernexa Dashboard1](images/Dashboard1.png)
+![Kernexa Dashboard2](images/Dashboard2.png)
 
 ## Stack
 
