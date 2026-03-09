@@ -335,7 +335,7 @@ def get_cve_details():
             FROM cve_details cd
             LEFT JOIN scan_results sr ON sr.scan_id = %s AND (
                 -- Rocky Linux: match host via advisory_ids array
-                (cd.advisory_id LIKE 'RLSA-%%'
+                (cd.advisory_id ~ '^(RLSA|RHSA)-'
                     AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
                 -- Ubuntu: match host if their package_source_map has any binary pkg
