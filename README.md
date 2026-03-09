@@ -75,7 +75,7 @@ The app reads these automatically via Docker Compose — no need to edit `databa
 
 ### SSH Credentials
 
-SSH credentials are entered through the UI per inventory and stored in the database. They are written to `env/extravars` at scan time only.
+SSH credentials are entered through the UI per inventory and stored in the database. They are retrieved at scan time and passed directly to ansible-runner — no credentials file is written to disk.
 
 ---
 
