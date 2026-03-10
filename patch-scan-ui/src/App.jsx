@@ -612,6 +612,35 @@ export default function App() {
                     <StatCard icon="package" label="Pending Packages" value={totalPackages}  sub="security updates"    accent="#f59e0b" />
                   </div>
 
+
+                  {/* ── CVE Severity Summary Cards ── */}
+                  {(() => {
+                    const cveCounts = (cves || []).reduce((acc, c) => { const sev = c.severity || "Unknown"; acc[sev] = (acc[sev] || 0) + 1; return acc; }, {});
+                    const CVE_SEVERITY_CONFIG = {
+                      Critical:  { bg: "#fef2f2", color: "#991b1b", border: "#fca5a5", dot: "#ef4444" },
+                      Important: { bg: "#fff7ed", color: "#9a3412", border: "#fdba74", dot: "#f97316" },
+                      Moderate:  { bg: "#fefce8", color: "#854d0e", border: "#fde047", dot: "#eab308" },
+                      Low:       { bg: "#f0fdf4", color: "#166534", border: "#86efac", dot: "#22c55e" },
+                    };
+                    return (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
+                        {["Critical", "Important", "Moderate", "Low"].map(sev => {
+                          const count = cveCounts[sev] || 0;
+                          const cfg = count > 0 ? CVE_SEVERITY_CONFIG[sev] : { bg: "#f8fafc", color: "#94a3b8", border: "#e2e8f0", dot: "#cbd5e1" };
+                          return (
+                            <div key={sev} onClick={() => setTab("cves")} style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 12, padding: "16px 20px", cursor: "pointer", transition: "all 0.15s", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }} onMouseEnter={e => e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e => e.currentTarget.style.transform="translateY(0)"}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot }} />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color, letterSpacing: "0.05em", textTransform: "uppercase" }}>{sev}</span>
+                              </div>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: cfg.color, lineHeight: 1 }}>{count}</div>
+                              <div style={{ fontSize: 11, color: cfg.color, marginTop: 4, opacity: 0.7 }}>CVE{count !== 1 ? "s" : ""}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
                     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Kernel Compliance</div>
