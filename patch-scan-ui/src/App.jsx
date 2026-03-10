@@ -237,7 +237,7 @@ export default function App() {
 
   const fetchCves = useCallback(async () => {
     setCvesLoading(true);
-    try { setCves(prev => prev); const data = await apiFetch("/api/cves"); setCves(data); } catch {}
+    try { setCves(await apiFetch("/api/cves")); } catch {}
     finally { setCvesLoading(false); }
   }, []);
 
@@ -610,37 +610,6 @@ export default function App() {
                     <StatCard icon="check"   label="Compliant"        value={compliantHosts} sub="kernel up to date"   accent="#10b981" />
                     <StatCard icon="warning" label="Outdated"         value={outdatedHosts}  sub="kernel needs update" accent="#ef4444" />
                     <StatCard icon="package" label="Pending Packages" value={totalPackages}  sub="security updates"    accent="#f59e0b" />
-                  </div>
-
-                  {/* CVE severity summary */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
-                    {["Critical", "Important", "Moderate", "Low"].map(sev => {
-                      const cfg = CVE_SEVERITY_CONFIG[sev] || { bg: "#f1f5f9", color: "#475569", border: "#cbd5e1", dot: "#94a3b8" };
-                      const count = cveCounts[sev] || 0;
-                      return (
-                        <div key={sev} onClick={() => setTab("cves")} style={{
-                          background: count > 0 ? cfg.bg : "#fff",
-                          border: `1px solid ${count > 0 ? cfg.border : "#e2e8f0"}`,
-                          borderRadius: 12, padding: "16px 20px",
-                          cursor: "pointer", transition: "all 0.15s",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-                          display: "flex", alignItems: "center", justifyContent: "space-between"
-                        }}
-                          onMouseEnter={e => e.currentTarget.style.opacity = "0.85"}
-                          onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-                        >
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
-                              <span style={{ width: 9, height: 9, borderRadius: "50%", background: cfg.dot, display: "inline-block" }} />
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>{sev}</span>
-                            </div>
-                            <div style={{ fontSize: 28, fontWeight: 800, color: count > 0 ? cfg.color : "#94a3b8", lineHeight: 1 }}>{count}</div>
-                            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>CVE advisor{count !== 1 ? "ies" : "y"}</div>
-                          </div>
-                          <div style={{ fontSize: 10, color: cfg.dot, opacity: count > 0 ? 1 : 0 }}>View →</div>
-                        </div>
-                      );
-                    })}
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
