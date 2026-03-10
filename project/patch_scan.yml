@@ -16,6 +16,9 @@
   gather_facts: false
   become: true
   become_method: sudo
+  strategy: free        # don't wait for slowest host per task
+  vars:
+    ansible_forks: 50
   tasks:
 
     - name: Find best available Python interpreter
@@ -47,6 +50,9 @@
   gather_facts: true
   become: true
   become_method: sudo
+  strategy: free        # don't wait for slowest host per task
+  vars:
+    ansible_forks: 50
   tasks:
 
     # ── Kernel versions ───────────────────────────────────────────────────────

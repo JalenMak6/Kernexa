@@ -7,13 +7,26 @@ def init():
     try:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS scan_runs (
-                id         SERIAL PRIMARY KEY,
-                scan_id    TEXT NOT NULL UNIQUE,
-                scanned_at TIMESTAMP NOT NULL,
-                status     TEXT,
-                rc         INTEGER
+                id             SERIAL PRIMARY KEY,
+                scan_id        TEXT NOT NULL UNIQUE,
+                scanned_at     TIMESTAMP NOT NULL,
+                status         TEXT,
+                rc             INTEGER,
+                host_failures  JSONB DEFAULT '{}'::jsonb,
+                ansible_log    TEXT
             )
         ''')
+
+        # migrate existing deployments — add columns if they don't exist yet
+        cursor.execute('''
+            ALTER TABLE scan_runs
+            ADD COLUMN IF NOT EXISTS host_failures JSONB DEFAULT '{}'::jsonb
+        ''')
+        cursor.execute('''
+            ALTER TABLE scan_runs
+            ADD COLUMN IF NOT EXISTS ansible_log TEXT
+        ''')
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS scan_results (
                 id                              SERIAL PRIMARY KEY,
@@ -77,7 +90,7 @@ def init():
             )
         ''')
         conn.commit()
-        print("Database tables created successfully")
+        print("Database tables created/migrated successfully")
     except Exception as e:
         conn.rollback()
         print(f"Error creating tables: {e}")

@@ -242,6 +242,14 @@ async def scan_history():
 async def get_scan_status(scan_id: str):
     return {"scan_id": scan_id, "status": running_scans.get(scan_id, "unknown")}
 
+@app.get("/api/scans/{scan_id}/failures")
+async def get_scan_failures(scan_id: str):
+    from database import get_scan_failures
+    data = get_scan_failures(scan_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return data
+
 @app.get("/api/scheduler/status")
 async def scheduler_status():
     """Returns scheduler info — useful for the UI to show next scan time."""
