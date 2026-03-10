@@ -42,18 +42,6 @@ cp .env.example .env        # edit with your preferred credentials
 docker compose up --build -d
 ```
 
-**3. Initialize the database** *(run once)*
-```bash
-docker compose exec app python init_db.py
-```
-
-**4. Build the frontend**
-```bash
-cd patch-scan-ui
-npm install
-npm run build
-```
-
 Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://localhost:8080](http://localhost:8080).
 
 ---
