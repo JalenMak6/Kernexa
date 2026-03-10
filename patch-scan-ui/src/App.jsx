@@ -222,6 +222,7 @@ export default function App() {
   const [filterOS, setFilterOS] = useState("all");
   const [filterKernelStatus, setFilterKernelStatus] = useState("all");
   const [filterPatchStatus, setFilterPatchStatus] = useState("all");
+  const [filterTag, setFilterTag] = useState("all");
 
   const fetchLatest = useCallback(async () => {
     try {
@@ -332,6 +333,7 @@ export default function App() {
   })();
 
   const osOptions = ["all", ...Array.from(new Set(hosts.map(h => osFamily(h.os_version)).filter(f => f !== "Unknown"))).sort()];
+  const allTags   = ["all", ...Array.from(new Set(hosts.flatMap(h => h.tags || []))).sort()];
 
   const filteredHosts = hosts
     .filter(h => {
@@ -347,7 +349,8 @@ export default function App() {
       const matchPatch = filterPatchStatus === "all" ||
         (filterPatchStatus === "dirty" && pkgCount > 0) ||
         (filterPatchStatus === "clean" && pkgCount === 0);
-      return matchSearch && matchOS && matchKernel && matchPatch;
+      const matchTag = filterTag === "all" || (h.tags || []).includes(filterTag);
+      return matchSearch && matchOS && matchKernel && matchPatch && matchTag;
     })
     .sort((a, b) => {
       let av = a[sortCol] || "", bv = b[sortCol] || "";
@@ -356,10 +359,10 @@ export default function App() {
       return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
     });
 
-  const activeFilterCount = [filterOS !== "all", filterKernelStatus !== "all", filterPatchStatus !== "all"].filter(Boolean).length;
+  const activeFilterCount = [filterOS !== "all", filterKernelStatus !== "all", filterPatchStatus !== "all", filterTag !== "all"].filter(Boolean).length;
 
   const clearFilters = () => {
-    setFilterOS("all"); setFilterKernelStatus("all"); setFilterPatchStatus("all"); setSearch("");
+    setFilterOS("all"); setFilterKernelStatus("all"); setFilterPatchStatus("all"); setFilterTag("all"); setSearch("");
   };
 
   const thStyle = (col) => ({
@@ -699,6 +702,11 @@ export default function App() {
                         <FilterChip label="All"     active={filterPatchStatus === "all"}   onClick={() => setFilterPatchStatus("all")}   color="#64748b" />
                         <FilterChip label="Pending" active={filterPatchStatus === "dirty"} onClick={() => setFilterPatchStatus("dirty")} color="#f59e0b" />
                         <FilterChip label="Clean"   active={filterPatchStatus === "clean"} onClick={() => setFilterPatchStatus("clean")} color="#10b981" />
+                        {allTags.length > 1 && (<>
+                          <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+                          <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Tag:</span>
+                          {allTags.map(t => <FilterChip key={t} label={t === "all" ? "All" : t} active={filterTag === t} onClick={() => setFilterTag(t)} color="#8b5cf6" />)}
+                        </>)}
                       </div>
                     </div>
                     <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
@@ -759,6 +767,11 @@ export default function App() {
                       <FilterChip label="All"     active={filterPatchStatus === "all"}   onClick={() => setFilterPatchStatus("all")}   color="#64748b" />
                       <FilterChip label="Pending" active={filterPatchStatus === "dirty"} onClick={() => setFilterPatchStatus("dirty")} color="#f59e0b" />
                       <FilterChip label="Clean"   active={filterPatchStatus === "clean"} onClick={() => setFilterPatchStatus("clean")} color="#10b981" />
+                      {allTags.length > 1 && (<>
+                        <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
+                        <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Tag:</span>
+                        {allTags.map(t => <FilterChip key={t} label={t === "all" ? "All" : t} active={filterTag === t} onClick={() => setFilterTag(t)} color="#8b5cf6" />)}
+                      </>)}
                     </div>
                   </div>
                   <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>

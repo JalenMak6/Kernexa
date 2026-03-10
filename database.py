@@ -275,6 +275,12 @@ def get_latest_scan():
                 'package_count':                   len(packages),
             })
 
+        # bulk attach tags
+        hostnames = [h['host'] for h in result['hosts']]
+        tags_map  = get_tags_for_hosts(hostnames)
+        for h in result['hosts']:
+            h['tags'] = tags_map.get(h['host'], [])
+
         return result
     finally:
         cursor.close()
@@ -440,6 +446,80 @@ def save_hosts(hostnames: list):
     except Exception as e:
         conn.rollback()
         raise
+    finally:
+        cursor.close()
+        conn.close()
+
+# ── host tags ─────────────────────────────────────────────────────────────────
+
+def get_tags_for_host(hostname: str) -> list[str]:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT tag FROM host_tags WHERE hostname = %s ORDER BY tag', (hostname,))
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_all_tags() -> list[str]:
+    """Return all unique tags in use, sorted."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT DISTINCT tag FROM host_tags ORDER BY tag')
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+def add_tag(hostname: str, tag: str):
+    tag = tag.strip().lower()
+    if not tag:
+        raise ValueError("Tag cannot be empty")
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'INSERT INTO host_tags (hostname, tag) VALUES (%s, %s) ON CONFLICT DO NOTHING',
+            (hostname, tag)
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+def remove_tag(hostname: str, tag: str):
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('DELETE FROM host_tags WHERE hostname = %s AND tag = %s', (hostname, tag))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_tags_for_hosts(hostnames: list[str]) -> dict[str, list[str]]:
+    """Bulk fetch tags for a list of hostnames. Returns {hostname: [tag, ...]}."""
+    if not hostnames:
+        return {}
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'SELECT hostname, tag FROM host_tags WHERE hostname = ANY(%s) ORDER BY hostname, tag',
+            (hostnames,)
+        )
+        result = {}
+        for hostname, tag in cursor.fetchall():
+            result.setdefault(hostname, []).append(tag)
+        return result
     finally:
         cursor.close()
         conn.close()

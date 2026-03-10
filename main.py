@@ -10,15 +10,15 @@ from typing import List
 import uuid
 import os
 import threading
-#from enricher import enrich_advisories
-from enricher import enrich_all
 
 from scanner import run_patch_scan
+from enricher import enrich_all
 from database import (
     save_to_db, get_latest_scan, get_scan_history,
     get_inventories, save_inventory, activate_inventory,
     delete_inventory, get_inventory_content,
     save_credentials, get_credentials, get_active_inventory_credentials,
+    get_tags_for_host, get_all_tags, add_tag, remove_tag,
     get_cve_details
 )
 
@@ -29,6 +29,9 @@ INVENTORY_PATH = "./inventory/hosts"
 
 class HostsUpdate(BaseModel):
     hosts: List[str]
+
+class TagAdd(BaseModel):
+    tag: str
 
 class CredentialsUpdate(BaseModel):
     inventory_id: int
@@ -56,13 +59,17 @@ def run_and_save(scan_id: str, scanned_at: datetime):
         running_scans[scan_id] = "running"
         output = run_patch_scan()
         save_to_db(output, scan_id, scanned_at)
+        running_scans[scan_id] = "enriching"
+        print(f"Scan {scan_id} saved — starting CVE enrichment")
+        enrich_all()
+        print(f"Scan {scan_id} enrichment complete")
         running_scans[scan_id] = "complete"
-        enrich_all()   # ← should be enrich_all, not enrich_advisories
     except Exception as e:
         running_scans[scan_id] = f"failed: {str(e)}"
+        print(f"run_and_save error: {e}")
 
 def scheduled_scan():
-    """Called by APScheduler every 3 hours. Skips if a scan is already running."""
+    """Called by APScheduler every 3 minutes. Skips if a scan is already running."""
     with _scan_lock:
         already_running = any(
             v in ("running", "pending")
@@ -114,10 +121,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Startup error: {e}")
 
-    # start auto-scan scheduler — every 3 hours
-    scheduler.add_job(scheduled_scan, "interval", hours=3, id="auto_scan")
+    # start auto-scan scheduler — every 3 minutes
+    scheduler.add_job(scheduled_scan, "interval", minutes=3, id="auto_scan")
     scheduler.start()
-    print("Auto-scan scheduler started (every 3 hours)")
+    print("Auto-scan scheduler started (every 3 minutes)")
 
     yield
 
@@ -242,14 +249,6 @@ async def scan_history():
 async def get_scan_status(scan_id: str):
     return {"scan_id": scan_id, "status": running_scans.get(scan_id, "unknown")}
 
-@app.get("/api/scans/{scan_id}/failures")
-async def get_scan_failures(scan_id: str):
-    from database import get_scan_failures
-    data = get_scan_failures(scan_id)
-    if not data:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    return data
-
 @app.get("/api/scheduler/status")
 async def scheduler_status():
     """Returns scheduler info — useful for the UI to show next scan time."""
@@ -262,28 +261,54 @@ async def scheduler_status():
         "interval_minutes": 3
     }
 
-# ── CVE endpoints ─────────────────────────────────────────────────────────────
+# ── CVE advisories ────────────────────────────────────────────────────────────
 
 @app.get("/api/cves")
-async def list_cves():
+async def get_cves():
     return get_cve_details()
+
+# ── host tags ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/tags")
+async def list_all_tags():
+    """Return all unique tags currently in use."""
+    return {"tags": get_all_tags()}
+
+@app.get("/api/hosts/{hostname}/tags")
+async def get_host_tags(hostname: str):
+    return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
+
+@app.post("/api/hosts/{hostname}/tags")
+async def add_host_tag(hostname: str, body: TagAdd):
+    tag = body.tag.strip().lower()
+    if not tag:
+        raise HTTPException(status_code=400, detail="Tag cannot be empty")
+    if len(tag) > 32:
+        raise HTTPException(status_code=400, detail="Tag too long (max 32 chars)")
+    add_tag(hostname, tag)
+    return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
+
+@app.delete("/api/hosts/{hostname}/tags/{tag}")
+async def remove_host_tag(hostname: str, tag: str):
+    remove_tag(hostname, tag)
+    return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
 # ── serve React SPA — MUST BE LAST ───────────────────────────────────────────
 
 if os.path.exists("dist"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
 
-# @app.get("/{full_path:path}")
-# async def serve_spa(full_path: str):
-#     if full_path.startswith("api/"):
-#         raise HTTPException(status_code=404, detail="Not found")
-#     if os.path.exists("dist/index.html"):
-#         return FileResponse("dist/index.html")
-#     return {"message": "Patch Scan Platform API"}
-
-
-
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    # serve static files from dist root (e.g. kernexa.png, vite.svg)
+    static_path = os.path.join("dist", full_path)
+    if full_path and os.path.isfile(static_path):
+        return FileResponse(static_path)
+    if os.path.exists("dist/index.html"):
+        return FileResponse("dist/index.html")
+    return {"message": "Patch Scan Platform API"}
 
 if __name__ == "__main__":
     import uvicorn

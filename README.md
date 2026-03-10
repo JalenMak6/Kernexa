@@ -57,10 +57,12 @@ POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
 POSTGRES_PASSWORD=changeme
 POSTGRES_PORT=5432
-NVD_API_KEY=1111-ece9-fnf-iqiq-1111111
+NVD_API_KEY=your-nvd-api-key-here
 ```
 
 The app reads these automatically via Docker Compose — no need to edit `database.py` or `docker-compose.yml`.
+
+An NVD API key is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
 
 ### SSH Credentials
 
@@ -75,8 +77,8 @@ SSH credentials are entered through the UI per inventory and stored in the datab
 ├── main.py              # FastAPI — all API routes
 ├── scanner.py           # ansible-runner integration
 ├── database.py          # DB queries (psycopg2)
-├── enricher.py          # CVE enrichment (RHSA / RLSA / Ubuntu)
-├── init_db.py           # Schema init — run once
+├── enricher.py          # CVE enrichment (RHSA / RLSA / Ubuntu) + CVSS scoring
+├── init_db.py           # Schema init — safe to re-run on upgrades
 ├── patch_scan.yml       # Ansible playbook
 ├── docker-compose.yml
 ├── Dockerfile
@@ -94,7 +96,29 @@ SSH credentials are entered through the UI per inventory and stored in the datab
 2. Trigger a scan manually or let the auto-scheduler run every 3 hours
 3. Ansible collects kernel versions and pending security packages from each host
 4. Results are saved to PostgreSQL and CVE data is enriched from upstream security APIs
-5. The dashboard shows compliance status, outdated kernels, and CVE advisories per host
+5. CVSS scores are fetched automatically — Red Hat Security Data API as primary source, NVD as fallback
+6. The dashboard shows compliance status, outdated kernels, CVE advisories, and CVSS scores per host
+
+---
+
+## Features
+
+**Scanning**
+- Kernel compliance — current vs latest available kernel per host
+- Pending security packages per host
+- Auto-scheduler runs every 3 hours; manual trigger available from the UI
+- Scan failure capture — per-host Ansible errors surfaced in the UI
+
+**CVE Advisories**
+- Enriched from Red Hat (RHSA), Rocky Linux (RLSA), and Ubuntu CVE Tracker
+- CVSS scores fetched automatically after every scan — Red Hat scores preferred, NVD fallback for unscored CVEs
+- Score badge shows source (`RH` or `NVD`) so you know whether the score reflects RHEL-specific context
+- Sortable by CVSS score; filterable by severity
+
+**Host Management**
+- Tag hosts with labels like `production`, `staging`, `dmz`, `web`, `db`, `infra` or any custom tag
+- Filter the dashboard and VM Inventory by tag
+- Tags persist across scans and are managed inline from the host table
 
 ---
 
@@ -102,12 +126,14 @@ SSH credentials are entered through the UI per inventory and stored in the datab
 
 | Table | Description |
 |-------|-------------|
-| `scan_runs` | Scan metadata — ID, status, timestamp, return code |
+| `scan_runs` | Scan metadata — ID, status, timestamp, return code, per-host failures |
 | `scan_results` | Per-host kernel versions and package→source map |
 | `scan_packages` | Pending security packages per host per scan |
-| `cve_details` | Enriched CVE/advisory data cached from upstream APIs |
+| `cve_details` | Enriched CVE/advisory data with CVSS scores cached from upstream APIs |
 | `inventories` | Uploaded inventory files |
 | `credentials` | SSH credentials per inventory (plaintext) |
+| `hosts` | Known hostnames |
+| `host_tags` | Tags assigned to hosts — persists across scans |
 
 ---
 

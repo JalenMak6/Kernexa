@@ -1,4 +1,4 @@
-# API Endpoint Reference 
+# API Endpoint Reference
 
 Base URL: `http://localhost:8000`
 
@@ -25,7 +25,8 @@ curl http://localhost:8000/api/inventories
     "name": "Production Hosts",
     "host_count": 5,
     "is_active": true,
-    "created_at": "2026-03-09T10:00:00Z"
+    "has_credentials": true,
+    "uploaded_at": "2026-03-09T10:00:00Z"
   }
 ]
 ```
@@ -216,13 +217,105 @@ curl -X POST http://localhost:8000/api/hosts \
 
 ---
 
+### Get Host Tags
+```
+GET /api/hosts/{hostname}/tags
+```
+Returns all tags assigned to a specific host.
+
+**Example**
+```bash
+curl http://localhost:8000/api/hosts/192.168.1.10/tags
+```
+
+**Response**
+```json
+{
+  "hostname": "192.168.1.10",
+  "tags": ["production", "web"]
+}
+```
+
+---
+
+### Add Tag to Host
+```
+POST /api/hosts/{hostname}/tags
+```
+Adds a tag to a host. Tags are lowercased and must be 32 characters or fewer. Adding a duplicate tag is a no-op.
+
+**Request Body**
+```json
+{
+  "tag": "production"
+}
+```
+
+**Example**
+```bash
+curl -X POST http://localhost:8000/api/hosts/192.168.1.10/tags \
+  -H "Content-Type: application/json" \
+  -d '{"tag": "production"}'
+```
+
+**Response** — returns the full updated tag list
+```json
+{
+  "hostname": "192.168.1.10",
+  "tags": ["production", "web"]
+}
+```
+
+---
+
+### Remove Tag from Host
+```
+DELETE /api/hosts/{hostname}/tags/{tag}
+```
+Removes a tag from a host.
+
+**Example**
+```bash
+curl -X DELETE http://localhost:8000/api/hosts/192.168.1.10/tags/production
+```
+
+**Response** — returns the full updated tag list
+```json
+{
+  "hostname": "192.168.1.10",
+  "tags": ["web"]
+}
+```
+
+---
+
+### List All Tags
+```
+GET /api/tags
+```
+Returns all unique tags currently in use across all hosts, sorted alphabetically.
+
+**Example**
+```bash
+curl http://localhost:8000/api/tags
+```
+
+**Response**
+```json
+{
+  "tags": ["db", "dmz", "infra", "production", "staging", "web"]
+}
+```
+
+---
+
 ## Scans
 
 ### Trigger Scan
 ```
 POST /api/scans/trigger
 ```
-Starts a background scan against the active inventory. Requires credentials to be set. Returns `409` if a scan is already running.
+Starts a background scan against the active inventory. Requires credentials to be set. CVE enrichment and CVSS scoring run automatically after the scan completes. Returns `409` if a scan is already running.
 
 **Example**
 ```bash
@@ -254,7 +347,7 @@ curl -X POST http://localhost:8000/api/scans/trigger
 ```
 GET /api/scans/current
 ```
-Returns any in-progress scan, useful for syncing state across browser tabs.
+Returns any in-progress scan. Useful for syncing state across browser tabs.
 
 **Example**
 ```bash
@@ -289,6 +382,7 @@ Poll the status of a specific scan.
 |--------|-------------|
 | `pending` | Queued, not yet started |
 | `running` | Ansible playbook executing |
+| `enriching` | Scan saved, CVE enrichment in progress |
 | `complete` | Finished successfully |
 | `failed: <msg>` | Failed with error message |
 | `unknown` | Scan ID not found in memory |
@@ -312,7 +406,7 @@ curl http://localhost:8000/api/scans/a1b2c3d4-e5f6-7890-abcd-ef1234567890/status
 ```
 GET /api/scans/latest
 ```
-Returns the most recent completed scan with all host results.
+Returns the most recent completed scan with all host results and assigned tags.
 
 **Example**
 ```bash
@@ -324,14 +418,20 @@ curl http://localhost:8000/api/scans/latest
 {
   "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "scanned_at": "2026-03-09T10:00:00Z",
+  "status": "complete",
+  "rc": 0,
+  "host_failures": {},
   "hosts": [
     {
-      "hostname": "192.168.1.10",
-      "kernel": "5.14.0-362.8.1.el9_3.x86_64",
-      "os": "Rocky Linux 9.3",
-      "pending_packages": ["kernel-5.14.0-427.el9", "openssl-3.0.7-27.el9"],
-      "advisory_ids": ["RLSA-2024:1234", "RLSA-2024:5678"],
-      "reboot_required": true
+      "host": "192.168.1.10",
+      "os_version": "Rocky Linux 9.3",
+      "current_kernel_version": "5.14.0-362.8.1.el9_3.x86_64",
+      "latest_available_kernel_version": "5.14.0-427.13.1.el9_4.x86_64",
+      "last_reboot_time": "2026-03-07 17:42",
+      "advisory_ids": ["RLSA-2024:1234"],
+      "pending_security_packages": ["kernel", "openssl"],
+      "package_count": 2,
+      "tags": ["production", "web"]
     }
   ]
 }
@@ -357,9 +457,38 @@ curl http://localhost:8000/api/scans/history
     "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "scanned_at": "2026-03-09T10:00:00Z",
     "status": "complete",
-    "host_count": 5
+    "rc": 0,
+    "failure_count": 0,
+    "host_count": 11
   }
 ]
+```
+
+---
+
+### Scan Failures
+```
+GET /api/scans/{scan_id}/failures
+```
+Returns per-host failure details and the full Ansible log for a specific scan.
+
+**Example**
+```bash
+curl http://localhost:8000/api/scans/a1b2c3d4-e5f6-7890-abcd-ef1234567890/failures
+```
+
+**Response**
+```json
+{
+  "scan_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "scanned_at": "2026-03-09T10:00:00Z",
+  "status": "complete",
+  "rc": 4,
+  "host_failures": {
+    "192.168.1.99": "UNREACHABLE: Connection timed out"
+  },
+  "ansible_log": "..."
+}
 ```
 
 ---
@@ -370,7 +499,7 @@ curl http://localhost:8000/api/scans/history
 ```
 GET /api/scheduler/status
 ```
-Returns auto-scan scheduler state and next scheduled run time. The scheduler runs every 3 hours automatically.
+Returns auto-scan scheduler state and next scheduled run time.
 
 **Example**
 ```bash
@@ -390,11 +519,11 @@ curl http://localhost:8000/api/scheduler/status
 
 ## CVEs
 
-### List CVE Details
+### List CVE Advisories
 ```
 GET /api/cves
 ```
-Returns all cached CVE/advisory details fetched from Red Hat (RHSA), Rocky Linux (RLSA), and Ubuntu CVE Tracker APIs.
+Returns all enriched CVE/advisory records with CVSS scores, sorted by severity then advisory ID. Includes the list of affected hosts from the latest scan.
 
 **Example**
 ```bash
@@ -406,15 +535,22 @@ curl http://localhost:8000/api/cves
 [
   {
     "advisory_id": "RLSA-2024:1234",
-    "title": "Important: openssl security update",
+    "synopsis": "Important: openssl security update",
     "severity": "Important",
-    "issued": "2024-03-05",
-    "cves": ["CVE-2024-0727"],
-    "description": "OpenSSL security fix for ...",
-    "source": "rocky"
+    "cve_ids": ["CVE-2024-0727"],
+    "description": "OpenSSL security fix...",
+    "fetched_at": "2026-03-09T10:00:00Z",
+    "remediation": "Run: yum update openssl\n\nPatched versions:\n  • openssl-3.0.7-27.el9.x86_64",
+    "cvss_score": 7.5,
+    "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+    "cvss_version": "3.1",
+    "cvss_source": "redhat",
+    "affected_hosts": ["192.168.1.10", "192.168.1.11"]
   }
 ]
 ```
+
+`cvss_source` is either `redhat` (RHEL-context-aware score) or `nvd` (generic fallback score).
 
 ---
 

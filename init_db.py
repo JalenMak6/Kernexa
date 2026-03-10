@@ -93,6 +93,16 @@ def init():
                 active   BOOLEAN DEFAULT TRUE
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS host_tags (
+                id       SERIAL PRIMARY KEY,
+                hostname TEXT NOT NULL,
+                tag      TEXT NOT NULL,
+                UNIQUE(hostname, tag)
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_hostname ON host_tags(hostname)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_tag ON host_tags(tag)")
         conn.commit()
         print("Database tables created/migrated successfully")
     except Exception as e:
