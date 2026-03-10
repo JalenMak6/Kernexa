@@ -13,7 +13,6 @@ import { HostsManager } from "./components/HostsManager.jsx";
 import { InventoryManager } from "./components/InventoryManager.jsx";
 import { CveTab } from "./components/CveTab.jsx";
 
-// Normalize os_version to family group: "Rocky9.7" → "Rocky 9", "RedHat8.10" → "RHEL 8", "Ubuntu22.04" → "Ubuntu 22.04"
 function osFamily(osVersion) {
   if (!osVersion) return "Unknown";
   const lower = osVersion.toLowerCase();
@@ -30,6 +29,170 @@ function osFamily(osVersion) {
     return m ? `RHEL ${m[1]}` : "RHEL";
   }
   return osVersion;
+}
+
+// ── Scan Failures Modal ───────────────────────────────────────────────────────
+function ScanFailuresModal({ scanId, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("failures");
+
+  useEffect(() => {
+    apiFetch(`/api/scans/${scanId}/failures`)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [scanId]);
+
+  const failures = data?.host_failures || {};
+  const failureEntries = Object.entries(failures);
+
+  const reasonColor = (reason) => ({
+    unreachable:  { bg: "#fff7ed", border: "#fed7aa", text: "#c2410c", dot: "#f97316" },
+    task_failed:  { bg: "#fef2f2", border: "#fecaca", text: "#dc2626", dot: "#ef4444" },
+  }[reason] || { bg: "#f8fafc", border: "#e2e8f0", text: "#475569", dot: "#94a3b8" });
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+      zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24, backdropFilter: "blur(2px)"
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 16, width: "100%", maxWidth: 860,
+        maxHeight: "85vh", display: "flex", flexDirection: "column",
+        boxShadow: "0 24px 64px rgba(0,0,0,0.2)", overflow: "hidden"
+      }}>
+
+        {/* header */}
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Scan Details</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, fontFamily: "monospace" }}>{scanId}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {data && (
+              <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                <span style={{ background: "#f1f5f9", padding: "4px 10px", borderRadius: 6, color: "#475569" }}>
+                  {fmtDate(data.scanned_at)}
+                </span>
+                {data.status === "successful"
+                  ? <span style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #86efac", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>Successful</span>
+                  : <span style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>{data.status}</span>
+                }
+                <span style={{ background: "#f1f5f9", padding: "4px 10px", borderRadius: 6, color: "#475569", fontFamily: "monospace" }}>rc={data.rc}</span>
+              </div>
+            )}
+            <button onClick={onClose} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#334155", fontWeight: 400, lineHeight: 1 }} onMouseEnter={e => e.currentTarget.style.background="#e2e8f0"} onMouseLeave={e => e.currentTarget.style.background="#f1f5f9"}>×</button>
+          </div>
+        </div>
+
+        {/* tabs */}
+        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #e2e8f0", padding: "0 24px" }}>
+          {[
+            { id: "failures", label: `Failed Hosts (${failureEntries.length})` },
+            { id: "log",      label: "Ansible Log" },
+          ].map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              padding: "12px 16px", border: "none", background: "none", cursor: "pointer",
+              fontSize: 13, fontWeight: activeTab === t.id ? 700 : 500,
+              color: activeTab === t.id ? "#3b82f6" : "#64748b",
+              borderBottom: activeTab === t.id ? "2px solid #3b82f6" : "2px solid transparent",
+              fontFamily: "inherit", marginBottom: -1
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+          {loading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
+              <div style={{ width: 28, height: 28, border: "3px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            </div>
+          ) : !data ? (
+            <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>Failed to load scan details</div>
+          ) : activeTab === "failures" ? (
+            failureEntries.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 60 }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
+                <div style={{ fontWeight: 700, color: "#16a34a", fontSize: 15 }}>All hosts completed successfully</div>
+                <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>No failures recorded for this scan</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {failureEntries.map(([host, failure]) => {
+                  const colors = reasonColor(failure.reason);
+                  return (
+                    <div key={host} style={{
+                      background: colors.bg, border: `1px solid ${colors.border}`,
+                      borderRadius: 10, padding: 16
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.dot, flexShrink: 0 }} />
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", fontFamily: "monospace" }}>{host}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: colors.text, background: "#fff", border: `1px solid ${colors.border}`, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            {failure.reason === "unreachable" ? "Unreachable" : "Task Failed"}
+                          </span>
+                          {failure.task && (
+                            <span style={{ fontSize: 11, color: "#64748b", background: "#fff", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 4 }}>
+                              {failure.task}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {failure.msg && (
+                        <div style={{
+                          fontSize: 12, color: "#334155", background: "#fff",
+                          border: `1px solid ${colors.border}`, borderRadius: 6,
+                          padding: "10px 12px", fontFamily: "monospace",
+                          whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6
+                        }}>
+                          {failure.msg}
+                        </div>
+                      )}
+                      {failure.stderr && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>stderr</div>
+                          <div style={{
+                            fontSize: 11, color: "#dc2626", background: "#fff",
+                            border: "1px solid #fecaca", borderRadius: 6,
+                            padding: "8px 12px", fontFamily: "monospace",
+                            whiteSpace: "pre-wrap", wordBreak: "break-word"
+                          }}>
+                            {failure.stderr}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            /* Ansible Log tab */
+            <div>
+              {data.ansible_log ? (
+                <pre style={{
+                  fontSize: 11, color: "#e2e8f0", background: "#0f172a",
+                  borderRadius: 10, padding: 20, overflowX: "auto",
+                  whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  lineHeight: 1.7, fontFamily: "JetBrains Mono, monospace",
+                  margin: 0
+                }}>
+                  {data.ansible_log}
+                </pre>
+              ) : (
+                <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>No log available for this scan</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -53,8 +216,8 @@ export default function App() {
   const [activeHasCredentials, setActiveHasCredentials] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState(null);
+  const [selectedScanId, setSelectedScanId] = useState(null); // for failures modal
 
-  // ── column filters ────────────────────────────────────────────────────────
   const [filterOS, setFilterOS] = useState("all");
   const [filterKernelStatus, setFilterKernelStatus] = useState("all");
   const [filterPatchStatus, setFilterPatchStatus] = useState("all");
@@ -100,11 +263,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchLatest();
-    fetchHistory();
-    fetchInventoryInfo();
-    fetchCurrentScan();
-    fetchCves();
+    fetchLatest(); fetchHistory(); fetchInventoryInfo(); fetchCurrentScan(); fetchCves();
   }, []);
 
   useEffect(() => {
@@ -122,6 +281,7 @@ export default function App() {
         } else if (s.status?.startsWith("failed")) {
           setScanning(false); setScanId(null);
           setError(`Scan failed: ${s.status}`);
+          await fetchHistory();
         }
       } catch {}
     }, 4000);
@@ -170,7 +330,6 @@ export default function App() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
   })();
 
-  // derive unique OS family groups for filter chips (e.g. "Rocky 9", "RHEL 8", "Ubuntu 22.04")
   const osOptions = ["all", ...Array.from(new Set(hosts.map(h => osFamily(h.os_version)).filter(f => f !== "Unknown"))).sort()];
 
   const filteredHosts = hosts
@@ -178,21 +337,15 @@ export default function App() {
       const matchSearch = h.host.toLowerCase().includes(search.toLowerCase()) ||
         (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()) ||
         (h.os_version || "").toLowerCase().includes(search.toLowerCase());
-
       const matchOS = filterOS === "all" || osFamily(h.os_version) === filterOS;
-
       const isOutdated = kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version);
-      const matchKernel =
-        filterKernelStatus === "all" ||
+      const matchKernel = filterKernelStatus === "all" ||
         (filterKernelStatus === "outdated" && isOutdated) ||
         (filterKernelStatus === "uptodate" && !isOutdated);
-
       const pkgCount = h.pending_security_packages?.length || 0;
-      const matchPatch =
-        filterPatchStatus === "all" ||
+      const matchPatch = filterPatchStatus === "all" ||
         (filterPatchStatus === "dirty" && pkgCount > 0) ||
         (filterPatchStatus === "clean" && pkgCount === 0);
-
       return matchSearch && matchOS && matchKernel && matchPatch;
     })
     .sort((a, b) => {
@@ -205,10 +358,7 @@ export default function App() {
   const activeFilterCount = [filterOS !== "all", filterKernelStatus !== "all", filterPatchStatus !== "all"].filter(Boolean).length;
 
   const clearFilters = () => {
-    setFilterOS("all");
-    setFilterKernelStatus("all");
-    setFilterPatchStatus("all");
-    setSearch("");
+    setFilterOS("all"); setFilterKernelStatus("all"); setFilterPatchStatus("all"); setSearch("");
   };
 
   const thStyle = (col) => ({
@@ -232,25 +382,17 @@ export default function App() {
   const criticalCount = cves.filter(c => c.severity === "Critical").length;
   const importantCount = cves.filter(c => c.severity === "Important").length;
 
-  const tabTitle = {
-    dashboard: "Overview",
-    hosts:     "VM Inventory",
-    history:   "Scan History",
-    cves:      "CVE Advisories",
-  }[tab] || "Overview";
+  const tabTitle = { dashboard: "Overview", hosts: "VM Inventory", history: "Scan History", cves: "CVE Advisories" }[tab] || "Overview";
 
   const FilterChip = ({ label, active, onClick, color = "#3b82f6" }) => (
     <button onClick={onClick} style={{
       padding: "5px 12px", borderRadius: 6,
       border: `1px solid ${active ? color : "#e2e8f0"}`,
       background: active ? `${color}18` : "#fff",
-      cursor: "pointer", fontSize: 12,
-      fontWeight: active ? 700 : 500,
-      color: active ? color : "#475569",
-      fontFamily: "inherit", transition: "all 0.15s", whiteSpace: "nowrap"
-    }}>
-      {label}
-    </button>
+      cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
+      color: active ? color : "#475569", fontFamily: "inherit",
+      transition: "all 0.15s", whiteSpace: "nowrap"
+    }}>{label}</button>
   );
 
   return (
@@ -269,16 +411,11 @@ export default function App() {
 
       {/* ── SIDEBAR ── */}
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 220, background: "#0f172a", display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", zIndex: 50 }}>
-        <div style={{ padding: "24px 20px", borderBottom: "1px solid #1e293b" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, background: "linear-gradient(135deg,#3b82f6,#6366f1)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon d={Icons.host} size={16} color="#fff" />
-            </div>
-            <div>
-              <div style={{ color: "#f8fafc", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>Kernexa</div>
-              <div style={{ color: "#475569", fontSize: 10, letterSpacing: "0.05em" }}>Security Compliance Platform</div>
-            </div>
+        <div style={{ padding: "20px 16px", borderBottom: "1px solid #1e293b" }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src="/kernexa.png" alt="Kernexa" style={{ width: "100%", maxHeight: 40, objectFit: "contain" }} />
           </div>
+          <div style={{ textAlign: "center", color: "#475569", fontSize: 10, letterSpacing: "0.05em", marginTop: 8 }}>Security Compliance Platform</div>
         </div>
 
         <nav style={{ padding: "16px 12px", flex: 1, overflowY: "auto" }}>
@@ -362,18 +499,11 @@ export default function App() {
               <div style={{ fontSize: 10, color: "#166534", marginTop: 1 }}>{inventoryCount} hosts</div>
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 5 }}>
                 {activeHasCredentials ? (
-                  <>
-                    <Icon d={Icons.check} size={11} color="#4ade80" />
-                    <span style={{ fontSize: 10, color: "#4ade80" }}>Credentials set</span>
-                  </>
+                  <><Icon d={Icons.check} size={11} color="#4ade80" /><span style={{ fontSize: 10, color: "#4ade80" }}>Credentials set</span></>
                 ) : (
-                  <>
-                    <Icon d={Icons.warning} size={11} color="#fb923c" />
+                  <><Icon d={Icons.warning} size={11} color="#fb923c" />
                     <span style={{ fontSize: 10, color: "#fb923c" }}>No credentials —</span>
-                    <button onClick={() => setShowInventoryManager(true)}
-                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fb923c", textDecoration: "underline", padding: 0, fontFamily: "inherit" }}>
-                      set now
-                    </button>
+                    <button onClick={() => setShowInventoryManager(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fb923c", textDecoration: "underline", padding: 0, fontFamily: "inherit" }}>set now</button>
                   </>
                 )}
               </div>
@@ -430,8 +560,7 @@ export default function App() {
               <Icon d={Icons.key} size={16} color="#c2410c" />
               <span>SSH credentials are not set for <strong>{activeInventoryName}</strong>. You must set credentials before running a scan.</span>
             </div>
-            <button onClick={() => setShowInventoryManager(true)}
-              style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap", marginLeft: 12 }}>
+            <button onClick={() => setShowInventoryManager(true)} style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap", marginLeft: 12 }}>
               Set Credentials
             </button>
           </div>
@@ -456,11 +585,9 @@ export default function App() {
               <Icon d={Icons.scan} size={48} color="#cbd5e1" />
               <div style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "#334155" }}>No scan data yet</div>
               <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6, marginBottom: 20 }}>
-                {inventoryCount === 0
-                  ? "Start by uploading an inventory file, then set credentials and run a scan"
-                  : !activeHasCredentials
-                    ? `${inventoryCount} hosts ready — set SSH credentials, then click Run Scan`
-                    : `${inventoryCount} hosts ready — click Run Scan to start`}
+                {inventoryCount === 0 ? "Start by uploading an inventory file, then set credentials and run a scan"
+                  : !activeHasCredentials ? `${inventoryCount} hosts ready — set SSH credentials, then click Run Scan`
+                  : `${inventoryCount} hosts ready — click Run Scan to start`}
               </div>
               {inventoryCount === 0 ? (
                 <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -494,8 +621,7 @@ export default function App() {
                           <Pie data={complianceData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value">
                             {complianceData.map((e, i) => <Cell key={i} fill={e.color} />)}
                           </Pie>
-                          <Tooltip />
-                          <Legend iconType="circle" iconSize={8} />
+                          <Tooltip /><Legend iconType="circle" iconSize={8} />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
@@ -524,26 +650,15 @@ export default function App() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
                           Host Summary — {filteredHosts.length} of {totalHosts} hosts
-                          {activeFilterCount > 0 && (
-                            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>
-                              {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active
-                            </span>
-                          )}
+                          {activeFilterCount > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active</span>}
                         </div>
                         {(activeFilterCount > 0 || search) && (
-                          <button onClick={clearFilters} style={{
-                            padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5",
-                            background: "#fef2f2", cursor: "pointer", fontSize: 12,
-                            color: "#dc2626", fontFamily: "inherit"
-                          }}>Clear all ×</button>
+                          <button onClick={clearFilters} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fef2f2", cursor: "pointer", fontSize: 12, color: "#dc2626", fontFamily: "inherit" }}>Clear all ×</button>
                         )}
                       </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>OS:</span>
-                        {osOptions.map(os => (
-                          <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os}
-                            onClick={() => setFilterOS(os)} color="#6366f1" />
-                        ))}
+                        {osOptions.map(os => <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os} onClick={() => setFilterOS(os)} color="#6366f1" />)}
                         <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
                         <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Kernel:</span>
                         <FilterChip label="All"        active={filterKernelStatus === "all"}      onClick={() => setFilterKernelStatus("all")}      color="#64748b" />
@@ -572,8 +687,7 @@ export default function App() {
                       <tbody>
                         {filteredHosts.length === 0
                           ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
-                          : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
-                        }
+                          : filteredHosts.map(h => <HostRow key={h.host} host={h} />)}
                       </tbody>
                     </table>
                   </div>
@@ -583,31 +697,18 @@ export default function App() {
               {/* ── VM INVENTORY ── */}
               {tab === "hosts" && (
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-
-                  {/* search + filter bar */}
                   <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
                         {filteredHosts.length} of {totalHosts} hosts
-                        {activeFilterCount > 0 && (
-                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>
-                            {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active
-                          </span>
-                        )}
+                        {activeFilterCount > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active</span>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {(activeFilterCount > 0 || search) && (
-                          <button onClick={clearFilters} style={{
-                            padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5",
-                            background: "#fef2f2", cursor: "pointer", fontSize: 12,
-                            color: "#dc2626", fontFamily: "inherit"
-                          }}>
-                            Clear all ×
-                          </button>
+                          <button onClick={clearFilters} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fef2f2", cursor: "pointer", fontSize: 12, color: "#dc2626", fontFamily: "inherit" }}>Clear all ×</button>
                         )}
                         <div style={{ position: "relative" }}>
-                          <input value={search} onChange={e => setSearch(e.target.value)}
-                            placeholder="Search by hostname..."
+                          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by hostname..."
                             style={{ padding: "8px 12px 8px 34px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", width: 240, fontFamily: "inherit" }} />
                           <div style={{ position: "absolute", top: "50%", left: 10, transform: "translateY(-50%)" }}>
                             <Icon d={Icons.search} size={14} color="#94a3b8" />
@@ -615,31 +716,21 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-
-                    {/* filter chips */}
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                       <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>OS:</span>
-                      {osOptions.map(os => (
-                        <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os}
-                          onClick={() => setFilterOS(os)} color="#6366f1" />
-                      ))}
-
+                      {osOptions.map(os => <FilterChip key={os} label={os === "all" ? "All" : os} active={filterOS === os} onClick={() => setFilterOS(os)} color="#6366f1" />)}
                       <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
-
                       <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Kernel:</span>
                       <FilterChip label="All"        active={filterKernelStatus === "all"}      onClick={() => setFilterKernelStatus("all")}      color="#64748b" />
                       <FilterChip label="Outdated"   active={filterKernelStatus === "outdated"} onClick={() => setFilterKernelStatus("outdated")} color="#ef4444" />
                       <FilterChip label="Up to date" active={filterKernelStatus === "uptodate"} onClick={() => setFilterKernelStatus("uptodate")} color="#10b981" />
-
                       <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
-
                       <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginRight: 2 }}>Patches:</span>
                       <FilterChip label="All"     active={filterPatchStatus === "all"}   onClick={() => setFilterPatchStatus("all")}   color="#64748b" />
                       <FilterChip label="Pending" active={filterPatchStatus === "dirty"} onClick={() => setFilterPatchStatus("dirty")} color="#f59e0b" />
                       <FilterChip label="Clean"   active={filterPatchStatus === "clean"} onClick={() => setFilterPatchStatus("clean")} color="#10b981" />
                     </div>
                   </div>
-
                   <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                     <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
                       <tr>
@@ -656,8 +747,7 @@ export default function App() {
                     <tbody>
                       {filteredHosts.length === 0
                         ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
-                        : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
-                      }
+                        : filteredHosts.map(h => <HostRow key={h.host} host={h} />)}
                     </tbody>
                   </table>
                 </div>
@@ -674,14 +764,16 @@ export default function App() {
                       <tr>
                         <th style={{ ...thStyle(null), width: 140 }}>Scan ID</th>
                         <th style={thStyle(null)}>Triggered At</th>
-                        <th style={{ ...thStyle(null), width: 160 }}>Hosts Scanned</th>
-                        <th style={{ ...thStyle(null), width: 140 }}>Status</th>
-                        <th style={{ ...thStyle(null), width: 130 }}>Return Code</th>
+                        <th style={{ ...thStyle(null), width: 140 }}>Hosts Scanned</th>
+                        <th style={{ ...thStyle(null), width: 120 }}>Status</th>
+                        <th style={{ ...thStyle(null), width: 100 }}>Return Code</th>
+                        <th style={{ ...thStyle(null), width: 140 }}>Failed Hosts</th>
+                        <th style={{ ...thStyle(null), width: 120 }}>Details</th>
                       </tr>
                     </thead>
                     <tbody>
                       {history.length === 0
-                        ? <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No scan history yet</td></tr>
+                        ? <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No scan history yet</td></tr>
                         : history.map(s => (
                           <tr key={s.scan_id} style={{ borderBottom: "1px solid #f1f5f9" }}
                             onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
@@ -689,8 +781,47 @@ export default function App() {
                             <td style={{ padding: "14px 16px", fontSize: 11, fontFamily: "monospace", color: "#64748b" }}>{s.scan_id.slice(0, 8)}...</td>
                             <td style={{ padding: "14px 16px", fontSize: 13, color: "#334155" }}>{fmtDate(s.scanned_at)}</td>
                             <td style={{ padding: "14px 16px", fontSize: 13, color: "#334155" }}>{s.host_count} hosts</td>
-                            <td style={{ padding: "14px 16px" }}>{s.status === "successful" ? badge("Successful", "green") : badge(s.status, "red")}</td>
+                            <td style={{ padding: "14px 16px" }}>
+                              {s.status === "successful" ? badge("Successful", "green") : badge(s.status, "red")}
+                            </td>
                             <td style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: s.rc === 0 ? "#10b981" : "#ef4444" }}>{s.rc}</td>
+                            <td style={{ padding: "14px 16px" }}>
+                              {s.failure_count > 0 ? (
+                                <span style={{
+                                  display: "inline-flex", alignItems: "center", gap: 5,
+                                  background: "#fef2f2", color: "#dc2626",
+                                  border: "1px solid #fecaca", borderRadius: 6,
+                                  padding: "3px 10px", fontSize: 12, fontWeight: 700
+                                }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#ef4444" }} />
+                                  {s.failure_count} failed
+                                </span>
+                              ) : (
+                                <span style={{
+                                  display: "inline-flex", alignItems: "center", gap: 5,
+                                  background: "#f0fdf4", color: "#16a34a",
+                                  border: "1px solid #86efac", borderRadius: 6,
+                                  padding: "3px 10px", fontSize: 12, fontWeight: 600
+                                }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e" }} />
+                                  All OK
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ padding: "14px 16px" }}>
+                              <button onClick={() => setSelectedScanId(s.scan_id)} style={{
+                                padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                                border: "1px solid #e2e8f0", background: "#f8fafc",
+                                color: "#475569", cursor: "pointer", fontFamily: "inherit",
+                                display: "inline-flex", alignItems: "center", gap: 5,
+                                transition: "all 0.15s"
+                              }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#f1f5f9"; e.currentTarget.style.borderColor = "#cbd5e1"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
+                              >
+                                <Icon d={Icons.search} size={11} color="#64748b" /> View
+                              </button>
+                            </td>
                           </tr>
                         ))
                       }
@@ -706,6 +837,7 @@ export default function App() {
       {/* ── MODALS ── */}
       {showHostsManager && <HostsManager onClose={() => setShowHostsManager(false)} onSaved={fetchInventoryInfo} />}
       {showInventoryManager && <InventoryManager onClose={() => { setShowInventoryManager(false); fetchInventoryInfo(); }} onActivated={fetchInventoryInfo} />}
+      {selectedScanId && <ScanFailuresModal scanId={selectedScanId} onClose={() => setSelectedScanId(null)} />}
 
       {/* ── REFRESH TOAST ── */}
       {refreshedAt && (

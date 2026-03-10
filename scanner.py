@@ -37,56 +37,96 @@ def run_patch_scan() -> dict:
         cmdline="--forks 50 --timeout 10"
     )
 
-    output = {'status': result.status, 'rc': result.rc, 'hosts': {}}
+    output = {
+        'status':   result.status,
+        'rc':       result.rc,
+        'hosts':    {},
+        'failures': {},  # host -> {task, msg, stderr, rc}
+    }
+
+    # Collect the full ansible stdout log
+    try:
+        stdout_lines = list(result.stdout)
+        output['ansible_log'] = ''.join(stdout_lines)
+    except Exception:
+        output['ansible_log'] = ''
 
     for event in result.events:
-        if event.get('event') != 'runner_on_ok':
-            continue
-
+        event_type = event.get('event', '')
         ed   = event.get('event_data', {})
-        host = ed.get('remote_addr')
+        host = ed.get('remote_addr') or ed.get('host')
         task = ed.get('task', '')
         res  = ed.get('res', {})
 
-        if task != 'Print kernel version and packages':
-            continue
-        if not host or 'msg' not in res:
-            continue
+        # ── capture successful scan results ───────────────────────────────────
+        if event_type == 'runner_on_ok':
+            if task != 'Print kernel version and packages' or not host:
+                continue
+            if 'msg' not in res:
+                continue
 
-        msg = res['msg']
-        flat = {}
-        if isinstance(msg, list):
-            for item in msg:
-                flat.update(item)
-        elif isinstance(msg, dict):
-            flat = msg
+            msg = res['msg']
+            flat = {}
+            if isinstance(msg, list):
+                for item in msg:
+                    flat.update(item)
+            elif isinstance(msg, dict):
+                flat = msg
 
-        # Normalize fields
-        if 'pending_security_packages' in flat:
-            flat['pending_security_packages'] = parse_packages(flat['pending_security_packages'])
+            if 'pending_security_packages' in flat:
+                flat['pending_security_packages'] = parse_packages(flat['pending_security_packages'])
 
-        if 'current_kernel_version' in flat:
-            flat['current_kernel_version'] = flat['current_kernel_version'].strip()
+            if 'current_kernel_version' in flat:
+                flat['current_kernel_version'] = flat['current_kernel_version'].strip()
 
-        if 'latest_available_kernel_version' in flat:
-            flat['latest_available_kernel_version'] = flat['latest_available_kernel_version'].strip()
+            if 'latest_available_kernel_version' in flat:
+                flat['latest_available_kernel_version'] = flat['latest_available_kernel_version'].strip()
 
-        if 'last_reboot_time' in flat:
-            flat['last_reboot_time'] = flat['last_reboot_time'].strip()
+            if 'last_reboot_time' in flat:
+                flat['last_reboot_time'] = flat['last_reboot_time'].strip()
 
-        if 'advisory_ids' in flat:
-            flat['advisory_ids'] = [a.strip() for a in flat['advisory_ids'] if a.strip()]
-        else:
-            flat['advisory_ids'] = []
+            if 'advisory_ids' in flat:
+                flat['advisory_ids'] = [a.strip() for a in flat['advisory_ids'] if a.strip()]
+            else:
+                flat['advisory_ids'] = []
 
-        if 'package_source_map' in flat:
-            source_map = {}
-            for line in flat['package_source_map']:
-                if ':' in line:
-                    binary, source = line.split(':', 1)
-                    source_map[binary.strip()] = source.strip()
-            flat['package_source_map'] = source_map
+            if 'package_source_map' in flat:
+                source_map = {}
+                for line in flat['package_source_map']:
+                    if ':' in line:
+                        binary, source = line.split(':', 1)
+                        source_map[binary.strip()] = source.strip()
+                flat['package_source_map'] = source_map
 
-        output['hosts'][host] = flat
+            output['hosts'][host] = flat
+
+        # ── capture task failures ─────────────────────────────────────────────
+        elif event_type == 'runner_on_failed':
+            if not host:
+                continue
+            failure = {
+                'reason':  'task_failed',
+                'task':    task,
+                'msg':     res.get('msg', 'Unknown error'),
+                'rc':      res.get('rc'),
+                'stderr':  res.get('stderr', '').strip(),
+                'stdout':  res.get('stdout', '').strip(),
+            }
+            # keep the first failure per host (usually the root cause)
+            if host not in output['failures']:
+                output['failures'][host] = failure
+
+        # ── capture unreachable hosts ─────────────────────────────────────────
+        elif event_type == 'runner_on_unreachable':
+            if not host:
+                continue
+            output['failures'][host] = {
+                'reason': 'unreachable',
+                'task':   task,
+                'msg':    res.get('msg', 'Host unreachable'),
+                'rc':     None,
+                'stderr': '',
+                'stdout': '',
+            }
 
     return output

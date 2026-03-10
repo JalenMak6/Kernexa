@@ -179,9 +179,16 @@ def save_to_db(output: dict, scan_id: str, scanned_at: datetime):
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO scan_runs (scan_id, scanned_at, status, rc)
-            VALUES (%s, %s, %s, %s)
-        ''', (scan_id, scanned_at, output['status'], output['rc']))
+            INSERT INTO scan_runs (scan_id, scanned_at, status, rc, host_failures, ansible_log)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (
+            scan_id,
+            scanned_at,
+            output['status'],
+            output['rc'],
+            json.dumps(output.get('failures', {})),
+            output.get('ansible_log', ''),
+        ))
 
         for host, data in output['hosts'].items():
             cursor.execute('''
@@ -221,7 +228,7 @@ def get_latest_scan():
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT scan_id, scanned_at, status, rc
+            SELECT scan_id, scanned_at, status, rc, host_failures
             FROM scan_runs
             ORDER BY scanned_at DESC
             LIMIT 1
@@ -230,7 +237,7 @@ def get_latest_scan():
         if not scan:
             return None
 
-        scan_id, scanned_at, status, rc = scan
+        scan_id, scanned_at, status, rc, host_failures = scan
 
         cursor.execute('''
             SELECT host, current_kernel_version, latest_available_kernel_version,
@@ -241,11 +248,12 @@ def get_latest_scan():
         hosts = cursor.fetchall()
 
         result = {
-            'scan_id':    scan_id,
-            'scanned_at': scanned_at.isoformat() + 'Z',
-            'status':     status,
-            'rc':         rc,
-            'hosts':      []
+            'scan_id':       scan_id,
+            'scanned_at':    scanned_at.isoformat() + 'Z',
+            'status':        status,
+            'rc':            rc,
+            'host_failures': host_failures or {},
+            'hosts':         []
         }
 
         for host, current_kernel, latest_kernel, os_version, last_reboot_time, advisory_ids in hosts:
@@ -277,24 +285,56 @@ def get_scan_history():
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT s.scan_id, s.scanned_at, s.status, s.rc,
-                   COUNT(DISTINCT sr.host) as host_count
+            SELECT
+                s.scan_id,
+                s.scanned_at,
+                s.status,
+                s.rc,
+                s.host_failures,
+                COUNT(DISTINCT sr.host) as host_count
             FROM scan_runs s
             LEFT JOIN scan_results sr ON s.scan_id = sr.scan_id
-            GROUP BY s.scan_id, s.scanned_at, s.status, s.rc
+            GROUP BY s.scan_id, s.scanned_at, s.status, s.rc, s.host_failures
             ORDER BY s.scanned_at DESC
         ''')
         rows = cursor.fetchall()
         return [
             {
-                'scan_id':    row[0],
-                'scanned_at': row[1].isoformat() + 'Z',
-                'status':     row[2],
-                'rc':         row[3],
-                'host_count': row[4]
+                'scan_id':       row[0],
+                'scanned_at':    row[1].isoformat() + 'Z',
+                'status':        row[2],
+                'rc':            row[3],
+                'failure_count': len(row[4]) if row[4] else 0,
+                'host_count':    row[5],
             }
             for row in rows
         ]
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_scan_failures(scan_id: str) -> dict:
+    """Return per-host failure details and ansible log for a given scan."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT host_failures, ansible_log, status, rc, scanned_at
+            FROM scan_runs
+            WHERE scan_id = %s
+        ''', (scan_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        host_failures, ansible_log, status, rc, scanned_at = row
+        return {
+            'scan_id':       scan_id,
+            'scanned_at':    scanned_at.isoformat() + 'Z',
+            'status':        status,
+            'rc':            rc,
+            'host_failures': host_failures or {},
+            'ansible_log':   ansible_log or '',
+        }
     finally:
         cursor.close()
         conn.close()
@@ -335,12 +375,9 @@ def get_cve_details():
                 ARRAY_AGG(DISTINCT sr.host) FILTER (WHERE sr.host IS NOT NULL) as affected_hosts
             FROM cve_details cd
             LEFT JOIN scan_results sr ON sr.scan_id = %s AND (
-                -- Rocky Linux: match host via advisory_ids array
                 (cd.advisory_id ~ '^(RLSA|RHSA)-'
                     AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
-                -- Ubuntu: match host if their package_source_map has any binary pkg
-                --         whose source name equals this CVE's source_package
                 (cd.advisory_id LIKE 'CVE-%%'
                     AND cd.source_package IS NOT NULL
                     AND EXISTS (
