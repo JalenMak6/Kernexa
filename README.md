@@ -4,7 +4,7 @@ A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to sc
 
 ![Kernexa Dashboard1](images/Dashboard11.png)
 ![Kernexa Dashboard3](images/Dashboard3.png)
-![Kernexa Dashboard2](images/Dashboard2.png)
+![Kernexa Dashboard4](images/Dashboard4.png)
 
 
 ## Stack
