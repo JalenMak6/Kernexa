@@ -272,14 +272,15 @@ async def list_cves():
 
 if os.path.exists("dist"):
     app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
 
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="Not found")
-    if os.path.exists("dist/index.html"):
-        return FileResponse("dist/index.html")
-    return {"message": "Patch Scan Platform API"}
+# @app.get("/{full_path:path}")
+# async def serve_spa(full_path: str):
+#     if full_path.startswith("api/"):
+#         raise HTTPException(status_code=404, detail="Not found")
+#     if os.path.exists("dist/index.html"):
+#         return FileResponse("dist/index.html")
+#     return {"message": "Patch Scan Platform API"}
 
 
 

@@ -26,6 +26,12 @@ function osVersionBadge(osVersion) {
   );
 }
 
+// Shorten kernel: "5.14.0-611.36.1.el9_7.x86_64" → "5.14.0-611.36.1"
+function shortKernel(v) {
+  if (!v) return "—";
+  return v.replace(/\.(el|generic|x86_64|aarch64|noarch).*$/, '');
+}
+
 export function HostRow({ host }) {
   const [expanded, setExpanded] = useState(false);
   const outdated = kernelOutdated(host.current_kernel_version, host.latest_available_kernel_version);
@@ -42,11 +48,14 @@ export function HostRow({ host }) {
         <td style={{ padding: "14px 16px", width: 120 }}>
           {osVersionBadge(host.os_version)}
         </td>
-        <td title={host.current_kernel_version} style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "default" }}>
-          {host.current_kernel_version}
+        <td style={{ padding: "14px 16px", width: 140, fontSize: 12, color: "#475569" }}>
+          {host.last_reboot_time ? host.last_reboot_time : <span style={{ color: "#cbd5e1" }}>—</span>}
         </td>
-        <td title={host.latest_available_kernel_version} style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "default" }}>
-          {host.latest_available_kernel_version}
+        <td title={host.current_kernel_version} style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", whiteSpace: "nowrap", cursor: "default" }}>
+          {shortKernel(host.current_kernel_version)}
+        </td>
+        <td title={host.latest_available_kernel_version} style={{ padding: "14px 16px", fontSize: 12, fontFamily: "monospace", color: "#475569", whiteSpace: "nowrap", cursor: "default" }}>
+          {shortKernel(host.latest_available_kernel_version)}
         </td>
         <td style={{ padding: "14px 16px", width: 130 }}>
           {outdated ? badge("Outdated", "red") : badge("Up to date", "green")}
