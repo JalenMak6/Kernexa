@@ -1,75 +1,152 @@
 ---
-- name: scanning kernel version
+# =============================================================================
+# Kernexa — Patch Compliance Scanner
+# Supports: RHEL 8/9/10, Rocky Linux 8/9, Ubuntu 20.04/22.04/24.04
+#
+# Play 1: Detect the best available Python interpreter on each remote host
+#         using raw SSH (no Python required — compatible with ALL hosts)
+# Play 2: Run structured compliance scan using the detected interpreter
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Play 1 — Python interpreter discovery (raw SSH, zero Python dependency)
+# -----------------------------------------------------------------------------
+- name: Discover Python interpreter on remote hosts
+  hosts: all
+  gather_facts: false
+  become: true
+  become_method: sudo
+  tasks:
+
+    - name: Find best available Python interpreter
+      ansible.builtin.raw: |
+        for py in \
+          /usr/bin/python3.12 \
+          /usr/bin/python3.11 \
+          /usr/bin/python3.10 \
+          /usr/bin/python3.9  \
+          /usr/bin/python3.8  \
+          /usr/libexec/platform-python \
+          /usr/bin/python3    \
+          /usr/bin/python2; do
+          [ -x "$py" ] && echo "$py" && exit 0
+        done
+        echo "/usr/bin/python3"
+      register: python_interpreter_raw
+      changed_when: false
+
+    - name: Set Python interpreter for this host
+      ansible.builtin.set_fact:
+        ansible_python_interpreter: "{{ python_interpreter_raw.stdout_lines[0] | trim }}"
+
+# -----------------------------------------------------------------------------
+# Play 2 — Compliance scan (structured, uses interpreter from Play 1)
+# -----------------------------------------------------------------------------
+- name: Collect kernel and patch compliance data
   hosts: all
   gather_facts: true
   become: true
   become_method: sudo
   tasks:
-    - name: get kernel version
+
+    # ── Kernel versions ───────────────────────────────────────────────────────
+
+    - name: Get current kernel version
       ansible.builtin.shell: uname -r
       register: kernel_version
+      changed_when: false
 
     - name: Get latest available kernel version
       ansible.builtin.shell: |
         if [ "{{ ansible_os_family }}" = "RedHat" ]; then
-          yum --showduplicates list kernel 2>/dev/null | grep "^kernel" | awk '{print $2}' | grep -P '\-[0-9]+\.[0-9]+\.[0-9]+\.el' | sort -V | tail -n 1
+          yum --showduplicates list kernel 2>/dev/null \
+            | grep "^kernel" \
+            | awk '{print $2}' \
+            | awk -F'.' 'NF>=5' \
+            | sort -V \
+            | tail -n 1
         else
-          apt-cache policy linux-image-generic | grep "Candidate:" | awk '{print $2}'
+          apt-cache policy linux-image-generic 2>/dev/null \
+            | grep "Candidate:" \
+            | awk '{print $2}'
         fi
       register: latest_kernel_version
+      changed_when: false
+      ignore_errors: true
+
+    # ── Pending security packages ─────────────────────────────────────────────
 
     - name: Get pending security packages
       ansible.builtin.shell: |
         if [ "{{ ansible_os_family }}" = "RedHat" ]; then
           if [ "{{ ansible_distribution_major_version }}" = "7" ]; then
-            yum updateinfo list security | grep "x86_64\|noarch" | awk '{print $3}'
+            yum updateinfo list security 2>/dev/null \
+              | grep "x86_64\|noarch" \
+              | awk '{print $3}'
           else
-            yum updateinfo list security | grep "x86_64\|noarch" | grep -v "Red Hat " | awk '{print $3}'
+            yum updateinfo list security 2>/dev/null \
+              | grep "x86_64\|noarch" \
+              | grep -v "Red Hat " \
+              | awk '{print $3}'
           fi
         else
-          apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}'
+          apt list --upgradable 2>/dev/null \
+            | grep -v "^Listing" \
+            | awk -F/ '{print $1}'
         fi
       register: pending_security_packages
       changed_when: false
       ignore_errors: true
 
-    - name: Check the last reboot time
+    # ── Last reboot ───────────────────────────────────────────────────────────
+
+    - name: Get last reboot time
       ansible.builtin.shell: who -b | awk '{ print $3 " " $4 }'
       register: last_reboot_time
       changed_when: false
       ignore_errors: true
 
-    - name: Get RLSA advisory IDs
+    # ── Advisory IDs — RHEL and Rocky Linux only ──────────────────────────────
+
+    - name: Get RLSA / RHSA advisory IDs
       ansible.builtin.shell: |
-        yum updateinfo list security 2>/dev/null | awk '{print $1}' | grep -E '^(RLSA|RHSA)' | sort -u
+        yum updateinfo list security 2>/dev/null \
+          | awk '{print $1}' \
+          | grep -E '^(RLSA|RHSA)' \
+          | sort -u
       register: advisory_ids
       when: ansible_os_family == "RedHat"
       changed_when: false
       ignore_errors: true
 
-    - name: Get source package names for pending packages (Ubuntu)
+    # ── Source package map — Debian / Ubuntu only ─────────────────────────────
+
+    - name: Get binary-to-source package map
       ansible.builtin.shell: |
-        apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}' | while read pkg; do
+        apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}' | \
+        while read pkg; do
           src=$(dpkg-query -f='${Source}\n' -W "$pkg" 2>/dev/null | head -1)
-          if [ -z "$src" ]; then
-            echo "$pkg:$pkg"
-          else
-            echo "$pkg:$src"
-          fi
+          echo "$pkg:${src:-$pkg}"
         done
       register: debian_based_package_source_map
       when: ansible_os_family == "Debian"
       changed_when: false
       ignore_errors: true
 
+    # ── Emit structured result — consumed by scanner.py ──────────────────────
+
     - name: Print kernel version and packages
       ansible.builtin.debug:
-          msg:
-            current_kernel_version: "{{ kernel_version.stdout | trim }}"
-            latest_available_kernel_version: "{% if ansible_os_family == 'RedHat' %}{{ latest_kernel_version.stdout | trim }}.x86_64{% else %}{{ latest_kernel_version.stdout | trim | regex_replace('^(\\d+\\.\\d+\\.\\d+-\\d+)\\..*$', '\\1') }}-generic{% endif %}"
-            pending_security_packages: "{{ pending_security_packages.stdout_lines | default([]) }}"
-            os_version: "{{ ansible_distribution }}{{ ansible_distribution_version }}"
-            last_reboot_time: "{{ last_reboot_time.stdout }}"
-            advisory_ids: "{{ advisory_ids.stdout_lines | default([]) }}"
-            package_source_map: "{{ debian_based_package_source_map.stdout_lines | default([]) }}"
-
+        msg:
+          current_kernel_version: "{{ kernel_version.stdout | trim }}"
+          latest_available_kernel_version: >-
+            {% if ansible_os_family == 'RedHat' %}
+            {{ latest_kernel_version.stdout | trim }}.x86_64
+            {% else %}
+            {{ latest_kernel_version.stdout | trim | regex_replace('^(\d+\.\d+\.\d+-\d+)\..*$', '\1') }}-generic
+            {% endif %}
+          pending_security_packages: "{{ pending_security_packages.stdout_lines | default([]) }}"
+          os_version:                "{{ ansible_distribution }}{{ ansible_distribution_version }}"
+          last_reboot_time:          "{{ last_reboot_time.stdout | default('') }}"
+          advisory_ids:              "{{ advisory_ids.stdout_lines | default([]) }}"
+          package_source_map:        "{{ debian_based_package_source_map.stdout_lines | default([]) }}"
