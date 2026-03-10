@@ -314,7 +314,6 @@ def get_scan_history():
         conn.close()
 
 def get_scan_failures(scan_id: str) -> dict:
-    """Return per-host failure details and ansible log for a given scan."""
     conn = get_conn()
     cursor = conn.cursor()
     try:
@@ -372,13 +371,17 @@ def get_cve_details():
                 cd.description,
                 cd.fetched_at,
                 cd.remediation,
+                cd.cvss_score,
+                cd.cvss_vector,
+                cd.cvss_version,
+                cd.cvss_source,
                 ARRAY_AGG(DISTINCT sr.host) FILTER (WHERE sr.host IS NOT NULL) as affected_hosts
             FROM cve_details cd
             LEFT JOIN scan_results sr ON sr.scan_id = %s AND (
-                (cd.advisory_id ~ '^(RLSA|RHSA)-'
+                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
                     AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
-                (cd.advisory_id LIKE 'CVE-%%'
+                (cd.advisory_id LIKE \'CVE-%%\'
                     AND cd.source_package IS NOT NULL
                     AND EXISTS (
                         SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
@@ -387,13 +390,14 @@ def get_cve_details():
                 )
             )
             GROUP BY cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
-                     cd.description, cd.fetched_at, cd.remediation, cd.source_package
+                     cd.description, cd.fetched_at, cd.remediation, cd.source_package,
+                     cd.cvss_score, cd.cvss_vector, cd.cvss_version, cd.cvss_source
             ORDER BY
                 CASE cd.severity
-                    WHEN 'Critical'  THEN 1
-                    WHEN 'Important' THEN 2
-                    WHEN 'Moderate'  THEN 3
-                    WHEN 'Low'       THEN 4
+                    WHEN \'Critical\'  THEN 1
+                    WHEN \'Important\' THEN 2
+                    WHEN \'Moderate\'  THEN 3
+                    WHEN \'Low\'       THEN 4
                     ELSE 5
                 END,
                 cd.advisory_id
@@ -409,7 +413,11 @@ def get_cve_details():
                 'description':    row[4],
                 'fetched_at':     row[5].isoformat() + 'Z',
                 'remediation':    row[6],
-                'affected_hosts': row[7] or [],
+                'cvss_score':     float(row[7]) if row[7] is not None else None,
+                'cvss_vector':    row[8],
+                'cvss_version':   row[9],
+                'cvss_source':    row[10],
+                'affected_hosts': row[11] or [],
             }
             for row in rows
         ]

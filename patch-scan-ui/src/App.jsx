@@ -196,7 +196,8 @@ function ScanFailuresModal({ scanId, onClose }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => localStorage.getItem("kernexa_tab") || "dashboard");
+  const changeTab = (t) => { setTab(t); localStorage.setItem("kernexa_tab", t); };
   const [latestScan, setLatestScan] = useState(null);
   const [history, setHistory] = useState([]);
   const [cves, setCves] = useState([]);
@@ -424,7 +425,7 @@ export default function App() {
             { id: "hosts",     label: "VM Inventory", icon: "kernel"  },
             { id: "history",   label: "Scan History", icon: "history" },
           ].map(item => (
-            <button key={item.id} onClick={() => setTab(item.id)} style={{
+            <button key={item.id} onClick={() => changeTab(item.id)} style={{
               width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
               display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
               marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
@@ -436,7 +437,7 @@ export default function App() {
             </button>
           ))}
 
-          <button onClick={() => setTab("cves")} style={{
+          <button onClick={() => changeTab("cves")} style={{
             width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
             display: "flex", alignItems: "center", justifyContent: "space-between",
             cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
@@ -628,7 +629,7 @@ export default function App() {
                           const count = cveCounts[sev] || 0;
                           const cfg = count > 0 ? CVE_SEVERITY_CONFIG[sev] : { bg: "#f8fafc", color: "#94a3b8", border: "#e2e8f0", dot: "#cbd5e1" };
                           return (
-                            <div key={sev} onClick={() => setTab("cves")} style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 12, padding: "16px 20px", cursor: "pointer", transition: "all 0.15s", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }} onMouseEnter={e => e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e => e.currentTarget.style.transform="translateY(0)"}>
+                            <div key={sev} onClick={() => changeTab("cves")} style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 12, padding: "16px 20px", cursor: "pointer", transition: "all 0.15s", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }} onMouseEnter={e => e.currentTarget.style.transform="translateY(-1px)"} onMouseLeave={e => e.currentTarget.style.transform="translateY(0)"}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                                 <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot }} />
                                 <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color, letterSpacing: "0.05em", textTransform: "uppercase" }}>{sev}</span>

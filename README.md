@@ -69,6 +69,7 @@ POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
 POSTGRES_PASSWORD=changeme
 POSTGRES_PORT=5432
+NVD_API_KEY=1111-ece9-fnf-iqiq-1111111
 ```
 
 The app reads these automatically via Docker Compose — no need to edit `database.py` or `docker-compose.yml`.
