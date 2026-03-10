@@ -2,30 +2,22 @@ import psycopg2
 from database import DB_CONFIG
 
 def init():
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn   = psycopg2.connect(**DB_CONFIG)
     cursor = conn.cursor()
     try:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS scan_runs (
-                id             SERIAL PRIMARY KEY,
-                scan_id        TEXT NOT NULL UNIQUE,
-                scanned_at     TIMESTAMP NOT NULL,
-                status         TEXT,
-                rc             INTEGER,
-                host_failures  JSONB DEFAULT '{}'::jsonb,
-                ansible_log    TEXT
+                id            SERIAL PRIMARY KEY,
+                scan_id       TEXT NOT NULL UNIQUE,
+                scanned_at    TIMESTAMP NOT NULL,
+                status        TEXT,
+                rc            INTEGER,
+                host_failures JSONB DEFAULT '{}'::jsonb,
+                ansible_log   TEXT
             )
         ''')
-
-        # migrate existing deployments — add columns if they don't exist yet
-        cursor.execute('''
-            ALTER TABLE scan_runs
-            ADD COLUMN IF NOT EXISTS host_failures JSONB DEFAULT '{}'::jsonb
-        ''')
-        cursor.execute('''
-            ALTER TABLE scan_runs
-            ADD COLUMN IF NOT EXISTS ansible_log TEXT
-        ''')
+        cursor.execute("ALTER TABLE scan_runs ADD COLUMN IF NOT EXISTS host_failures JSONB DEFAULT '{}'::jsonb")
+        cursor.execute("ALTER TABLE scan_runs ADD COLUMN IF NOT EXISTS ansible_log TEXT")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS scan_results (
@@ -58,17 +50,21 @@ def init():
                 description    TEXT,
                 fetched_at     TIMESTAMP DEFAULT NOW(),
                 remediation    TEXT,
-                source_package TEXT
+                source_package TEXT,
+                cvss_score     NUMERIC(3,1),
+                cvss_vector    TEXT,
+                cvss_version   TEXT,
+                cvss_source    TEXT,
+                nvd_fetched_at TIMESTAMP
             )
         ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS hosts (
-                id        SERIAL PRIMARY KEY,
-                hostname  TEXT NOT NULL UNIQUE,
-                added_at  TIMESTAMP DEFAULT NOW(),
-                active    BOOLEAN DEFAULT TRUE
-            )
-        ''')
+        # migrate existing deployments
+        cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_score NUMERIC(3,1)")
+        cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_vector TEXT")
+        cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_version TEXT")
+        cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_source TEXT")
+        cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS nvd_fetched_at TIMESTAMP")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS inventories (
                 id          SERIAL PRIMARY KEY,
@@ -89,11 +85,19 @@ def init():
                 UNIQUE(inventory_id)
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS hosts (
+                id       SERIAL PRIMARY KEY,
+                hostname TEXT NOT NULL UNIQUE,
+                added_at TIMESTAMP DEFAULT NOW(),
+                active   BOOLEAN DEFAULT TRUE
+            )
+        ''')
         conn.commit()
         print("Database tables created/migrated successfully")
     except Exception as e:
         conn.rollback()
-        print(f"Error creating tables: {e}")
+        print(f"Error: {e}")
         raise
     finally:
         cursor.close()
