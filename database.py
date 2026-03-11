@@ -328,7 +328,19 @@ def get_scan_history():
                 s.status,
                 s.rc,
                 s.host_failures,
-                COUNT(DISTINCT sr.host) as host_count
+                COUNT(DISTINCT sr.host) as host_count,
+                COUNT(DISTINCT CASE
+                    WHEN sr.current_kernel_version IS NOT NULL
+                      AND sr.latest_available_kernel_version IS NOT NULL
+                      AND sr.latest_available_kernel_version != ''
+                      AND sr.current_kernel_version = sr.latest_available_kernel_version
+                    THEN sr.host END) as compliant_count,
+                COUNT(DISTINCT CASE
+                    WHEN sr.current_kernel_version IS NOT NULL
+                      AND sr.latest_available_kernel_version IS NOT NULL
+                      AND sr.latest_available_kernel_version != ''
+                      AND sr.current_kernel_version != sr.latest_available_kernel_version
+                    THEN sr.host END) as outdated_count
             FROM scan_runs s
             LEFT JOIN scan_results sr ON s.scan_id = sr.scan_id
             GROUP BY s.scan_id, s.scanned_at, s.status, s.rc, s.host_failures
@@ -337,12 +349,14 @@ def get_scan_history():
         rows = cursor.fetchall()
         return [
             {
-                'scan_id':       row[0],
-                'scanned_at':    row[1].isoformat() + 'Z',
-                'status':        row[2],
-                'rc':            row[3],
-                'failure_count': len(row[4]) if row[4] else 0,
-                'host_count':    row[5],
+                'scan_id':        row[0],
+                'scanned_at':     row[1].isoformat() + 'Z',
+                'status':         row[2],
+                'rc':             row[3],
+                'failure_count':  len(row[4]) if row[4] else 0,
+                'host_count':     row[5],
+                'compliant_count': row[6],
+                'outdated_count':  row[7],
             }
             for row in rows
         ]
