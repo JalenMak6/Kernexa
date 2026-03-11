@@ -495,6 +495,111 @@ def save_hosts(hostnames: list):
         cursor.close()
         conn.close()
 
+def get_host_history(hostname: str) -> list:
+    """Return per-scan kernel and package data for a single host, newest first."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT
+                sr.scan_id,
+                s.scanned_at,
+                sr.current_kernel_version,
+                sr.latest_available_kernel_version,
+                sr.os_version,
+                sr.last_reboot_time,
+                sr.advisory_ids,
+                COUNT(sp.id) as package_count
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+            WHERE sr.host = %s
+            GROUP BY sr.scan_id, s.scanned_at, sr.current_kernel_version,
+                     sr.latest_available_kernel_version, sr.os_version,
+                     sr.last_reboot_time, sr.advisory_ids
+            ORDER BY s.scanned_at DESC
+            LIMIT 30
+        ''', (hostname,))
+        rows = cursor.fetchall()
+        return [
+            {
+                'scan_id':                         row[0],
+                'scanned_at':                      row[1].isoformat() + 'Z',
+                'current_kernel_version':          row[2],
+                'latest_available_kernel_version': row[3],
+                'os_version':                      row[4],
+                'last_reboot_time':                row[5],
+                'advisory_ids':                    row[6] or [],
+                'package_count':                   row[7],
+                'compliant':                       row[2] == row[3] if row[2] and row[3] else None,
+            }
+            for row in rows
+        ]
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_host_cves(hostname: str) -> list:
+    """Return CVE advisories affecting a specific host from the latest scan."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT sr.scan_id, sr.advisory_ids, sr.package_source_map
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            WHERE sr.host = %s
+            ORDER BY s.scanned_at DESC
+            LIMIT 1
+        ''', (hostname,))
+        row = cursor.fetchone()
+        if not row:
+            return []
+        scan_id, advisory_ids, package_source_map = row
+        advisory_ids = advisory_ids or []
+        package_source_map = package_source_map or {}
+
+        cursor.execute('''
+            SELECT
+                cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
+                cd.description, cd.remediation, cd.cvss_score,
+                cd.cvss_vector, cd.cvss_version, cd.cvss_source
+            FROM cve_details cd
+            WHERE
+                (cd.advisory_id ~ '^(RLSA|RHSA)-' AND cd.advisory_id = ANY(%s))
+                OR
+                (cd.advisory_id LIKE 'CVE-%%'
+                    AND cd.source_package IS NOT NULL
+                    AND cd.source_package = ANY(%s))
+            ORDER BY
+                CASE cd.severity
+                    WHEN 'Critical'  THEN 1
+                    WHEN 'Important' THEN 2
+                    WHEN 'Moderate'  THEN 3
+                    WHEN 'Low'       THEN 4
+                    ELSE 5
+                END, cd.advisory_id
+        ''', (advisory_ids, list(package_source_map.values())))
+        rows = cursor.fetchall()
+        return [
+            {
+                'advisory_id':  row[0],
+                'synopsis':     row[1],
+                'severity':     row[2],
+                'cve_ids':      row[3] or [],
+                'description':  row[4],
+                'remediation':  row[5],
+                'cvss_score':   float(row[6]) if row[6] is not None else None,
+                'cvss_vector':  row[7],
+                'cvss_version': row[8],
+                'cvss_source':  row[9],
+            }
+            for row in rows
+        ]
+    finally:
+        cursor.close()
+        conn.close()
+
 # ── host tags ─────────────────────────────────────────────────────────────────
 
 def get_tags_for_host(hostname: str) -> list[str]:

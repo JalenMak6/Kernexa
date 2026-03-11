@@ -19,7 +19,7 @@ from database import (
     delete_inventory, get_inventory_content,
     save_credentials, get_credentials, get_active_inventory_credentials,
     get_tags_for_host, get_all_tags, add_tag, remove_tag,
-    get_cve_details
+    get_cve_details, get_scan_failures, get_host_history, get_host_cves
 )
 
 
@@ -260,6 +260,14 @@ async def scheduler_status():
         "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
         "interval_minutes": 10
     }
+
+@app.get("/api/hosts/{hostname}/history")
+async def get_host_history_endpoint(hostname: str):
+    return get_host_history(hostname)
+
+@app.get("/api/hosts/{hostname}/cves")
+async def get_host_cves_endpoint(hostname: str):
+    return get_host_cves(hostname)
 
 # ── CVE advisories ────────────────────────────────────────────────────────────
 
