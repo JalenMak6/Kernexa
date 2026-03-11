@@ -103,6 +103,20 @@ def init():
         ''')
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_hostname ON host_tags(hostname)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_tag ON host_tags(tag)")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                id            INTEGER PRIMARY KEY DEFAULT 1,
+                smtp_host     TEXT    NOT NULL DEFAULT '',
+                smtp_port     INTEGER NOT NULL DEFAULT 587,
+                smtp_user     TEXT    NOT NULL DEFAULT '',
+                smtp_password TEXT    NOT NULL DEFAULT '',
+                smtp_from     TEXT    NOT NULL DEFAULT '',
+                recipients    TEXT[]  NOT NULL DEFAULT '{}',
+                tls_enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at    TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT single_row CHECK (id = 1)
+            )
+        ''')
         conn.commit()
         print("Database tables created/migrated successfully")
     except Exception as e:

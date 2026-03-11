@@ -495,11 +495,16 @@ def save_hosts(hostnames: list):
         cursor.close()
         conn.close()
 
-def get_host_history(hostname: str) -> list:
-    """Return per-scan kernel and package data for a single host, newest first."""
+
+def get_host_details(hostname: str) -> dict:
+    """Full drill-down for a single host:
+    - kernel history across all scans
+    - CVEs affecting this host (from cve_details joined to their advisory_ids)
+    """
     conn = get_conn()
     cursor = conn.cursor()
     try:
+        # Kernel history — all scans this host appeared in
         cursor.execute('''
             SELECT
                 sr.scan_id,
@@ -508,94 +513,96 @@ def get_host_history(hostname: str) -> list:
                 sr.latest_available_kernel_version,
                 sr.os_version,
                 sr.last_reboot_time,
-                sr.advisory_ids,
-                COUNT(sp.id) as package_count
+                COUNT(sp.package_name) as package_count
             FROM scan_results sr
             JOIN scan_runs s ON s.scan_id = sr.scan_id
             LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
             WHERE sr.host = %s
             GROUP BY sr.scan_id, s.scanned_at, sr.current_kernel_version,
-                     sr.latest_available_kernel_version, sr.os_version,
-                     sr.last_reboot_time, sr.advisory_ids
+                     sr.latest_available_kernel_version, sr.os_version, sr.last_reboot_time
             ORDER BY s.scanned_at DESC
-            LIMIT 30
         ''', (hostname,))
-        rows = cursor.fetchall()
-        return [
+        history_rows = cursor.fetchall()
+
+        kernel_history = [
             {
-                'scan_id':                         row[0],
-                'scanned_at':                      row[1].isoformat() + 'Z',
-                'current_kernel_version':          row[2],
-                'latest_available_kernel_version': row[3],
-                'os_version':                      row[4],
-                'last_reboot_time':                row[5],
-                'advisory_ids':                    row[6] or [],
-                'package_count':                   row[7],
-                'compliant':                       row[2] == row[3] if row[2] and row[3] else None,
+                'scan_id':        row[0],
+                'scanned_at':     row[1].isoformat() + 'Z',
+                'current_kernel': row[2],
+                'latest_kernel':  row[3],
+                'os_version':     row[4],
+                'last_reboot':    row[5],
+                'package_count':  row[6],
+                'outdated':       row[2] != row[3] if row[2] and row[3] else None,
             }
-            for row in rows
+            for row in history_rows
         ]
-    finally:
-        cursor.close()
-        conn.close()
 
-def get_host_cves(hostname: str) -> list:
-    """Return CVE advisories affecting a specific host from the latest scan."""
-    conn = get_conn()
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            SELECT sr.scan_id, sr.advisory_ids, sr.package_source_map
-            FROM scan_results sr
-            JOIN scan_runs s ON s.scan_id = sr.scan_id
-            WHERE sr.host = %s
-            ORDER BY s.scanned_at DESC
-            LIMIT 1
-        ''', (hostname,))
-        row = cursor.fetchone()
-        if not row:
-            return []
-        scan_id, advisory_ids, package_source_map = row
-        advisory_ids = advisory_ids or []
-        package_source_map = package_source_map or {}
+        if not kernel_history:
+            return None
 
+        # Latest scan_id for this host
+        latest_scan_id = kernel_history[0]['scan_id']
+
+        # CVEs affecting this host from latest scan
         cursor.execute('''
             SELECT
-                cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
-                cd.description, cd.remediation, cd.cvss_score,
-                cd.cvss_vector, cd.cvss_version, cd.cvss_source
+                cd.advisory_id,
+                cd.synopsis,
+                cd.severity,
+                cd.cve_ids,
+                cd.description,
+                cd.cvss_score,
+                cd.cvss_vector,
+                cd.cvss_version,
+                cd.cvss_source,
+                cd.remediation
             FROM cve_details cd
-            WHERE
-                (cd.advisory_id ~ '^(RLSA|RHSA)-' AND cd.advisory_id = ANY(%s))
+            JOIN scan_results sr ON sr.scan_id = %s AND sr.host = %s AND (
+                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
+                    AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
-                (cd.advisory_id LIKE 'CVE-%%'
+                (cd.advisory_id LIKE \'CVE-%%\'
                     AND cd.source_package IS NOT NULL
-                    AND cd.source_package = ANY(%s))
+                    AND EXISTS (
+                        SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                        WHERE kv.value = cd.source_package
+                    )
+                )
+            )
             ORDER BY
                 CASE cd.severity
-                    WHEN 'Critical'  THEN 1
-                    WHEN 'Important' THEN 2
-                    WHEN 'Moderate'  THEN 3
-                    WHEN 'Low'       THEN 4
+                    WHEN \'Critical\'  THEN 1
+                    WHEN \'Important\' THEN 2
+                    WHEN \'Moderate\'  THEN 3
+                    WHEN \'Low\'       THEN 4
                     ELSE 5
-                END, cd.advisory_id
-        ''', (advisory_ids, list(package_source_map.values())))
-        rows = cursor.fetchall()
-        return [
+                END,
+                cd.cvss_score DESC NULLS LAST
+        ''', (latest_scan_id, hostname))
+
+        cve_rows = cursor.fetchall()
+        cves = [
             {
                 'advisory_id':  row[0],
                 'synopsis':     row[1],
                 'severity':     row[2],
                 'cve_ids':      row[3] or [],
                 'description':  row[4],
-                'remediation':  row[5],
-                'cvss_score':   float(row[6]) if row[6] is not None else None,
-                'cvss_vector':  row[7],
-                'cvss_version': row[8],
-                'cvss_source':  row[9],
+                'cvss_score':   float(row[5]) if row[5] is not None else None,
+                'cvss_vector':  row[6],
+                'cvss_version': row[7],
+                'cvss_source':  row[8],
+                'remediation':  row[9],
             }
-            for row in rows
+            for row in cve_rows
         ]
+
+        return {
+            'hostname':       hostname,
+            'kernel_history': kernel_history,
+            'cves':           cves,
+        }
     finally:
         cursor.close()
         conn.close()
@@ -670,6 +677,180 @@ def get_tags_for_hosts(hostnames: list[str]) -> dict[str, list[str]]:
         for hostname, tag in cursor.fetchall():
             result.setdefault(hostname, []).append(tag)
         return result
+    finally:
+        cursor.close()
+        conn.close()
+
+# ── notification settings ─────────────────────────────────────────────────────
+
+def get_notification_settings() -> dict:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT smtp_host, smtp_port, smtp_user, smtp_password,
+                   smtp_from, recipients, tls_enabled
+            FROM notification_settings
+            WHERE id = 1
+        ''')
+        row = cursor.fetchone()
+        if not row:
+            return {
+                'smtp_host': '', 'smtp_port': 587, 'smtp_user': '',
+                'smtp_password': '', 'smtp_from': '', 'recipients': [],
+                'tls_enabled': True
+            }
+        return {
+            'smtp_host':     row[0] or '',
+            'smtp_port':     row[1] or 587,
+            'smtp_user':     row[2] or '',
+            'smtp_password': row[3] or '',
+            'smtp_from':     row[4] or '',
+            'recipients':    row[5] or [],
+            'tls_enabled':   row[6] if row[6] is not None else True,
+        }
+    finally:
+        cursor.close()
+        conn.close()
+
+def save_notification_settings(smtp_host: str, smtp_port: int, smtp_user: str,
+                                smtp_password: str, smtp_from: str,
+                                recipients: list, tls_enabled: bool):
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO notification_settings
+                (id, smtp_host, smtp_port, smtp_user, smtp_password, smtp_from, recipients, tls_enabled)
+            VALUES (1, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                smtp_host     = EXCLUDED.smtp_host,
+                smtp_port     = EXCLUDED.smtp_port,
+                smtp_user     = EXCLUDED.smtp_user,
+                smtp_password = EXCLUDED.smtp_password,
+                smtp_from     = EXCLUDED.smtp_from,
+                recipients    = EXCLUDED.recipients,
+                tls_enabled   = EXCLUDED.tls_enabled,
+                updated_at    = NOW()
+        ''', (smtp_host, smtp_port, smtp_user, smtp_password,
+              smtp_from, recipients, tls_enabled))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# ── per-host drill-down ───────────────────────────────────────────────────────
+
+def get_host_history(hostname: str) -> list:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT
+                sr.scan_id,
+                s.scanned_at,
+                sr.current_kernel_version,
+                sr.latest_available_kernel_version,
+                sr.os_version,
+                sr.last_reboot_time,
+                COUNT(sp.package_name) as package_count
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+            WHERE sr.host = %s
+            GROUP BY sr.scan_id, s.scanned_at, sr.current_kernel_version,
+                     sr.latest_available_kernel_version, sr.os_version, sr.last_reboot_time
+            ORDER BY s.scanned_at DESC
+            LIMIT 30
+        ''', (hostname,))
+        rows = cursor.fetchall()
+        return [
+            {
+                'scan_id':        row[0],
+                'scanned_at':     row[1].isoformat() + 'Z',
+                'current_kernel': row[2],
+                'latest_kernel':  row[3],
+                'os_version':     row[4],
+                'last_reboot':    row[5],
+                'package_count':  row[6],
+                'compliant':      row[2] == row[3] if row[2] and row[3] else None,
+            }
+            for row in rows
+        ]
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_host_cves(hostname: str) -> list:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT scan_id FROM scan_runs
+            ORDER BY scanned_at DESC LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        if not row:
+            return []
+        latest_scan_id = row[0]
+
+        cursor.execute('''
+            SELECT
+                cd.advisory_id,
+                cd.synopsis,
+                cd.severity,
+                cd.cve_ids,
+                cd.description,
+                cd.cvss_score,
+                cd.cvss_vector,
+                cd.cvss_version,
+                cd.cvss_source,
+                cd.remediation
+            FROM cve_details cd
+            JOIN scan_results sr ON sr.scan_id = %s AND sr.host = %s AND (
+                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
+                    AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
+                OR
+                (cd.advisory_id LIKE \'CVE-%%\'
+                    AND cd.source_package IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                        WHERE kv.value = cd.source_package
+                    )
+                )
+            )
+            ORDER BY
+                CASE cd.severity
+                    WHEN \'Critical\'  THEN 1
+                    WHEN \'Important\' THEN 2
+                    WHEN \'Moderate\'  THEN 3
+                    WHEN \'Low\'       THEN 4
+                    ELSE 5
+                END,
+                cd.cvss_score DESC NULLS LAST
+        ''', (latest_scan_id, hostname))
+
+        rows = cursor.fetchall()
+        return [
+            {
+                'advisory_id':  row[0],
+                'synopsis':     row[1],
+                'severity':     row[2],
+                'cve_ids':      row[3] or [],
+                'description':  row[4],
+                'cvss_score':   float(row[5]) if row[5] is not None else None,
+                'cvss_vector':  row[6],
+                'cvss_version': row[7],
+                'cvss_source':  row[8],
+                'remediation':  row[9],
+            }
+            for row in rows
+        ]
     finally:
         cursor.close()
         conn.close()
