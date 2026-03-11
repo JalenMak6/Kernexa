@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Node
+patch-scan-ui/node_modules
+patch-scan-ui/dist
+npm-debug.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.venv/
+env/
+.env
+
+# Ansible artifacts/caches
+artifacts/
+.ansible/

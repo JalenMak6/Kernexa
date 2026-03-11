@@ -69,7 +69,7 @@ def run_and_save(scan_id: str, scanned_at: datetime):
         print(f"run_and_save error: {e}")
 
 def scheduled_scan():
-    """Called by APScheduler every 3 minutes. Skips if a scan is already running."""
+    """Called by APScheduler every 10 minutes. Skips if a scan is already running."""
     with _scan_lock:
         already_running = any(
             v in ("running", "pending")
@@ -121,10 +121,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Startup error: {e}")
 
-    # start auto-scan scheduler — every 3 minutes
-    scheduler.add_job(scheduled_scan, "interval", minutes=3, id="auto_scan")
+    # start auto-scan scheduler — every 10 minutes
+    scheduler.add_job(scheduled_scan, "interval", minutes=10, id="auto_scan")
     scheduler.start()
-    print("Auto-scan scheduler started (every 3 minutes)")
+    print("Auto-scan scheduler started (every 10 minutes)")
 
     yield
 
@@ -258,7 +258,7 @@ async def scheduler_status():
     return {
         "enabled": True,
         "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
-        "interval_minutes": 3
+        "interval_minutes": 10
     }
 
 # ── CVE advisories ────────────────────────────────────────────────────────────

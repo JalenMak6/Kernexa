@@ -2,6 +2,7 @@ import psycopg2
 import json
 from datetime import datetime
 import os
+from cryptography.fernet import Fernet, InvalidToken
 
 DB_CONFIG = {
     'host':     os.environ.get('DB_HOST', 'db'),
@@ -10,6 +11,36 @@ DB_CONFIG = {
     'user':     os.environ.get('DB_USER', 'kernexa_user'),
     'password': os.environ.get('DB_PASSWORD', 'supersecret'),
 }
+
+
+# ── credential encryption ─────────────────────────────────────────────────────
+
+def _get_fernet() -> Fernet:
+    """Return a Fernet instance from CREDENTIALS_KEY env var.
+    Raises clearly if missing or malformed so misconfiguration is obvious."""
+    key = os.environ.get('CREDENTIALS_KEY', '').strip()
+    if not key:
+        raise RuntimeError(
+            "CREDENTIALS_KEY is not set in .env. "
+            "Generate one with: python3 -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    try:
+        return Fernet(key.encode())
+    except Exception as e:
+        raise RuntimeError(f"CREDENTIALS_KEY is invalid: {e}")
+
+def _encrypt(plaintext: str) -> str:
+    """Encrypt a plaintext string, return base64 ciphertext string."""
+    return _get_fernet().encrypt(plaintext.encode()).decode()
+
+def _decrypt(ciphertext: str) -> str:
+    """Decrypt ciphertext. Falls back to returning as-is for plaintext migration."""
+    try:
+        return _get_fernet().decrypt(ciphertext.encode()).decode()
+    except (InvalidToken, Exception):
+        # Value is plaintext (pre-encryption migration) — return as-is
+        # It will be re-encrypted next time credentials are saved
+        return ciphertext
 
 def get_conn():
     return psycopg2.connect(**DB_CONFIG)
@@ -123,7 +154,7 @@ def save_credentials(inventory_id: int, username: str, password: str):
             DO UPDATE SET username   = EXCLUDED.username,
                           password   = EXCLUDED.password,
                           updated_at = NOW()
-        ''', (inventory_id, username, password))
+        ''', (inventory_id, username, _encrypt(password)))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -146,7 +177,7 @@ def get_credentials(inventory_id: int) -> dict | None:
             return None
         return {
             'username':   row[0],
-            'password':   row[1],
+            'password':   _decrypt(row[1]),
             'updated_at': row[2].isoformat() + 'Z'
         }
     finally:
@@ -167,7 +198,7 @@ def get_active_inventory_credentials() -> dict | None:
         row = cursor.fetchone()
         if not row:
             return None
-        return {'username': row[0], 'password': row[1], 'inventory_id': row[2]}
+        return {'username': row[0], 'password': _decrypt(row[1]), 'inventory_id': row[2]}
     finally:
         cursor.close()
         conn.close()
