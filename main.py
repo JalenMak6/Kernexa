@@ -10,8 +10,11 @@ from typing import List, Optional
 import uuid
 import os
 import threading
-import csv
+import re
 import io
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -74,28 +77,193 @@ _scan_lock = threading.Lock()
 
 # ── email helpers ─────────────────────────────────────────────────────────────
 
-def build_csv(scan_data: dict) -> str:
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "Host", "OS", "Current Kernel", "Latest Kernel",
-        "Compliant", "Pending Packages", "Last Reboot", "Advisory Count"
-    ])
-    for host in scan_data.get("hosts", []):
-        current = host.get("current_kernel_version", "")
-        latest  = host.get("latest_available_kernel_version", "")
-        compliant = "Yes" if current and latest and current == latest else "No"
-        writer.writerow([
-            host.get("host", ""),
-            host.get("os_version", ""),
-            current,
-            latest,
-            compliant,
-            len(host.get("pending_security_packages", [])),
-            host.get("last_reboot_time", ""),
-            len(host.get("advisory_ids", [])),
-        ])
-    return output.getvalue()
+def classify_os(os_version: str) -> str:
+    """Map a full OS version string to a short sheet name."""
+    if not os_version:
+        return "Unknown"
+    v = os_version.lower()
+    # RHEL / Red Hat
+    if "red hat" in v or "rhel" in v:
+        m = re.search(r'(\d+)', os_version)
+        return f"RHEL {m.group(1)}" if m else "RHEL"
+    # Rocky Linux
+    if "rocky" in v:
+        m = re.search(r'(\d+)', os_version)
+        return f"Rocky {m.group(1)}" if m else "Rocky"
+    # AlmaLinux
+    if "alma" in v:
+        m = re.search(r'(\d+)', os_version)
+        return f"Alma {m.group(1)}" if m else "Alma"
+    # CentOS
+    if "centos" in v:
+        m = re.search(r'(\d+)', os_version)
+        return f"CentOS {m.group(1)}" if m else "CentOS"
+    # Ubuntu
+    if "ubuntu" in v:
+        m = re.search(r'(\d+\.\d+)', os_version)
+        return f"Ubuntu {m.group(1)}" if m else "Ubuntu"
+    # Debian
+    if "debian" in v:
+        m = re.search(r'(\d+)', os_version)
+        return f"Debian {m.group(1)}" if m else "Debian"
+    return os_version[:31]  # Excel sheet name limit
+
+
+def _xl_header_style():
+    """Return header fill, font, alignment, border."""
+    fill   = PatternFill("solid", fgColor="0F172A")
+    font   = Font(bold=True, color="FFFFFF", size=10)
+    align  = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    thin   = Side(style="thin", color="334155")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    return fill, font, align, border
+
+
+def _xl_cell_border():
+    thin = Side(style="thin", color="E2E8F0")
+    return Border(left=thin, right=thin, top=thin, bottom=thin)
+
+
+def build_xlsx(scan_data: dict) -> bytes:
+    """
+    Build an Excel workbook with:
+      - One summary sheet (all hosts)
+      - One sheet per OS group (RHEL 7, RHEL 8, Ubuntu 22.04, etc.)
+    Each sheet has: Host | OS | Kernel Status | Current Kernel | Latest Kernel |
+                    Pending Pkg Count | Pending Packages | Last Reboot | Advisory Count
+    """
+    import re
+
+    HEADERS = [
+        "Host", "OS", "Kernel Status", "Current Kernel", "Latest Kernel",
+        "Pending Pkg Count", "Pending Security Package", "Last Reboot", "Advisory Count",
+    ]
+    COL_WIDTHS = [38, 20, 14, 32, 32, 16, 40, 20, 14]
+
+    # Status colours
+    GREEN_FILL  = PatternFill("solid", fgColor="F0FDF4")
+    RED_FILL    = PatternFill("solid", fgColor="FEF2F2")
+    ALT_FILL    = PatternFill("solid", fgColor="FAFAFA")   # alternating continuation rows
+    NORMAL_FONT = Font(size=10)
+
+    hdr_fill, hdr_font, hdr_align, hdr_border = _xl_header_style()
+    cell_border = _xl_cell_border()
+
+    def write_sheet(ws, hosts):
+        ws.freeze_panes = "A2"
+        ws.row_dimensions[1].height = 20
+
+        # Headers
+        for col_idx, (header, width) in enumerate(zip(HEADERS, COL_WIDTHS), start=1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.fill      = hdr_fill
+            cell.font      = hdr_font
+            cell.alignment = hdr_align
+            cell.border    = hdr_border
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        row_idx = 2
+        for host in hosts:
+            current   = host.get("current_kernel_version", "") or ""
+            latest    = host.get("latest_available_kernel_version", "") or ""
+            compliant = bool(current and latest and current == latest)
+            pkgs      = host.get("pending_security_packages", []) or []
+            pkg_count = len(pkgs)
+            status    = "Up to date" if compliant else "Outdated"
+            last_reboot  = host.get("last_reboot_time", "") or ""
+            advisory_cnt = len(host.get("advisory_ids", []) or [])
+
+            status_fill = GREEN_FILL if compliant else RED_FILL
+            status_color = "166534" if compliant else "991B1B"
+
+            # One row per package; if no packages, still write one row
+            pkg_rows = pkgs if pkgs else [""]
+            first_row = row_idx
+
+            for pkg_i, pkg in enumerate(pkg_rows):
+                is_first = (pkg_i == 0)
+                row_fill = status_fill if is_first else ALT_FILL
+
+                values = [
+                    host.get("host", ""),
+                    host.get("os_version", ""),
+                    status,
+                    current,
+                    latest,
+                    pkg_count,
+                    pkg,
+                    last_reboot,
+                    advisory_cnt,
+                ]
+
+                for col_idx, value in enumerate(values, start=1):
+                    cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                    cell.border    = cell_border
+                    cell.alignment = Alignment(vertical="center")
+                    cell.font      = NORMAL_FONT
+
+                    # Status cell styling
+                    if col_idx == 3 and is_first:
+                        cell.fill = status_fill
+                        cell.font = Font(bold=True, color=status_color, size=10)
+                    # Pkg count cell — orange if > 0
+                    elif col_idx == 6 and is_first and pkg_count > 0:
+                        cell.font = Font(bold=True, color="C2410C", size=10)
+                    # Package name — monospace
+                    elif col_idx == 7 and pkg:
+                        cell.font = Font(name="Courier New", size=9)
+
+                ws.row_dimensions[row_idx].height = 15
+                row_idx += 1
+
+            # Draw a thicker bottom border on the last row of this host group
+            if row_idx > first_row:
+                thick = Side(style="medium", color="CBD5E1")
+                for col_idx in range(1, len(HEADERS) + 1):
+                    cell = ws.cell(row=row_idx - 1, column=col_idx)
+                    cell.border = Border(
+                        left=cell.border.left,
+                        right=cell.border.right,
+                        top=cell.border.top,
+                        bottom=thick,
+                    )
+
+    # ── Group hosts by OS ────────────────────────────────────────────────────
+    hosts = scan_data.get("hosts", [])
+    groups: dict[str, list] = {}
+    for h in hosts:
+        key = classify_os(h.get("os_version", ""))
+        groups.setdefault(key, []).append(h)
+
+    # Sort sheet names naturally: RHEL 7 < RHEL 8 < Rocky 8 < Ubuntu 22.04 …
+    def sheet_sort_key(name):
+        parts = name.split()
+        prefix = parts[0] if parts else ""
+        num_str = parts[1] if len(parts) > 1 else "0"
+        try:
+            num = float(num_str)
+        except ValueError:
+            num = 0
+        return (prefix, num)
+
+    sorted_keys = sorted(groups.keys(), key=sheet_sort_key)
+
+    wb = openpyxl.Workbook()
+
+    # Summary sheet first
+    ws_summary = wb.active
+    ws_summary.title = "All Hosts"
+    write_sheet(ws_summary, hosts)
+
+    # Per-OS sheets
+    for key in sorted_keys:
+        ws = wb.create_sheet(title=key[:31])
+        write_sheet(ws, groups[key])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
 
 def send_scan_report(scan_data: dict, scan_id: str):
     try:
@@ -104,7 +272,7 @@ def send_scan_report(scan_data: dict, scan_id: str):
             print("Email notifications: no SMTP host or recipients configured, skipping")
             return
 
-        csv_content = build_csv(scan_data)
+        xlsx_bytes  = build_xlsx(scan_data)
         scanned_at  = scan_data.get("scanned_at", "")
         host_count  = len(scan_data.get("hosts", []))
         compliant   = sum(
@@ -127,16 +295,17 @@ def send_scan_report(scan_data: dict, scan_id: str):
             f"  Hosts:      {host_count}\n"
             f"  Compliant:  {compliant} ({pct}%)\n"
             f"  Outdated:   {host_count - compliant}\n\n"
-            f"Full results are attached as a CSV.\n"
+            f"Full results are attached as an Excel workbook (.xlsx), "
+            f"with one sheet per OS group.\n"
         )
         msg.attach(MIMEText(body, "plain"))
 
-        attachment = MIMEBase("application", "octet-stream")
-        attachment.set_payload(csv_content.encode())
+        attachment = MIMEBase("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        attachment.set_payload(xlsx_bytes)
         encoders.encode_base64(attachment)
         attachment.add_header(
             "Content-Disposition",
-            f'attachment; filename="kernexa-scan-{scan_id[:8]}.csv"'
+            f'attachment; filename="kernexa-scan-{scan_id[:8]}.xlsx"'
         )
         msg.attach(attachment)
 

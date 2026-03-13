@@ -8,3 +8,4 @@ pydantic
 python-multipart
 apscheduler
 requests
+openpyxl
