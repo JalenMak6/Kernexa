@@ -58,7 +58,6 @@ def init():
                 nvd_fetched_at TIMESTAMP
             )
         ''')
-        # migrate existing deployments
         cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_score NUMERIC(3,1)")
         cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_vector TEXT")
         cursor.execute("ALTER TABLE cve_details ADD COLUMN IF NOT EXISTS cvss_version TEXT")
@@ -113,10 +112,14 @@ def init():
                 smtp_from     TEXT    NOT NULL DEFAULT '',
                 recipients    TEXT[]  NOT NULL DEFAULT '{}',
                 tls_enabled   BOOLEAN NOT NULL DEFAULT TRUE,
+                scan_interval INTEGER NOT NULL DEFAULT 180,
                 updated_at    TIMESTAMP DEFAULT NOW(),
                 CONSTRAINT single_row CHECK (id = 1)
             )
         ''')
+        # migration: add scan_interval to existing deployments
+        cursor.execute("ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS scan_interval INTEGER NOT NULL DEFAULT 180")
+
         conn.commit()
         print("Database tables created/migrated successfully")
     except Exception as e:

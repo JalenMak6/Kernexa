@@ -2,6 +2,7 @@ services:
   app:
     build: .
     container_name: kernexa-app
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -24,6 +25,7 @@ services:
   db:
     image: postgres:16
     container_name: kernexa-db
+    restart: unless-stopped
     ports:
       - "${POSTGRES_PORT}:5432"
     environment:
@@ -43,6 +45,7 @@ services:
   adminer:
     image: adminer
     container_name: kernexa-db-adminer
+    restart: unless-stopped
     ports:
       - "8080:8080"
     depends_on:
