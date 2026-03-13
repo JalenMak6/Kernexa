@@ -13,6 +13,7 @@ export function InventoryManager({ onClose, onActivated }) {
   const [dragOver, setDragOver]       = useState(false);
   const [credFormFor, setCredFormFor] = useState(null); // { id, name }
 
+  
   const load = useCallback(() => {
     apiFetch("/api/inventories").then(setInventories).catch(() => {});
   }, []);
