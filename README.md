@@ -21,7 +21,7 @@ A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to sc
 | Distribution | Versions | CVE Source |
 |---|---|---|
 | RHEL | 7, 8, 9, 10 | Red Hat Security API (RHSA) |
-| Rocky Linux | 8, 9, 10 | Rocky Errata API (RLSA) |
+| Rocky Linux | 8, 9, 10| Rocky Errata API (RLSA) |
 | Ubuntu | 20.04, 22.04, 24.04 | Ubuntu CVE Tracker |
 
 > Other distributions are scanned for kernel/package status but CVE enrichment will not be available.
@@ -65,6 +65,7 @@ POSTGRES_PASSWORD=changeme
 POSTGRES_PORT=5432
 NVD_API_KEY=your-nvd-api-key-here
 CREDENTIALS_KEY=your-fernet-key-here
+ENABLE_DOCS=false
 ```
 
 **NVD_API_KEY** is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
@@ -74,6 +75,8 @@ CREDENTIALS_KEY=your-fernet-key-here
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 Keep this key safe — losing it means existing encrypted credentials in the DB can no longer be decrypted and will need to be re-entered in the UI.
+
+**ENABLE_DOCS** controls whether the `/docs`, `/redoc`, and `/openapi.json` endpoints are exposed. Defaults to `false`. Set to `true` only in local development — never expose these on a public-facing instance as they allow anyone to browse and call your API directly.
 
 ### SSH Credentials
 
@@ -151,9 +154,9 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 ## Features
 
 **Scanning**
-- Kernel compliance — current vs latest available security kernel per host
+- Kernel compliance — current vs latest available security kernel per host, based on security advisories (RHSA/RLSA) rather than all available repo kernels
 - Pending security packages per host
-- Raw SSH scanning — works on any Python version including Python 2.6, 3.6, or no Python at all; skips `.bashrc` to avoid shell noise from tools like conda
+- Raw SSH scanning — works on any Python version including Python 2.6, 3.6, or no Python at all; uses `/bin/sh` to skip `.bashrc` and avoid shell noise from tools like conda
 - Auto-scheduler runs every 3 hours; manual trigger available from the UI
 - Scan failure capture — per-host Ansible errors and unreachable hosts surfaced in the UI with full Ansible log viewer
 
@@ -189,6 +192,7 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 - SSH credentials encrypted at rest using AES-256 (Fernet symmetric encryption)
 - Encryption key stored separately in `.env`, never in the database
 - Credentials decrypted in memory only at scan time — never written to disk
+- `/docs`, `/redoc`, and `/openapi.json` endpoints disabled by default — enable only for local development via `ENABLE_DOCS=true` in `.env`
 
 ---
 
@@ -210,7 +214,7 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 
 ## API Docs
 
-Full interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) once the app is running (powered by FastAPI's built-in Swagger UI).
+Interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`. This should never be enabled on a public-facing instance.
 
 ---
 
@@ -220,7 +224,7 @@ Full interactive API docs are available at [http://localhost:8000/docs](http://l
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn main:app --reload
+ENABLE_DOCS=true uvicorn main:app --reload
 ```
 
 **Frontend dev server**
