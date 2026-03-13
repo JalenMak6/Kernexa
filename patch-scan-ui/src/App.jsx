@@ -67,10 +67,30 @@ export default function App() {
   const [refreshedAt,         setRefreshedAt]         = useState(null);
   const [selectedScanId,      setSelectedScanId]      = useState(null);
 
+  // auto-scan interval
+  const [intervalMinutes,  setIntervalMinutes]  = useState(180);
+  const [intervalValue,    setIntervalValue]    = useState(3);
+  const [intervalUnit,     setIntervalUnit]     = useState("hours");
+  const [intervalSaving,   setIntervalSaving]   = useState(false);
+  const [intervalSaved,    setIntervalSaved]    = useState(false);
+
   const [filterOS,          setFilterOS]          = useState("all");
   const [filterKernelStatus,setFilterKernelStatus] = useState("all");
   const [filterPatchStatus, setFilterPatchStatus]  = useState("all");
   const [filterTag,         setFilterTag]          = useState("all");
+
+  // ── helpers: convert between minutes and unit/value ────────────────────────
+  const minutesToUnitValue = (mins) => {
+    if (mins % 1440 === 0) return { value: mins / 1440, unit: "days" };
+    if (mins % 60   === 0) return { value: mins / 60,   unit: "hours" };
+    return { value: mins, unit: "minutes" };
+  };
+
+  const unitValueToMinutes = (value, unit) => {
+    if (unit === "days")  return value * 1440;
+    if (unit === "hours") return value * 60;
+    return value;
+  };
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -113,6 +133,14 @@ export default function App() {
 
   useEffect(() => {
     fetchLatest(); fetchHistory(); fetchInventoryInfo(); fetchCurrentScan(); fetchCves();
+    // load saved interval
+    apiFetch("/api/scheduler/interval").then(d => {
+      const mins = d.interval_minutes || 180;
+      const { value, unit } = minutesToUnitValue(mins);
+      setIntervalMinutes(mins);
+      setIntervalValue(value);
+      setIntervalUnit(unit);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => { if (tab === "cves") fetchCves(); }, [tab]);
@@ -136,6 +164,19 @@ export default function App() {
   }, [scanning, scanId]);
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const saveInterval = async () => {
+    const mins = unitValueToMinutes(intervalValue, intervalUnit);
+    if (!mins || mins < 1) return;
+    setIntervalSaving(true);
+    try {
+      await apiPost("/api/scheduler/interval", { interval_minutes: mins });
+      setIntervalMinutes(mins);
+      setIntervalSaved(true);
+      setTimeout(() => setIntervalSaved(false), 2500);
+    } catch {}
+    finally { setIntervalSaving(false); }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -226,7 +267,7 @@ export default function App() {
   const importantCount= cves.filter(c => c.severity === "Important").length;
   const tabTitle      = { dashboard: "Overview", hosts: "VM Inventory", history: "Scan History", cves: "CVE Advisories" }[tab] || "Overview";
 
-  // ── Shared filter bar JSX ────────────────────────────────────────────────────
+  // ── Shared filter bar ────────────────────────────────────────────────────────
 
   const FilterBar = ({ showSearch = false }) => (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -308,13 +349,12 @@ export default function App() {
           <div style={{ textAlign: "center", color: "#475569", fontSize: 10, letterSpacing: "0.05em", marginTop: 8 }}>Security Compliance Platform</div>
         </div>
 
-        
         <nav style={{ padding: "16px 12px", flex: 1, overflowY: "auto" }}>
           {[
-            { id: "dashboard", label: "Dashboard",    icon: "host"    },
-            { id: "hosts",     label: "VM Inventory", icon: "kernel"  },
-            { id: "history",   label: "Scan History", icon: "history" },
-            { id: "settings",  label: "Email Notification",     icon: "key"     },
+            { id: "dashboard", label: "Dashboard",          icon: "host"    },
+            { id: "hosts",     label: "VM Inventory",       icon: "kernel"  },
+            { id: "history",   label: "Scan History",       icon: "history" },
+            { id: "settings",  label: "Email Notification", icon: "key"     },
           ].map(item => (
             <button key={item.id} onClick={() => changeTab(item.id)} style={{
               width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
@@ -380,11 +420,84 @@ export default function App() {
       <div style={{ marginLeft: 220, padding: "32px", minHeight: "100vh", width: "calc(100vw - 220px)", overflowX: "hidden" }}>
 
         {/* Topbar */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
+          {/* Left: title + last scan + auto-scan interval */}
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{tabTitle}</h1>
             {latestScan && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Last scan: {fmtDate(latestScan.scanned_at)}</div>}
+
+            {/* Auto-scan interval control */}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>Auto-scan every</span>
+
+              {/* Number input */}
+              <input
+                type="number" min={1} max={999}
+                value={intervalValue}
+                onChange={e => setIntervalValue(Math.max(1, parseInt(e.target.value) || 1))}
+                style={{
+                  width: 52, padding: "5px 0",
+                  border: "1.5px solid #e2e8f0", borderRadius: 8,
+                  fontSize: 14, fontWeight: 700, color: "#0f172a",
+                  fontFamily: "inherit", textAlign: "center",
+                  background: "#fff", outline: "none",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                }}
+              />
+
+              {/* Unit segmented control */}
+              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 2 }}>
+                {["minutes", "hours", "days"].map(u => (
+                  <button
+                    key={u}
+                    onClick={() => setIntervalUnit(u)}
+                    style={{
+                      padding: "4px 10px", borderRadius: 6, border: "none",
+                      background: intervalUnit === u ? "#fff" : "transparent",
+                      color: intervalUnit === u ? "#0f172a" : "#94a3b8",
+                      fontSize: 12, fontWeight: intervalUnit === u ? 700 : 500,
+                      cursor: "pointer", fontFamily: "inherit",
+                      boxShadow: intervalUnit === u ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+
+              {/* Save button */}
+              <button
+                onClick={saveInterval}
+                disabled={intervalSaving}
+                style={{
+                  padding: "5px 14px", borderRadius: 8, border: "none",
+                  background: intervalSaved
+                    ? "linear-gradient(135deg,#22c55e,#16a34a)"
+                    : "linear-gradient(135deg,#3b82f6,#6366f1)",
+                  color: "#fff", fontSize: 12, fontWeight: 700,
+                  cursor: intervalSaving ? "not-allowed" : "pointer",
+                  fontFamily: "inherit", transition: "all 0.2s",
+                  boxShadow: intervalSaved
+                    ? "0 2px 8px rgba(34,197,94,0.35)"
+                    : "0 2px 8px rgba(59,130,246,0.35)",
+                  whiteSpace: "nowrap",
+                  opacity: intervalSaving ? 0.7 : 1,
+                }}
+              >
+                {intervalSaving ? "Saving…" : intervalSaved ? "✓ Saved" : "Save"}
+              </button>
+
+              {/* Current value hint */}
+              {!intervalSaved && (
+                <span style={{ fontSize: 11, color: "#cbd5e1" }}>
+                  · now: {minutesToUnitValue(intervalMinutes).value} {minutesToUnitValue(intervalMinutes).unit}
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Right: action buttons */}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "8px 14px", border: "1px solid #e2e8f0", borderRadius: 8, background: refreshing ? "#f8fafc" : "#fff", cursor: refreshing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: refreshing ? "#94a3b8" : "#475569", fontFamily: "inherit" }}>
               <div style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none", display: "flex" }}>
@@ -457,7 +570,6 @@ export default function App() {
               {/* ── Tab: Dashboard ── */}
               {tab === "dashboard" && (
                 <>
-                  {/* KPI cards */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
                     <StatCard icon="host"    label="Total Hosts"      value={totalHosts}     sub="in latest scan"      accent="#3b82f6" />
                     <StatCard icon="check"   label="Compliant"        value={compliantHosts} sub="kernel up to date"   accent="#10b981" />
@@ -465,7 +577,6 @@ export default function App() {
                     <StatCard icon="package" label="Pending Packages" value={totalPackages}  sub="security updates"    accent="#f59e0b" />
                   </div>
 
-                  {/* CVE severity cards */}
                   {(() => {
                     const cveCounts = (cves || []).reduce((acc, c) => { const sev = c.severity || "Unknown"; acc[sev] = (acc[sev] || 0) + 1; return acc; }, {});
                     const CFG = { Critical: { bg: "#fef2f2", color: "#991b1b", border: "#fca5a5", dot: "#ef4444" }, Important: { bg: "#fff7ed", color: "#9a3412", border: "#fdba74", dot: "#f97316" }, Moderate: { bg: "#fefce8", color: "#854d0e", border: "#fde047", dot: "#eab308" }, Low: { bg: "#f0fdf4", color: "#166534", border: "#86efac", dot: "#22c55e" } };
@@ -492,7 +603,6 @@ export default function App() {
                     );
                   })()}
 
-                  {/* Charts row */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
                     <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                       <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Kernel Compliance</div>
@@ -525,7 +635,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Host table */}
                   <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
                     <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

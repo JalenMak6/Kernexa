@@ -16,8 +16,6 @@ DB_CONFIG = {
 # ── credential encryption ─────────────────────────────────────────────────────
 
 def _get_fernet() -> Fernet:
-    """Return a Fernet instance from CREDENTIALS_KEY env var.
-    Raises clearly if missing or malformed so misconfiguration is obvious."""
     key = os.environ.get('CREDENTIALS_KEY', '').strip()
     if not key:
         raise RuntimeError(
@@ -30,16 +28,12 @@ def _get_fernet() -> Fernet:
         raise RuntimeError(f"CREDENTIALS_KEY is invalid: {e}")
 
 def _encrypt(plaintext: str) -> str:
-    """Encrypt a plaintext string, return base64 ciphertext string."""
     return _get_fernet().encrypt(plaintext.encode()).decode()
 
 def _decrypt(ciphertext: str) -> str:
-    """Decrypt ciphertext. Falls back to returning as-is for plaintext migration."""
     try:
         return _get_fernet().decrypt(ciphertext.encode()).decode()
     except (InvalidToken, Exception):
-        # Value is plaintext (pre-encryption migration) — return as-is
-        # It will be re-encrypted next time credentials are saved
         return ciphertext
 
 def get_conn():
@@ -306,7 +300,6 @@ def get_latest_scan():
                 'package_count':                   len(packages),
             })
 
-        # bulk attach tags
         hostnames = [h['host'] for h in result['hosts']]
         tags_map  = get_tags_for_hosts(hostnames)
         for h in result['hosts']:
@@ -349,12 +342,12 @@ def get_scan_history():
         rows = cursor.fetchall()
         return [
             {
-                'scan_id':        row[0],
-                'scanned_at':     row[1].isoformat() + 'Z',
-                'status':         row[2],
-                'rc':             row[3],
-                'failure_count':  len(row[4]) if row[4] else 0,
-                'host_count':     row[5],
+                'scan_id':         row[0],
+                'scanned_at':      row[1].isoformat() + 'Z',
+                'status':          row[2],
+                'rc':              row[3],
+                'failure_count':   len(row[4]) if row[4] else 0,
+                'host_count':      row[5],
                 'compliant_count': row[6],
                 'outdated_count':  row[7],
             }
@@ -400,7 +393,6 @@ def get_hosts():
         conn.close()
 
 def get_cve_details():
-    """Return all CVE details joined with affected hosts from latest scan."""
     conn = get_conn()
     cursor = conn.cursor()
     try:
@@ -495,118 +487,6 @@ def save_hosts(hostnames: list):
         cursor.close()
         conn.close()
 
-
-def get_host_details(hostname: str) -> dict:
-    """Full drill-down for a single host:
-    - kernel history across all scans
-    - CVEs affecting this host (from cve_details joined to their advisory_ids)
-    """
-    conn = get_conn()
-    cursor = conn.cursor()
-    try:
-        # Kernel history — all scans this host appeared in
-        cursor.execute('''
-            SELECT
-                sr.scan_id,
-                s.scanned_at,
-                sr.current_kernel_version,
-                sr.latest_available_kernel_version,
-                sr.os_version,
-                sr.last_reboot_time,
-                COUNT(sp.package_name) as package_count
-            FROM scan_results sr
-            JOIN scan_runs s ON s.scan_id = sr.scan_id
-            LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
-            WHERE sr.host = %s
-            GROUP BY sr.scan_id, s.scanned_at, sr.current_kernel_version,
-                     sr.latest_available_kernel_version, sr.os_version, sr.last_reboot_time
-            ORDER BY s.scanned_at DESC
-        ''', (hostname,))
-        history_rows = cursor.fetchall()
-
-        kernel_history = [
-            {
-                'scan_id':        row[0],
-                'scanned_at':     row[1].isoformat() + 'Z',
-                'current_kernel': row[2],
-                'latest_kernel':  row[3],
-                'os_version':     row[4],
-                'last_reboot':    row[5],
-                'package_count':  row[6],
-                'outdated':       row[2] != row[3] if row[2] and row[3] else None,
-            }
-            for row in history_rows
-        ]
-
-        if not kernel_history:
-            return None
-
-        # Latest scan_id for this host
-        latest_scan_id = kernel_history[0]['scan_id']
-
-        # CVEs affecting this host from latest scan
-        cursor.execute('''
-            SELECT
-                cd.advisory_id,
-                cd.synopsis,
-                cd.severity,
-                cd.cve_ids,
-                cd.description,
-                cd.cvss_score,
-                cd.cvss_vector,
-                cd.cvss_version,
-                cd.cvss_source,
-                cd.remediation
-            FROM cve_details cd
-            JOIN scan_results sr ON sr.scan_id = %s AND sr.host = %s AND (
-                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
-                    AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
-                OR
-                (cd.advisory_id LIKE \'CVE-%%\'
-                    AND cd.source_package IS NOT NULL
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
-                        WHERE kv.value = cd.source_package
-                    )
-                )
-            )
-            ORDER BY
-                CASE cd.severity
-                    WHEN \'Critical\'  THEN 1
-                    WHEN \'Important\' THEN 2
-                    WHEN \'Moderate\'  THEN 3
-                    WHEN \'Low\'       THEN 4
-                    ELSE 5
-                END,
-                cd.cvss_score DESC NULLS LAST
-        ''', (latest_scan_id, hostname))
-
-        cve_rows = cursor.fetchall()
-        cves = [
-            {
-                'advisory_id':  row[0],
-                'synopsis':     row[1],
-                'severity':     row[2],
-                'cve_ids':      row[3] or [],
-                'description':  row[4],
-                'cvss_score':   float(row[5]) if row[5] is not None else None,
-                'cvss_vector':  row[6],
-                'cvss_version': row[7],
-                'cvss_source':  row[8],
-                'remediation':  row[9],
-            }
-            for row in cve_rows
-        ]
-
-        return {
-            'hostname':       hostname,
-            'kernel_history': kernel_history,
-            'cves':           cves,
-        }
-    finally:
-        cursor.close()
-        conn.close()
-
 # ── host tags ─────────────────────────────────────────────────────────────────
 
 def get_tags_for_host(hostname: str) -> list[str]:
@@ -620,7 +500,6 @@ def get_tags_for_host(hostname: str) -> list[str]:
         conn.close()
 
 def get_all_tags() -> list[str]:
-    """Return all unique tags in use, sorted."""
     conn = get_conn()
     cursor = conn.cursor()
     try:
@@ -663,7 +542,6 @@ def remove_tag(hostname: str, tag: str):
         conn.close()
 
 def get_tags_for_hosts(hostnames: list[str]) -> dict[str, list[str]]:
-    """Bulk fetch tags for a list of hostnames. Returns {hostname: [tag, ...]}."""
     if not hostnames:
         return {}
     conn = get_conn()
@@ -742,6 +620,36 @@ def save_notification_settings(smtp_host: str, smtp_port: int, smtp_user: str,
         cursor.close()
         conn.close()
 
+# ── scan interval ─────────────────────────────────────────────────────────────
+
+def get_scan_interval() -> int:
+    """Return the auto-scan interval in minutes (default 180 = 3 hours)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT scan_interval FROM notification_settings WHERE id = 1")
+        row = cursor.fetchone()
+        return row[0] if row else 180
+    finally:
+        cursor.close()
+        conn.close()
+
+def save_scan_interval(interval_minutes: int):
+    """Persist the auto-scan interval (minutes) to the DB."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO notification_settings (id, scan_interval)
+            VALUES (1, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                scan_interval = EXCLUDED.scan_interval,
+                updated_at    = NOW()
+        ''', (interval_minutes,))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 # ── per-host drill-down ───────────────────────────────────────────────────────
 
