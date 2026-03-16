@@ -1,0 +1,331 @@
+name: Kernexa CI image pipeline
+
+on:
+  push:
+    branches: [main, dev]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: jalenmakdocker/kernexa
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. BUILD
+  # Runs on: all triggers
+  # Builds the image locally on the runner and passes the tag to next jobs
+  # ────────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build Image
+    runs-on: self-hosted
+    timeout-minutes: 20
+    outputs:
+      image_local_tag: ${{ steps.meta.outputs.image_local_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate local image tag
+        id: meta
+        run: |
+          SHA=$(echo $GITHUB_SHA | cut -c1-8)
+          echo "image_local_tag=${{ env.IMAGE_NAME }}:${GITHUB_REF_NAME}-${SHA}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag ${{ steps.meta.outputs.image_local_tag }} \
+            --label "git.sha=${{ github.sha }}" \
+            --label "git.branch=${{ github.ref_name }}" \
+            --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. SCAN
+  # Runs on: all triggers
+  # CRITICAL + HIGH → fail
+  # --ignore-unfixed → skip CVEs with no fix available
+  # Always uploads report as artifact even on failure
+  # ────────────────────────────────────────────────────────────────────────────
+  scan:
+    name: Trivy Security Scan
+    runs-on: self-hosted
+    needs: build
+    timeout-minutes: 15
+
+    steps:
+      - name: Run Trivy scan
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --format json \
+            --output trivy-report.json \
+            ${{ needs.build.outputs.image_local_tag }}
+
+      - name: Print table on failure
+        if: failure()
+        run: |
+          trivy image \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --format table \
+            ${{ needs.build.outputs.image_local_tag }}
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report-${{ github.ref_name }}-${{ github.run_number }}
+          path: trivy-report.json
+          retention-days: 30
+
+      - name: Email scan result
+        if: always()
+        run: |
+          BRANCH=${{ github.ref_name }}
+          RUN=${{ github.run_number }}
+          SHA=$(echo ${{ github.sha }} | cut -c1-8)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          CRITICAL=$(python3 -c "
+          import json,sys
+          data=json.load(open('trivy-report.json'))
+          total=sum(1 for r in data.get('Results',[]) for v in r.get('Vulnerabilities',[]) or [] if v.get('Severity')=='CRITICAL')
+          print(total)" 2>/dev/null || echo "0")
+
+          HIGH=$(python3 -c "
+          import json,sys
+          data=json.load(open('trivy-report.json'))
+          total=sum(1 for r in data.get('Results',[]) for v in r.get('Vulnerabilities',[]) or [] if v.get('Severity')=='HIGH')
+          print(total)" 2>/dev/null || echo "0")
+
+          if [ "$CRITICAL" = "0" ] && [ "$HIGH" = "0" ]; then
+            STATUS="PASSED - No CRITICAL or HIGH CVEs found"
+            SUBJECT="Kernexa Trivy Scan Passed -- ${BRANCH} #${RUN}"
+          else
+            STATUS="FAILED - ${CRITICAL} CRITICAL, ${HIGH} HIGH CVEs found"
+            SUBJECT="Kernexa Trivy Scan Failed -- ${BRANCH} #${RUN}"
+          fi
+
+          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: ${SUBJECT}\n\nKernexa Trivy Security Scan Result\n------------------------------------\nStatus:   ${STATUS}\nBranch:   ${BRANCH}\nCommit:   ${SHA}\nRun:      #${RUN}\n\nCVE Summary (unfixed excluded):\n  CRITICAL : ${CRITICAL}\n  HIGH     : ${HIGH}\n\nFull report: ${RUN_URL}\n(Trivy report JSON attached as artifact - retention 30 days)\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. TEST  (dev branch only)
+  # Spins up full stack with the locally built image
+  # Health check then full teardown — ephemeral, no persistent state
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Integration Test
+    runs-on: self-hosted
+    needs: [build, scan]
+    if: github.ref_name == 'dev' && github.event_name == 'push'
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write test .env
+        run: |
+          cat > .env << EOF
+          POSTGRES_DB=${{ secrets.DEV_POSTGRES_DB }}
+          POSTGRES_USER=${{ secrets.DEV_POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.DEV_POSTGRES_PASSWORD }}
+          NVD_API_KEY=${{ secrets.NVD_API_KEY }}
+          CREDENTIALS_KEY=${{ secrets.DEV_CREDENTIALS_KEY }}
+          APP_PORT=8000
+          DB_PORT=5432
+          ADMINER_PORT=8080
+          IMAGE=${{ needs.build.outputs.image_local_tag }}
+          ENABLE_DOCS=true
+          EOF
+
+      - name: Start containers
+        run: docker compose up -d
+
+      - name: Health check
+        run: |
+          echo "Waiting for app to be ready..."
+          sleep 10
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:8000/api/scans/latest || echo "000")
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "404" ]; then
+              echo "App is up (HTTP $STATUS)"
+              exit 0
+            fi
+            echo "Attempt $i — HTTP $STATUS, retrying in 5s..."
+            sleep 5
+          done
+          echo "Health check failed"
+          docker compose logs app
+          exit 1
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose down -v
+          rm -f .env
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. PUSH :latest :dev  (dev branch only, after test passes)
+  # :latest → newest build, moves with every dev push
+  # :dev    → same image, explicit dev label
+  # ────────────────────────────────────────────────────────────────────────────
+  push-dev:
+    name: Push Dev Image
+    runs-on: self-hosted
+    needs: [build, scan, test]
+    if: github.ref_name == 'dev' && github.event_name == 'push'
+    timeout-minutes: 10
+
+    steps:
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | \
+            docker login \
+            -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+
+      - name: Push :latest
+        run: |
+          docker tag ${{ needs.build.outputs.image_local_tag }} \
+            ${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.IMAGE_NAME }}:latest
+
+          echo "Pushed:"
+          echo "  → ${{ env.IMAGE_NAME }}:latest"
+
+      - name: Email push notification
+        run: |
+          SHA=$(echo ${{ github.sha }} | cut -c1-8)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa Dev Image Pushed -- latest\n\nKernexa Dev Image Published\n------------------------------------\nImage:    ${{ env.IMAGE_NAME }}:latest\nBranch:   ${{ github.ref_name }}\nCommit:   ${SHA}\nRun:      #${{ github.run_number }}\n\nPull command:\n  docker pull ${{ env.IMAGE_NAME }}:latest\n\nRun details: ${RUN_URL}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+
+      - name: Log out
+        if: always()
+        run: docker logout || true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 5. PR CHECK  (PR to main only)
+  # Build and scan must pass before PR can be merged — no push, no deploy
+  # ────────────────────────────────────────────────────────────────────────────
+  pr-check:
+    name: PR Gate
+    runs-on: self-hosted
+    needs: [build, scan]
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+
+    steps:
+      - name: PR passed build and scan
+        run: echo "Build and Trivy scan passed — safe to merge"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 6. PUSH :stable  (main branch only, after PR merged)
+  # :stable → floating pointer to latest prod-ready build
+  # No deploy — prod is updated manually by pulling :stable on the VM
+  # ────────────────────────────────────────────────────────────────────────────
+  push-stable:
+    name: Push Stable Image
+    runs-on: self-hosted
+    needs: [build, scan]
+    if: github.ref_name == 'main' && github.event_name == 'push'
+    timeout-minutes: 10
+
+    steps:
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | \
+            docker login \
+            -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+
+      - name: Push :stable
+        run: |
+          docker tag ${{ needs.build.outputs.image_local_tag }} \
+            ${{ env.IMAGE_NAME }}:stable
+          docker push ${{ env.IMAGE_NAME }}:stable
+
+          echo "Pushed:"
+          echo "  → ${{ env.IMAGE_NAME }}:stable"
+
+      - name: Log out
+        if: always()
+        run: docker logout || true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 7. PUSH :v*.*.* + :stable  (git tag only)
+  # Triggered manually: git tag v0.0.1 && git push origin v0.0.1
+  # :v0.0.1 → pinned forever, never overwritten
+  # :stable → re-pointed to this release
+  # No prod deploy — pull manually on the Kernexa VM when ready
+  # ────────────────────────────────────────────────────────────────────────────
+  push-release:
+    name: Push Release Image
+    runs-on: self-hosted
+    needs: [build, scan]
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 10
+
+    steps:
+      - name: Log in to Docker Hub
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | \
+            docker login \
+            -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+
+      - name: Push versioned tags
+        run: |
+          VERSION=${GITHUB_REF_NAME}   # e.g. v0.0.1
+
+          # :v0.0.1 — pinned forever
+          docker tag ${{ needs.build.outputs.image_local_tag }} \
+            ${{ env.IMAGE_NAME }}:${VERSION}
+          docker push ${{ env.IMAGE_NAME }}:${VERSION}
+
+          # :stable — re-pointed to this release
+          docker tag ${{ needs.build.outputs.image_local_tag }} \
+            ${{ env.IMAGE_NAME }}:stable
+          docker push ${{ env.IMAGE_NAME }}:stable
+
+          echo "Pushed:"
+          echo "  → ${{ env.IMAGE_NAME }}:${VERSION}"
+          echo "  → ${{ env.IMAGE_NAME }}:stable"
+          echo ""
+          echo "To deploy to prod:"
+          echo "  docker compose pull app && docker compose up -d --force-recreate app"
+
+      - name: Email release notification
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          SHA=$(echo ${{ github.sha }} | cut -c1-8)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa Release Image Pushed -- ${VERSION}\n\nKernexa Release Image Published\n------------------------------------\nVersion:  ${VERSION}\nImage:    ${{ env.IMAGE_NAME }}:${VERSION}\n          ${{ env.IMAGE_NAME }}:stable\nCommit:   ${SHA}\nRun:      #${{ github.run_number }}\n\nPull commands:\n  docker pull ${{ env.IMAGE_NAME }}:${VERSION}\n  docker pull ${{ env.IMAGE_NAME }}:stable\n\nDeploy to prod:\n  docker compose pull app\n  docker compose up -d --force-recreate app\n\nRun details: ${RUN_URL}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+
+      - name: Log out
+        if: always()
+        run: docker logout || true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 8. NOTIFY ON FAILURE
+  # Only fires on main branch or git tag failures — dev failures are noise
+  # ────────────────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify on Failure
+    runs-on: self-hosted
+    needs: [build, scan, push-stable, push-release]
+    if: |
+      failure() &&
+      (github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/v'))
+    timeout-minutes: 5
+
+    steps:
+      - name: Send failure notification
+        run: |
+          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa CI Failed -- ${{ github.ref_name }}\n\nKernexa CI pipeline failed.\n\nBranch: ${{ github.ref_name }}\nRun:    #${{ github.run_number }}\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }} || true
