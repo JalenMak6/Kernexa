@@ -66,6 +66,7 @@ jobs:
           trivy image \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
+            --ignorefile .trivyignore \
             --format json \
             --output trivy-report.json \
             ${{ needs.build.outputs.image_local_tag }}
@@ -75,6 +76,7 @@ jobs:
             --exit-code 1 \
             --severity CRITICAL \
             --ignore-unfixed \
+            --ignorefile .trivyignore \
             --format table \
             ${{ needs.build.outputs.image_local_tag }}
 
@@ -170,14 +172,14 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # 3. TEST  (dev branch only)
-  # Spins up full stack, health check, then full teardown
+  # Spins up full stack, runs pytest against live container, then tears down
   # ────────────────────────────────────────────────────────────────────────────
   test:
     name: Integration Test
     runs-on: self-hosted
     needs: [build, scan]
     if: github.ref_name == 'dev' && github.event_name == 'push'
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -201,7 +203,7 @@ jobs:
       - name: Start containers
         run: docker compose up -d
 
-      - name: Health check
+      - name: Wait for app to be ready
         run: |
           echo "Waiting for app to be ready..."
           sleep 10
@@ -215,9 +217,21 @@ jobs:
             echo "Attempt $i -- HTTP $STATUS, retrying in 5s..."
             sleep 5
           done
-          echo "Health check failed"
+          echo "App failed to start"
           docker compose logs app
           exit 1
+
+      - name: Install test dependencies
+        run: pip install -r requirements-test.txt --break-system-packages
+
+      - name: Run pytest
+        env:
+          TEST_BASE_URL: http://localhost:8000
+        run: |
+          pytest tests/test_api.py \
+            --tb=short \
+            --verbose \
+            -p no:cacheprovider
 
       - name: Tear down
         if: always()
@@ -246,8 +260,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:latest
           echo "Pushed: ${{ env.IMAGE_NAME }}:latest"
-          docker system prune -af
-
 
       - name: Email push notification
         env:

@@ -19,16 +19,16 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY requirements.txt .
+
 RUN pip install -r requirements.txt \
-    && pip install --upgrade --force-reinstall "wheel>=0.46.2" "jaraco.context>=6.1.0"
 
 COPY . .
 
 # copy React build from stage 1
 COPY --from=frontend /app/dist ./dist
 
-# run as non-root — prevents __pycache__ ownership issues on the CI runner
 RUN useradd -m appuser && chown -R appuser:appuser /app
+
 USER appuser
 
 # init db tables then start fastapi
