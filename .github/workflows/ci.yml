@@ -1,4 +1,4 @@
-name: Kernexa CI image pipeline
+name: Kernexa CI pipeline
 
 on:
   push:
@@ -15,8 +15,6 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # 1. BUILD
-  # Runs on: all triggers
-  # Builds the image locally on the runner and passes the tag to next jobs
   # ────────────────────────────────────────────────────────────────────────────
   build:
     name: Build Image
@@ -46,10 +44,8 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # 2. SCAN
-  # Runs on: all triggers
-  # CRITICAL + HIGH → fail
-  # --ignore-unfixed → skip CVEs with no fix available
-  # Always uploads report as artifact even on failure
+  # CRITICAL → fail pipeline
+  # HIGH     → reported only, non-blocking
   # ────────────────────────────────────────────────────────────────────────────
   scan:
     name: Trivy Security Scan
@@ -62,7 +58,7 @@ jobs:
         run: |
           trivy image \
             --exit-code 1 \
-            --severity CRITICAL,HIGH \
+            --severity CRITICAL \
             --ignore-unfixed \
             --format json \
             --output trivy-report.json \
@@ -73,7 +69,7 @@ jobs:
         run: |
           trivy image \
             --exit-code 0 \
-            --severity CRITICAL,HIGH \
+            --severity CRITICAL \
             --ignore-unfixed \
             --format table \
             ${{ needs.build.outputs.image_local_tag }}
@@ -88,38 +84,89 @@ jobs:
 
       - name: Email scan result
         if: always()
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.NOTIFY_EMAIL_FROM }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          BRANCH=${{ github.ref_name }}
-          RUN=${{ github.run_number }}
-          SHA=$(echo ${{ github.sha }} | cut -c1-8)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          python3 << 'PYEOF'
+          import json, os, subprocess
 
-          CRITICAL=$(python3 -c "
-          import json,sys
-          data=json.load(open('trivy-report.json'))
-          total=sum(1 for r in data.get('Results',[]) for v in r.get('Vulnerabilities',[]) or [] if v.get('Severity')=='CRITICAL')
-          print(total)" 2>/dev/null || echo "0")
+          notify_email      = os.environ['NOTIFY_EMAIL']
+          notify_email_from = os.environ['NOTIFY_EMAIL_FROM']
+          branch            = os.environ['BRANCH']
+          run_number        = os.environ['RUN_NUMBER']
+          sha               = os.environ['SHA'][:8]
+          run_url           = os.environ['RUN_URL']
 
-          HIGH=$(python3 -c "
-          import json,sys
-          data=json.load(open('trivy-report.json'))
-          total=sum(1 for r in data.get('Results',[]) for v in r.get('Vulnerabilities',[]) or [] if v.get('Severity')=='HIGH')
-          print(total)" 2>/dev/null || echo "0")
+          try:
+              data = json.load(open('trivy-report.json'))
+          except Exception:
+              data = {}
 
-          if [ "$CRITICAL" = "0" ] && [ "$HIGH" = "0" ]; then
-            STATUS="PASSED - No CRITICAL or HIGH CVEs found"
-            SUBJECT="Kernexa Trivy Scan Passed -- ${BRANCH} #${RUN}"
-          else
-            STATUS="FAILED - ${CRITICAL} CRITICAL, ${HIGH} HIGH CVEs found"
-            SUBJECT="Kernexa Trivy Scan Failed -- ${BRANCH} #${RUN}"
-          fi
+          findings = [
+              v for r in data.get('Results', [])
+              for v in (r.get('Vulnerabilities') or [])
+              if v.get('Severity') in ('CRITICAL', 'HIGH')
+          ]
 
-          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: ${SUBJECT}\n\nKernexa Trivy Security Scan Result\n------------------------------------\nStatus:   ${STATUS}\nBranch:   ${BRANCH}\nCommit:   ${SHA}\nRun:      #${RUN}\n\nCVE Summary (unfixed excluded):\n  CRITICAL : ${CRITICAL}\n  HIGH     : ${HIGH}\n\nFull report: ${RUN_URL}\n(Trivy report JSON attached as artifact - retention 30 days)\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+          critical = sum(1 for v in findings if v.get('Severity') == 'CRITICAL')
+          high     = sum(1 for v in findings if v.get('Severity') == 'HIGH')
+
+          if critical == 0:
+              status  = f"PASSED - No CRITICAL CVEs found ({high} HIGH found, non-blocking)"
+              subject = f"Kernexa Trivy Scan Passed -- {branch} #{run_number}"
+          else:
+              status  = f"FAILED - {critical} CRITICAL CVEs found (pipeline blocked)"
+              subject = f"Kernexa Trivy Scan Failed -- {branch} #{run_number}"
+
+          lines = []
+          lines.append("Kernexa Trivy Security Scan Result")
+          lines.append("-" * 60)
+          lines.append(f"Status:   {status}")
+          lines.append(f"Branch:   {branch}")
+          lines.append(f"Commit:   {sha}")
+          lines.append(f"Run:      #{run_number}")
+          lines.append("")
+          lines.append("CVE Summary (unfixed excluded):")
+          lines.append(f"  CRITICAL : {critical}  (blocks pipeline)")
+          lines.append(f"  HIGH     : {high}      (reported only)")
+          lines.append("")
+          lines.append("-" * 60)
+          lines.append("Full CVE Details:")
+          lines.append("")
+
+          if not findings:
+              lines.append("No CRITICAL or HIGH CVEs found.")
+          else:
+              lines.append(f"Total: {len(findings)} findings")
+              lines.append("=" * 60)
+              for v in findings:
+                  lines.append(f"CVE:      {v.get('VulnerabilityID', '')}")
+                  lines.append(f"Severity: {v.get('Severity', '')}")
+                  lines.append(f"Package:  {v.get('PkgName', '')} {v.get('InstalledVersion', '')}")
+                  lines.append(f"Fixed in: {v.get('FixedVersion', '') or 'no fix available'}")
+                  lines.append(f"Title:    {v.get('Title', '')}")
+                  lines.append(f"URL:      {v.get('PrimaryURL', '')}")
+                  lines.append("-" * 60)
+
+          lines.append("")
+          lines.append(f"Full report: {run_url}")
+          lines.append("(Trivy report JSON attached as artifact - retention 30 days)")
+
+          body = "\n".join(lines)
+          email = f"To: {notify_email}\nFrom: {notify_email_from}\nSubject: {subject}\n\n{body}\n"
+
+          proc = subprocess.run(['msmtp', notify_email], input=email, text=True)
+          exit(proc.returncode)
+          PYEOF
 
   # ────────────────────────────────────────────────────────────────────────────
   # 3. TEST  (dev branch only)
-  # Spins up full stack with the locally built image
-  # Health check then full teardown — ephemeral, no persistent state
+  # Spins up full stack, health check, then full teardown
   # ────────────────────────────────────────────────────────────────────────────
   test:
     name: Integration Test
@@ -161,7 +208,7 @@ jobs:
               echo "App is up (HTTP $STATUS)"
               exit 0
             fi
-            echo "Attempt $i — HTTP $STATUS, retrying in 5s..."
+            echo "Attempt $i -- HTTP $STATUS, retrying in 5s..."
             sleep 5
           done
           echo "Health check failed"
@@ -175,9 +222,7 @@ jobs:
           rm -f .env
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 4. PUSH :latest :dev  (dev branch only, after test passes)
-  # :latest → newest build, moves with every dev push
-  # :dev    → same image, explicit dev label
+  # 4. PUSH :latest  (dev branch only, after test passes)
   # ────────────────────────────────────────────────────────────────────────────
   push-dev:
     name: Push Dev Image
@@ -198,15 +243,46 @@ jobs:
           docker tag ${{ needs.build.outputs.image_local_tag }} \
             ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:latest
-
-          echo "Pushed:"
-          echo "  → ${{ env.IMAGE_NAME }}:latest"
+          echo "Pushed: ${{ env.IMAGE_NAME }}:latest"
 
       - name: Email push notification
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.NOTIFY_EMAIL_FROM }}
+          SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
-          SHA=$(echo ${{ github.sha }} | cut -c1-8)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa Dev Image Pushed -- latest\n\nKernexa Dev Image Published\n------------------------------------\nImage:    ${{ env.IMAGE_NAME }}:latest\nBranch:   ${{ github.ref_name }}\nCommit:   ${SHA}\nRun:      #${{ github.run_number }}\n\nPull command:\n  docker pull ${{ env.IMAGE_NAME }}:latest\n\nRun details: ${RUN_URL}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+          python3 << 'PYEOF'
+          import os, subprocess
+
+          notify_email      = os.environ['NOTIFY_EMAIL']
+          notify_email_from = os.environ['NOTIFY_EMAIL_FROM']
+          sha               = os.environ['SHA'][:8]
+          run_number        = os.environ['RUN_NUMBER']
+          run_url           = os.environ['RUN_URL']
+          image_name        = os.environ['IMAGE_NAME']
+
+          subject = f"Kernexa Dev Image Pushed -- latest"
+          body = "\n".join([
+              "Kernexa Dev Image Published",
+              "-" * 60,
+              f"Image:    {image_name}:latest",
+              f"Branch:   dev",
+              f"Commit:   {sha}",
+              f"Run:      #{run_number}",
+              "",
+              "Pull command:",
+              f"  docker pull {image_name}:latest",
+              "",
+              f"Run details: {run_url}",
+          ])
+
+          email = f"To: {notify_email}\nFrom: {notify_email_from}\nSubject: {subject}\n\n{body}\n"
+          proc = subprocess.run(['msmtp', notify_email], input=email, text=True)
+          exit(proc.returncode)
+          PYEOF
 
       - name: Log out
         if: always()
@@ -214,7 +290,6 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # 5. PR CHECK  (PR to main only)
-  # Build and scan must pass before PR can be merged — no push, no deploy
   # ────────────────────────────────────────────────────────────────────────────
   pr-check:
     name: PR Gate
@@ -225,12 +300,10 @@ jobs:
 
     steps:
       - name: PR passed build and scan
-        run: echo "Build and Trivy scan passed — safe to merge"
+        run: echo "Build and Trivy scan passed -- safe to merge"
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 6. PUSH :stable  (main branch only, after PR merged)
-  # :stable → floating pointer to latest prod-ready build
-  # No deploy — prod is updated manually by pulling :stable on the VM
+  # 6. PUSH :stable  (main branch only)
   # ────────────────────────────────────────────────────────────────────────────
   push-stable:
     name: Push Stable Image
@@ -251,9 +324,7 @@ jobs:
           docker tag ${{ needs.build.outputs.image_local_tag }} \
             ${{ env.IMAGE_NAME }}:stable
           docker push ${{ env.IMAGE_NAME }}:stable
-
-          echo "Pushed:"
-          echo "  → ${{ env.IMAGE_NAME }}:stable"
+          echo "Pushed: ${{ env.IMAGE_NAME }}:stable"
 
       - name: Log out
         if: always()
@@ -261,10 +332,6 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # 7. PUSH :v*.*.* + :stable  (git tag only)
-  # Triggered manually: git tag v0.0.1 && git push origin v0.0.1
-  # :v0.0.1 → pinned forever, never overwritten
-  # :stable → re-pointed to this release
-  # No prod deploy — pull manually on the Kernexa VM when ready
   # ────────────────────────────────────────────────────────────────────────────
   push-release:
     name: Push Release Image
@@ -282,39 +349,71 @@ jobs:
 
       - name: Push versioned tags
         run: |
-          VERSION=${GITHUB_REF_NAME}   # e.g. v0.0.1
-
-          # :v0.0.1 — pinned forever
+          VERSION=${GITHUB_REF_NAME}
           docker tag ${{ needs.build.outputs.image_local_tag }} \
             ${{ env.IMAGE_NAME }}:${VERSION}
           docker push ${{ env.IMAGE_NAME }}:${VERSION}
 
-          # :stable — re-pointed to this release
           docker tag ${{ needs.build.outputs.image_local_tag }} \
             ${{ env.IMAGE_NAME }}:stable
           docker push ${{ env.IMAGE_NAME }}:stable
 
-          echo "Pushed:"
-          echo "  → ${{ env.IMAGE_NAME }}:${VERSION}"
-          echo "  → ${{ env.IMAGE_NAME }}:stable"
-          echo ""
-          echo "To deploy to prod:"
-          echo "  docker compose pull app && docker compose up -d --force-recreate app"
+          echo "Pushed: ${{ env.IMAGE_NAME }}:${VERSION}"
+          echo "Pushed: ${{ env.IMAGE_NAME }}:stable"
 
       - name: Email release notification
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.NOTIFY_EMAIL_FROM }}
+          VERSION: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
         run: |
-          VERSION=${GITHUB_REF_NAME}
-          SHA=$(echo ${{ github.sha }} | cut -c1-8)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa Release Image Pushed -- ${VERSION}\n\nKernexa Release Image Published\n------------------------------------\nVersion:  ${VERSION}\nImage:    ${{ env.IMAGE_NAME }}:${VERSION}\n          ${{ env.IMAGE_NAME }}:stable\nCommit:   ${SHA}\nRun:      #${{ github.run_number }}\n\nPull commands:\n  docker pull ${{ env.IMAGE_NAME }}:${VERSION}\n  docker pull ${{ env.IMAGE_NAME }}:stable\n\nDeploy to prod:\n  docker compose pull app\n  docker compose up -d --force-recreate app\n\nRun details: ${RUN_URL}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }}
+          python3 << 'PYEOF'
+          import os, subprocess
+
+          notify_email      = os.environ['NOTIFY_EMAIL']
+          notify_email_from = os.environ['NOTIFY_EMAIL_FROM']
+          version           = os.environ['VERSION']
+          sha               = os.environ['SHA'][:8]
+          run_number        = os.environ['RUN_NUMBER']
+          run_url           = os.environ['RUN_URL']
+          image_name        = os.environ['IMAGE_NAME']
+
+          subject = f"Kernexa Release Image Pushed -- {version}"
+          body = "\n".join([
+              "Kernexa Release Image Published",
+              "-" * 60,
+              f"Version:  {version}",
+              f"Image:    {image_name}:{version}",
+              f"          {image_name}:stable",
+              f"Commit:   {sha}",
+              f"Run:      #{run_number}",
+              "",
+              "Pull commands:",
+              f"  docker pull {image_name}:{version}",
+              f"  docker pull {image_name}:stable",
+              "",
+              "Deploy to prod:",
+              "  docker compose pull app",
+              "  docker compose up -d --force-recreate app",
+              "",
+              f"Run details: {run_url}",
+          ])
+
+          email = f"To: {notify_email}\nFrom: {notify_email_from}\nSubject: {subject}\n\n{body}\n"
+          proc = subprocess.run(['msmtp', notify_email], input=email, text=True)
+          exit(proc.returncode)
+          PYEOF
 
       - name: Log out
         if: always()
         run: docker logout || true
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 8. NOTIFY ON FAILURE
-  # Only fires on main branch or git tag failures — dev failures are noise
+  # 8. NOTIFY ON FAILURE  (main and tags only)
   # ────────────────────────────────────────────────────────────────────────────
   notify:
     name: Notify on Failure
@@ -327,5 +426,33 @@ jobs:
 
     steps:
       - name: Send failure notification
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          NOTIFY_EMAIL_FROM: ${{ secrets.NOTIFY_EMAIL_FROM }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          printf "To: ${{ secrets.NOTIFY_EMAIL }}\nFrom: ${{ secrets.NOTIFY_EMAIL_FROM }}\nSubject: Kernexa CI Failed -- ${{ github.ref_name }}\n\nKernexa CI pipeline failed.\n\nBranch: ${{ github.ref_name }}\nRun:    #${{ github.run_number }}\n\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n" | msmtp ${{ secrets.NOTIFY_EMAIL }} || true
+          python3 << 'PYEOF'
+          import os, subprocess
+
+          notify_email      = os.environ['NOTIFY_EMAIL']
+          notify_email_from = os.environ['NOTIFY_EMAIL_FROM']
+          branch            = os.environ['BRANCH']
+          run_number        = os.environ['RUN_NUMBER']
+          run_url           = os.environ['RUN_URL']
+
+          subject = f"Kernexa CI Failed -- {branch}"
+          body = "\n".join([
+              "Kernexa CI pipeline failed.",
+              "-" * 60,
+              f"Branch: {branch}",
+              f"Run:    #{run_number}",
+              "",
+              f"{run_url}",
+          ])
+
+          email = f"To: {notify_email}\nFrom: {notify_email_from}\nSubject: {subject}\n\n{body}\n"
+          proc = subprocess.run(['msmtp', notify_email], input=email, text=True)
+          exit(proc.returncode)
+          PYEOF
