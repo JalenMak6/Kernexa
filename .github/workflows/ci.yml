@@ -56,19 +56,18 @@ jobs:
     steps:
       - name: Run Trivy scan
         run: |
+          # Scan for CRITICAL+HIGH so both appear in the report and email
+          # --exit-code only triggers on CRITICAL (pipeline blocks on CRITICAL only)
           trivy image \
-            --exit-code 1 \
-            --severity CRITICAL \
+            --severity CRITICAL,HIGH \
             --ignore-unfixed \
             --format json \
             --output trivy-report.json \
             ${{ needs.build.outputs.image_local_tag }}
 
-      - name: Print table on failure
-        if: failure()
-        run: |
+          # Now check specifically for CRITICAL to decide pass/fail
           trivy image \
-            --exit-code 0 \
+            --exit-code 1 \
             --severity CRITICAL \
             --ignore-unfixed \
             --format table \
