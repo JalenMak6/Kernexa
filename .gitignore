@@ -62,3 +62,5 @@ CLAUDE.md
 # My own command file
 curl_command
 docker-command
+__pycache__/
+*.pyc
