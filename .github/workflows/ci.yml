@@ -246,6 +246,8 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:latest
           echo "Pushed: ${{ env.IMAGE_NAME }}:latest"
+          docker system prune -af
+
 
       - name: Email push notification
         env:
