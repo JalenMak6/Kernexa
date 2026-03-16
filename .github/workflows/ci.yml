@@ -24,6 +24,11 @@ jobs:
       image_local_tag: ${{ steps.meta.outputs.image_local_tag }}
 
     steps:
+      - name: Fix workspace permissions
+        run: |
+          sudo chown -R $USER:$USER ${{ github.workspace }} || true
+          sudo find ${{ github.workspace }} -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
       - name: Checkout
         uses: actions/checkout@v4
 
