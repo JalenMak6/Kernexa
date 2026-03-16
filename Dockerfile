@@ -13,12 +13,14 @@ RUN apt-get update && apt-get install -y \
     sshpass \
     curl \
     openssh-client \
+    && apt-get upgrade -y libc6 libc-bin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+    && pip install --upgrade "wheel>=0.46.2" "jaraco.context>=6.1.0"
 
 COPY . .
 
@@ -27,4 +29,3 @@ COPY --from=frontend /app/dist ./dist
 
 # init db tables then start fastapi
 CMD ["sh", "-c", "python3 init_db.py && uvicorn main:app --host 0.0.0.0 --port 8000"]
-
