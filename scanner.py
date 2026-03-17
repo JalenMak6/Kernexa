@@ -3,20 +3,17 @@ import os
 import yaml
 from database import get_active_inventory_credentials
 
-EXTRAVARS_PATH = "./env/extravars"
-
+EXTRAVARS_PATH = "/app/env/extravars"
 
 def parse_packages(package_lines: list) -> list:
     return [line.strip() for line in package_lines if line.strip()]
 
 
 def run_patch_scan() -> dict:
-    # Load credentials from DB for the active inventory
     creds = get_active_inventory_credentials()
     if not creds:
         raise RuntimeError("No credentials found for active inventory. Set credentials in Settings first.")
 
-    # Write extravars with SSH credentials
     extravars = {
         'ansible_user':            creds['username'],
         'ansible_password':        creds['password'],
@@ -29,7 +26,6 @@ def run_patch_scan() -> dict:
     with open(EXTRAVARS_PATH, "w") as f:
         yaml.dump(extravars, f, default_flow_style=False)
 
-    # Run the playbook
     result = ansible_runner.run(
         private_data_dir='./',
         playbook='patch_scan.yml',
@@ -41,10 +37,9 @@ def run_patch_scan() -> dict:
         'status':   result.status,
         'rc':       result.rc,
         'hosts':    {},
-        'failures': {},  # host -> {task, msg, stderr, rc}
+        'failures': {},
     }
 
-    # Collect the full ansible stdout log
     try:
         stdout_lines = list(result.stdout)
         output['ansible_log'] = ''.join(stdout_lines)
@@ -58,7 +53,6 @@ def run_patch_scan() -> dict:
         task = ed.get('task', '')
         res  = ed.get('res', {})
 
-        # ── capture successful scan results ───────────────────────────────────
         if event_type == 'runner_on_ok':
             if task != 'Print kernel version and packages' or not host:
                 continue
@@ -75,21 +69,16 @@ def run_patch_scan() -> dict:
 
             if 'pending_security_packages' in flat:
                 flat['pending_security_packages'] = parse_packages(flat['pending_security_packages'])
-
             if 'current_kernel_version' in flat:
                 flat['current_kernel_version'] = flat['current_kernel_version'].strip()
-
             if 'latest_available_kernel_version' in flat:
                 flat['latest_available_kernel_version'] = flat['latest_available_kernel_version'].strip()
-
             if 'last_reboot_time' in flat:
                 flat['last_reboot_time'] = flat['last_reboot_time'].strip()
-
             if 'advisory_ids' in flat:
                 flat['advisory_ids'] = [a.strip() for a in flat['advisory_ids'] if a.strip()]
             else:
                 flat['advisory_ids'] = []
-
             if 'package_source_map' in flat:
                 source_map = {}
                 for line in flat['package_source_map']:
@@ -100,7 +89,6 @@ def run_patch_scan() -> dict:
 
             output['hosts'][host] = flat
 
-        # ── capture task failures ─────────────────────────────────────────────
         elif event_type == 'runner_on_failed':
             if not host:
                 continue
@@ -112,11 +100,9 @@ def run_patch_scan() -> dict:
                 'stderr':  res.get('stderr', '').strip(),
                 'stdout':  res.get('stdout', '').strip(),
             }
-            # keep the first failure per host (usually the root cause)
             if host not in output['failures']:
                 output['failures'][host] = failure
 
-        # ── capture unreachable hosts ─────────────────────────────────────────
         elif event_type == 'runner_on_unreachable':
             if not host:
                 continue
