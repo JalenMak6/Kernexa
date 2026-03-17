@@ -38,7 +38,7 @@ The easiest way to get started. No build step required — pulls the latest stab
 
 **1. Clone the repo to get the compose file and env template:**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/JalenMak6/Kernexa.git
 cd kernexa
 ```
 
