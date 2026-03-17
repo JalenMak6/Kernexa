@@ -11,6 +11,10 @@ on:
 env:
   IMAGE_NAME: jalenmakdocker/kernexa
 
+concurrency:
+  group: my-workflow
+  cancel-in-progress: true
+
 jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
@@ -249,7 +253,9 @@ jobs:
         if: always()
         run: |
           docker compose down -v
+          docker system prune -af
           rm -f .env
+
 
   # ────────────────────────────────────────────────────────────────────────────
   # 4. PUSH :latest  (dev branch only, after test passes)
