@@ -240,7 +240,7 @@ jobs:
         env:
           TEST_BASE_URL: http://localhost:8000
         run: |
-          pytest tests/test_api.py \
+          /home/jalen/.local/bin/pytest tests/test_api.py \
             --tb=short \
             --verbose \
             -p no:cacheprovider
