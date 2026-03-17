@@ -59,6 +59,18 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Create .trivyignore
+        run: |
+          cat > .trivyignore << 'EOF'
+          # jaraco.context vendored inside setuptools/_vendor - not independently installed
+          # CVE applies to standalone package only, this is a false positive
+          CVE-2026-23949
+
+          # wheel vendored inside setuptools/_vendor - standalone wheel is patched
+          # only the setuptools internal copy remains which cannot be upgraded
+          CVE-2026-24049
+          EOF
+
       - name: Run Trivy scan
         run: |
           # Scan for CRITICAL+HIGH so both appear in the report and email
