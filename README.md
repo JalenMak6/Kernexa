@@ -178,44 +178,6 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 
 ---
 
-## Project Structure
-
-```
-.
-├── main.py                    # FastAPI — all API routes + email report builder
-├── scanner.py                 # ansible-runner integration
-├── database.py                # DB queries (psycopg2)
-├── enricher.py                # CVE enrichment (RHSA / RLSA / Ubuntu) + CVSS scoring
-├── init_db.py                 # Schema init — safe to re-run on upgrades
-├── patch_scan.yml             # Ansible playbook — fully raw, no Python on remote hosts
-├── docker-compose.yml         # Build from source
-├── docker-compose-stable.yml  # Deploy using pre-built image from Docker Hub
-├── Dockerfile
-├── .env                       # Your local config (not committed)
-├── env-example               # Template — copy to .env
-├── requirements.txt           # Python dependencies
-├── requirements-test.txt      # Test-only dependencies
-├── .trivyignore               # Trivy CVE suppressions (false positives)
-├── inventory/hosts            # Active inventory (written at runtime)
-├── tests/
-│   ├── test_api.py            # pytest integration tests
-│   └── README.md              # Test setup and usage guide
-└── patch-scan-ui/             # React + Vite frontend source
-    └── src/
-        ├── App.jsx
-        └── components/
-            ├── ComplianceTrendChart.jsx
-            ├── CveTab.jsx
-            ├── HostRow.jsx
-            ├── HostsManager.jsx
-            ├── InventoryManager.jsx
-            ├── ScanFailuresModal.jsx
-            ├── SettingsTab.jsx
-            └── StatCard.jsx
-```
-
----
-
 ## How It Works
 
 1. Upload an Ansible inventory and set SSH credentials in the UI
