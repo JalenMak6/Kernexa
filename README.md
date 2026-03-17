@@ -75,9 +75,9 @@ Use this if you want to run a modified version or contribute to development.
 
 **1. Clone and configure:**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/JalenMak6/Kernexa.git
 cd kernexa
-cp .env.example .env        # edit with your preferred credentials
+cp env-example .env        # edit with your preferred credentials
 ```
 
 **2. Generate a credentials encryption key:**
@@ -116,7 +116,7 @@ IMAGE=jalenmakdocker/kernexa:v0.0.1
 
 ### .env
 
-Copy `.env.example` to `.env` and set your own values. This file is never committed.
+Copy `env-example` to `.env` and set your own values. This file is never committed.
 
 ```env
 # Database
@@ -192,7 +192,7 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 ├── docker-compose-stable.yml  # Deploy using pre-built image from Docker Hub
 ├── Dockerfile
 ├── .env                       # Your local config (not committed)
-├── .env.example               # Template — copy to .env
+├── env-example               # Template — copy to .env
 ├── requirements.txt           # Python dependencies
 ├── requirements-test.txt      # Test-only dependencies
 ├── .trivyignore               # Trivy CVE suppressions (false positives)
