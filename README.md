@@ -1,4 +1,4 @@
-# Kernexa
+# Kernexa 
 
 A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, and CVE advisories — all surfaced in a clean web dashboard.
 

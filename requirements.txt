@@ -1,6 +1,6 @@
 ansible
 ansible-runner
-psycopg2-binary 
+psycopg2-binary
 sqlalchemy
 fastapi
 uvicorn
@@ -9,3 +9,6 @@ python-multipart
 apscheduler
 requests
 openpyxl
+cryptography
+wheel>=0.46.2
+jaraco.context>=6.1.0
