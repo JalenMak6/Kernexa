@@ -19,15 +19,18 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY requirements.txt .
-
-RUN pip install -r requirements.txt 
+RUN pip install -r requirements.txt \
+    && pip install --upgrade --force-reinstall "wheel>=0.46.2" "jaraco.context>=6.1.0"
 
 COPY . .
 
 # copy React build from stage 1
 COPY --from=frontend /app/dist ./dist
 
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Create non-root user, pre-create writable dirs, fix ownership —
+RUN useradd -m appuser \
+    && mkdir -p /app/env /app/inventory /app/artifacts /app/tmp \
+    && chown -R appuser:appuser /app
 
 USER appuser
 

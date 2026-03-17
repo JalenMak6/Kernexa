@@ -421,7 +421,7 @@ def get_cve_details():
                 ARRAY_AGG(DISTINCT sr.host) FILTER (WHERE sr.host IS NOT NULL) as affected_hosts
             FROM cve_details cd
             LEFT JOIN scan_results sr ON sr.scan_id = %s AND (
-                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
+                (cd.advisory_id ~ \'^(RLSA|RHSA|ALSA)-\'
                     AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
                 (cd.advisory_id LIKE \'CVE-%%\'
@@ -721,7 +721,7 @@ def get_host_cves(hostname: str) -> list:
                 cd.remediation
             FROM cve_details cd
             JOIN scan_results sr ON sr.scan_id = %s AND sr.host = %s AND (
-                (cd.advisory_id ~ \'^(RLSA|RHSA)-\'
+                (cd.advisory_id ~ \'^(RLSA|RHSA|ALSA)-\'
                     AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
                 OR
                 (cd.advisory_id LIKE \'CVE-%%\'

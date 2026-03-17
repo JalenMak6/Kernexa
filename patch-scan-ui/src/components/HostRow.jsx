@@ -338,7 +338,6 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#94a3b8", fontSize: 13 }}>No CVE advisories found for this host.</div>
               ) : (
                 <div>
-                  {/* severity summary */}
                   <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                     {Object.entries(cveCounts).map(([sev, count]) => {
                       const colors = {
@@ -356,16 +355,12 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
                       );
                     })}
                   </div>
-
-                  {/* search */}
                   <input
                     value={cveSearch}
                     onChange={e => setCveSearch(e.target.value)}
                     placeholder="Search advisory ID, CVE ID, or synopsis..."
                     style={{ width: "100%", padding: "8px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, marginBottom: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
                   />
-
-                  {/* cve list */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {filteredCves.map(c => (
                       <div key={c.advisory_id} style={{ border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 14px", background: "#fafafa" }}>
@@ -408,14 +403,12 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
                     const kernelChanged = prevKernel && prevKernel !== h.current_kernel_version;
                     return (
                       <div key={h.scan_id} style={{ display: "flex", gap: 16, paddingBottom: 16, position: "relative" }}>
-                        {/* timeline dot + line */}
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
                           <div style={{ width: 12, height: 12, borderRadius: "50%", background: compliant ? "#22c55e" : "#f97316", border: "2px solid #fff", boxShadow: "0 0 0 2px " + (compliant ? "#22c55e" : "#f97316"), flexShrink: 0, marginTop: 2 }} />
                           {i < history.length - 1 && (
                             <div style={{ width: 2, flex: 1, background: "#e2e8f0", minHeight: 20, marginTop: 4 }} />
                           )}
                         </div>
-                        {/* content */}
                         <div style={{ flex: 1, paddingBottom: 4 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                             <span style={{ fontSize: 12, color: "#64748b" }}>{new Date(h.scanned_at).toLocaleString()}</span>
@@ -432,7 +425,7 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
                             )}
                           </div>
                           <div style={{ fontSize: 11, color: "#94a3b8" }}>
-                            {h.package_count} pending packages · {h.advisory_ids.length} advisories
+                            {h.package_count} pending packages · {h.advisory_ids?.length || 0} advisories
                           </div>
                         </div>
                       </div>
@@ -451,17 +444,27 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
 
 // ── osVersionBadge ────────────────────────────────────────────────────────────
 
+function shortOsLabel(osVersion) {
+  if (!osVersion) return osVersion;
+  return osVersion
+    .replace(/Red Hat Enterprise Linux\s*/i, "RHEL ")
+    .replace(/Rocky Linux\s*/i, "Rocky ")
+    .replace(/AlmaLinux\s*/i, "Alma ")
+    .trim();
+}
+
 function osVersionBadge(osVersion) {
   if (!osVersion) return null;
   const lower = osVersion.toLowerCase();
   let bg, color, border;
-  if (lower.includes("ubuntu"))                                                          { bg = "#fef3c7"; color = "#92400e"; border = "#fde68a"; }
-  else if (lower.includes("rocky"))                                                      { bg = "#dbeafe"; color = "#1e40af"; border = "#93c5fd"; }
+  if (lower.includes("ubuntu"))                                                              { bg = "#fef3c7"; color = "#92400e"; border = "#fde68a"; }
+  else if (lower.includes("rocky"))                                                          { bg = "#dbeafe"; color = "#1e40af"; border = "#93c5fd"; }
+  else if (lower.includes("alma"))                                                           { bg = "#f0fdf4"; color = "#166534"; border = "#bbf7d0"; }
   else if (lower.includes("redhat") || lower.includes("rhel") || lower.includes("red hat")) { bg = "#fee2e2"; color = "#991b1b"; border = "#fca5a5"; }
-  else                                                                                   { bg = "#f1f5f9"; color = "#475569"; border = "#cbd5e1"; }
+  else                                                                                       { bg = "#f1f5f9"; color = "#475569"; border = "#cbd5e1"; }
   return (
     <span style={{ background: bg, color, border: `1px solid ${border}`, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", fontFamily: "inherit" }}>
-      {osVersion}
+      {shortOsLabel(osVersion)}
     </span>
   );
 }
