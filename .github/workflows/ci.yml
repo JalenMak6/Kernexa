@@ -253,7 +253,6 @@ jobs:
         if: always()
         run: |
           docker compose down -v
-          docker system prune -af
           rm -f .env
 
 
@@ -278,6 +277,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           docker push ${{ env.IMAGE_NAME }}:latest
           echo "Pushed: ${{ env.IMAGE_NAME }}:latest"
+          docker system prune -af
 
       - name: Email push notification
         env:
@@ -357,6 +357,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:stable
           docker push ${{ env.IMAGE_NAME }}:stable
           echo "Pushed: ${{ env.IMAGE_NAME }}:stable"
+          docker system prune -af
 
       - name: Log out
         if: always()
@@ -390,6 +391,7 @@ jobs:
 
           echo "Pushed: ${{ env.IMAGE_NAME }}:${VERSION}"
           echo "Pushed: ${{ env.IMAGE_NAME }}:stable"
+          docker system prune -af
 
       - name: Email release notification
         env:
@@ -486,3 +488,4 @@ jobs:
           proc = subprocess.run(['msmtp', notify_email], input=email, text=True)
           exit(proc.returncode)
           PYEOF
+          docker system prune -af
