@@ -5,11 +5,13 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import get_conn
 
-ROCKY_ERRATA_API = "https://errata.rockylinux.org/api/v2/advisories/{}"
-UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=20"
-RHEL_CVE_API     = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
-NVD_CVE_API      = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={}"
-RH_CVE_API       = "https://access.redhat.com/hydra/rest/securitydata/cve/{}.json"
+ROCKY_ERRATA_API    = "https://errata.rockylinux.org/api/v2/advisories/{}"
+ALMA_ERRATA_API     = "https://raw.githubusercontent.com/AlmaLinux/osv-database/master/advisories/almalinux{version}/{advisory_id}.json"
+UBUNTU_CVES_API     = "https://ubuntu.com/security/cves.json?package={}&limit=20"
+DEBIAN_TRACKER_API  = "https://security-tracker.debian.org/tracker/source-package/{}"
+RHEL_CVE_API        = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
+NVD_CVE_API         = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={}"
+RH_CVE_API          = "https://access.redhat.com/hydra/rest/securitydata/cve/{}.json"
 
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 
@@ -21,6 +23,12 @@ UBUNTU_CODENAMES = {
     '25.04': 'plucky',
 }
 
+DEBIAN_CODENAMES = {
+    '11': 'bullseye',
+    '12': 'bookworm',
+    '13': 'trixie',
+}
+
 UBUNTU_PRIORITY_MAP = {
     'critical':   'Critical',
     'high':       'Important',
@@ -28,6 +36,16 @@ UBUNTU_PRIORITY_MAP = {
     'low':        'Low',
     'negligible': 'Low',
     'undefined':  'Low',
+}
+
+DEBIAN_URGENCY_MAP = {
+    'unimportant': 'Low',
+    'low':         'Low',
+    'medium':      'Moderate',
+    'high':        'Important',
+    'critical':    'Critical',
+    'not yet assigned': 'Moderate',
+    'end-of-life': 'Low',
 }
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -40,21 +58,38 @@ def get_ubuntu_codename(os_version: str) -> str | None:
             return codename
     return None
 
-# ── Rocky / RLSA enrichment ───────────────────────────────────────────────────
+def get_debian_codename(os_version: str) -> str | None:
+    if not os_version:
+        return None
+    for major, codename in DEBIAN_CODENAMES.items():
+        if major in os_version:
+            return codename
+    # also match by codename directly in os_version string
+    for major, codename in DEBIAN_CODENAMES.items():
+        if codename in os_version.lower():
+            return codename
+    return None
+
+# ── Rocky / RLSA + AlmaLinux / ALSA enrichment ───────────────────────────────
 
 def get_uncached_advisories() -> list:
     conn = get_conn()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT DISTINCT unnest(advisory_ids)
+            SELECT DISTINCT unnest(advisory_ids), os_version
             FROM scan_results
             WHERE advisory_ids IS NOT NULL AND array_length(advisory_ids, 1) > 0
         ''')
-        all_ids = {row[0] for row in cursor.fetchall() if row[0]}
-        cursor.execute("SELECT advisory_id FROM cve_details WHERE advisory_id LIKE 'RLSA-%%' OR advisory_id LIKE 'RHSA-%%'")
+        all_rows = [(row[0], row[1]) for row in cursor.fetchall() if row[0]]
+        cursor.execute("""
+            SELECT advisory_id FROM cve_details
+            WHERE advisory_id LIKE 'RLSA-%%'
+               OR advisory_id LIKE 'RHSA-%%'
+               OR advisory_id LIKE 'ALSA-%%'
+        """)
         cached_ids = {row[0] for row in cursor.fetchall()}
-        return list(all_ids - cached_ids)
+        return [(adv_id, os_ver) for adv_id, os_ver in all_rows if adv_id not in cached_ids]
     finally:
         cursor.close()
         conn.close()
@@ -130,6 +165,87 @@ def fetch_rocky_advisory(advisory_id: str) -> dict | None:
         print(f"Enricher: failed to fetch {advisory_id}: {e}")
         return None
 
+def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None:
+    """
+    Fetch AlmaLinux ALSA advisory from the OSV GitHub database.
+    URL: .../almalinux{major}/{advisory_id}.json (colon kept in filename)
+    """
+    try:
+        major = "9"  # default
+        if os_version:
+            m = re.search(r'(\d+)', os_version)
+            if m:
+                major = m.group(1)
+
+        url = ALMA_ERRATA_API.format(version=major, advisory_id=advisory_id)
+        resp = requests.get(url, timeout=(5, 15))
+
+        if resp.status_code == 404:
+            for fallback in ["8", "9", "10"]:
+                if fallback == major:
+                    continue
+                url = ALMA_ERRATA_API.format(version=fallback, advisory_id=advisory_id)
+                resp = requests.get(url, timeout=(5, 15))
+                if resp.status_code == 200:
+                    break
+            else:
+                print(f"Enricher: {advisory_id} not found in any AlmaLinux version, skipping")
+                return None
+
+        if resp.status_code != 200:
+            print(f"Enricher: {advisory_id} returned HTTP {resp.status_code}, skipping")
+            return None
+
+        data = resp.json()
+
+        cve_ids = []
+        for ref in data.get('references', []):
+            cve_match = re.search(r'(CVE-\d{4}-\d+)', ref.get('url', ''))
+            if cve_match:
+                cve_id = cve_match.group(1)
+                if cve_id not in cve_ids:
+                    cve_ids.append(cve_id)
+        for alias in data.get('aliases', []):
+            if alias.startswith('CVE-') and alias not in cve_ids:
+                cve_ids.append(alias)
+
+        synopsis    = data.get('summary', advisory_id)
+        description = data.get('details', synopsis)
+
+        severity = 'Moderate'
+        affected = data.get('affected', [])
+        sev_raw = data.get('database_specific', {}).get('severity', '').lower()
+        if not sev_raw and affected:
+            sev_raw = affected[0].get('database_specific', {}).get('severity', '').lower()
+        sev_map = {'critical': 'Critical', 'important': 'Important',
+                   'moderate': 'Moderate', 'low': 'Low'}
+        severity = sev_map.get(sev_raw, 'Moderate')
+
+        pkg_names = sorted({
+            a['package']['name']
+            for a in affected
+            if 'package' in a and 'name' in a['package']
+            and 'debug' not in a['package']['name']
+        })
+
+        remediation = (
+            f"Run: yum update {' '.join(pkg_names[:10])}"
+            if pkg_names else
+            "Apply the latest available updates via: yum update"
+        )
+
+        return {
+            'advisory_id': advisory_id,
+            'cve_ids':     cve_ids,
+            'severity':    severity,
+            'description': description,
+            'synopsis':    synopsis,
+            'remediation': remediation,
+        }
+    except Exception as e:
+        print(f"Enricher: failed to fetch {advisory_id}: {e}")
+        return None
+
 def fetch_rhel_advisory(advisory_id: str) -> dict | None:
     try:
         url  = RHEL_CVE_API.format(advisory_id)
@@ -187,16 +303,18 @@ def fetch_rhel_advisory(advisory_id: str) -> dict | None:
 def enrich_advisories():
     pending = get_uncached_advisories()
     if not pending:
-        print("Enricher: all RedHat advisories already cached")
+        print("Enricher: all advisories already cached")
         return
 
     print(f"Enricher: fetching {len(pending)} new advisories")
     success = 0
-    for advisory_id in pending:
+    for advisory_id, os_version in pending:
         print(f"Enricher: fetching {advisory_id}...")
         try:
             if advisory_id.startswith('RLSA'):
                 data = fetch_rocky_advisory(advisory_id)
+            elif advisory_id.startswith('ALSA'):
+                data = fetch_alma_advisory(advisory_id, os_version)
             elif advisory_id.startswith('RHSA'):
                 data = fetch_rhel_advisory(advisory_id)
             else:
@@ -370,30 +488,156 @@ def enrich_ubuntu_advisories():
 
     print(f"Ubuntu enricher: cached {new_count} new Ubuntu CVEs")
 
+# ── Debian enrichment ─────────────────────────────────────────────────────────
+
+def get_debian_hosts_and_packages() -> list[dict]:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1')
+        row = cursor.fetchone()
+        if not row:
+            return []
+        latest_scan_id = row[0]
+
+        cursor.execute('''
+            SELECT sr.host, sr.os_version,
+                   array_agg(sp.package_name) as packages,
+                   sr.package_source_map
+            FROM scan_results sr
+            JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+            WHERE sr.scan_id = %s AND sr.os_version ILIKE 'Debian%%'
+            GROUP BY sr.host, sr.os_version, sr.package_source_map
+        ''', (latest_scan_id,))
+
+        results = []
+        for host, os_version, packages, source_map in cursor.fetchall():
+            codename = get_debian_codename(os_version)
+            if codename and packages:
+                results.append({
+                    'host':       host,
+                    'codename':   codename,
+                    'packages':   packages,
+                    'source_map': source_map or {},
+                })
+        return results
+    finally:
+        cursor.close()
+        conn.close()
+
+def fetch_debian_cves_for_package(source_package: str, codename: str) -> list[dict]:
+    """
+    Query the Debian Security Tracker per-package JSON endpoint.
+    Returns CVEs where the package is open/unresolved for the given codename.
+    API: https://security-tracker.debian.org/tracker/source-package/{package}
+    Response: { "CVE-YYYY-XXXX": { "releases": { "bookworm": { "status": "open|resolved", "urgency": "...", "fixed_version": "..." } } } }
+    """
+    try:
+        url  = DEBIAN_TRACKER_API.format(source_package)
+        resp = requests.get(url, timeout=(5, 20), headers={"Accept": "application/json"})
+        if resp.status_code == 404:
+            return []
+        if resp.status_code != 200:
+            print(f"Debian enricher: {source_package} returned HTTP {resp.status_code}, skipping")
+            return []
+
+        data    = resp.json()
+        results = []
+
+        for cve_id, cve_info in data.items():
+            if not cve_id.startswith('CVE-'):
+                continue
+
+            release_info = cve_info.get('releases', {}).get(codename, {})
+            status = release_info.get('status', '')
+
+            # Only include open/unresolved CVEs — skip resolved, not-affected, ignored
+            if status not in ('open', 'undetermined'):
+                continue
+
+            urgency     = release_info.get('urgency', 'not yet assigned').lower()
+            description = cve_info.get('description', '')
+            synopsis    = f"Debian: {cve_id} affecting {source_package}"
+            severity    = DEBIAN_URGENCY_MAP.get(urgency, 'Moderate')
+            remediation = f"Run: apt-get update && apt-get upgrade {source_package}"
+
+            results.append({
+                'advisory_id':    cve_id,
+                'cve_ids':        [cve_id],
+                'severity':       severity,
+                'synopsis':       synopsis,
+                'description':    description,
+                'remediation':    remediation,
+                'source_package': source_package,
+            })
+
+        return results
+    except Exception as e:
+        print(f"Debian enricher: failed to fetch CVEs for {source_package}: {e}")
+        return []
+
+def enrich_debian_advisories():
+    debian_hosts = get_debian_hosts_and_packages()
+    print(f"Debian enricher: found {len(debian_hosts)} Debian hosts with packages")
+    for h in debian_hosts:
+        print(f"  {h['host']} ({h['codename']}): {len(h['packages'])} packages")
+
+    if not debian_hosts:
+        return
+
+    # Reuse same CVE cache as Ubuntu — both store as CVE-YYYY-XXXX
+    cached_cve_ids    = get_cached_ubuntu_cve_ids()
+    seen_pkg_codename = set()
+    new_count         = 0
+
+    for host_info in debian_hosts:
+        codename   = host_info['codename']
+        source_map = host_info['source_map']
+
+        for package in host_info['packages']:
+            binary_name = package.split('/')[0].split('=')[0].strip()
+            src_name    = source_map.get(binary_name, binary_name)
+            src_name    = src_name.split(' (')[0].strip()
+
+            key = (src_name, codename)
+            if key in seen_pkg_codename:
+                continue
+            seen_pkg_codename.add(key)
+
+            print(f"Debian enricher: fetching CVEs for {src_name} ({codename})")
+            try:
+                cve_list = fetch_debian_cves_for_package(src_name, codename)
+                print(f"Debian enricher: {src_name} → {len(cve_list)} CVEs")
+                for cve_data in cve_list:
+                    if cve_data['advisory_id'] in cached_cve_ids:
+                        continue
+                    save_cve_details(
+                        cve_data['advisory_id'], cve_data['cve_ids'], cve_data['severity'],
+                        cve_data['description'], cve_data['synopsis'], cve_data['remediation'],
+                        source_package=cve_data['source_package'],
+                    )
+                    cached_cve_ids.add(cve_data['advisory_id'])
+                    new_count += 1
+            except Exception as e:
+                print(f"Debian enricher: ERROR on {src_name}: {e}")
+
+    print(f"Debian enricher: cached {new_count} new Debian CVEs")
+
 # ── CVSS enrichment (Red Hat primary, NVD fallback) ──────────────────────────
 
 def fetch_rh_cvss(cve_id: str) -> dict | None:
-    """Fetch CVSS score from Red Hat Security Data API.
-    Tries the CVE endpoint first (cvss3_score field), then searches the
-    CVE list endpoint which sometimes has scores when the detail page doesn't.
-    Falls back to cvss2 if no v3 available.
-    """
     try:
         resp = requests.get(RH_CVE_API.format(cve_id), timeout=(5, 15))
         if resp.status_code == 200:
             data = resp.json()
-            # try cvss3 first
             score  = data.get("cvss3_score")
             vector = data.get("cvss3_scoring_vector")
             if score and float(score) > 0:
                 return {"score": float(score), "vector": vector, "version": "3.1", "source": "redhat"}
-            # try cvss2 fallback
             score  = data.get("cvss_score")
             vector = data.get("cvss_scoring_vector")
             if score and float(score) > 0:
                 return {"score": float(score), "vector": vector, "version": "2.0", "source": "redhat"}
-            # RH has the CVE record but no score yet (common for recent 2025 CVEs)
-            # try the list search endpoint which aggregates differently
             try:
                 search_resp = requests.get(
                     f"https://access.redhat.com/hydra/rest/securitydata/cve.json?cve={cve_id}",
@@ -419,7 +663,6 @@ def fetch_rh_cvss(cve_id: str) -> dict | None:
         return None
 
 def fetch_nvd_cvss(cve_id: str) -> dict | None:
-    """Fetch CVSS score from NVD (fallback for CVEs with no Red Hat data)."""
     try:
         headers = {}
         if NVD_API_KEY:
@@ -452,7 +695,6 @@ def fetch_nvd_cvss(cve_id: str) -> dict | None:
         return None
 
 def fetch_cvss(cve_id: str) -> dict | None:
-    """Try Red Hat first, fall back to NVD."""
     result = fetch_rh_cvss(cve_id)
     if result:
         return result
@@ -480,7 +722,6 @@ def save_cvss_to_db(advisory_id: str, cvss_score, cvss_vector, cvss_version, cvs
         conn.close()
 
 def get_cves_needing_cvss_enrichment() -> list[dict]:
-    """CVEs with no CVSS score, or score older than 7 days. Critical/Important first."""
     conn = get_conn()
     cursor = conn.cursor()
     try:
@@ -508,7 +749,6 @@ def get_cves_needing_cvss_enrichment() -> list[dict]:
         conn.close()
 
 def _fetch_best_cvss_for_advisory(record: dict) -> tuple:
-    """Worker: try Red Hat first, NVD fallback, keep highest score across up to 3 CVE IDs."""
     advisory_id  = record["advisory_id"]
     cve_ids      = record["cve_ids"]
     best = None
@@ -521,10 +761,6 @@ def _fetch_best_cvss_for_advisory(record: dict) -> tuple:
     return (advisory_id, None, None, None, None)
 
 def enrich_cvss():
-    """
-    Pull CVSS scores using Red Hat API (primary) with NVD fallback.
-    8 concurrent workers — Red Hat has no rate limit, NVD allows 50 req/30s with key.
-    """
     pending = get_cves_needing_cvss_enrichment()
     if not pending:
         print("CVSS enricher: all CVEs already scored")
@@ -549,19 +785,18 @@ def enrich_cvss():
 
     print(f"CVSS enricher: scored {success}/{len(pending)} advisories")
 
-# keep old name as alias so any manual calls still work
 enrich_nvd_cvss = enrich_cvss
 
 # ── main entry point ──────────────────────────────────────────────────────────
 
 def enrich_all():
-    print("enrich_all: starting Rocky/RHEL enrichment")
+    print("enrich_all: starting RHEL/Rocky/AlmaLinux enrichment")
     try:
         enrich_advisories()
     except Exception as e:
-        print(f"enrich_all: Rocky/RHEL enrichment failed: {e}")
+        print(f"enrich_all: advisory enrichment failed: {e}")
 
-    print("enrich_all: starting CVSS enrichment (pre-Ubuntu)")
+    print("enrich_all: starting CVSS enrichment (pre-Ubuntu/Debian)")
     try:
         enrich_cvss()
     except Exception as e:
@@ -573,10 +808,17 @@ def enrich_all():
     except Exception as e:
         print(f"enrich_all: Ubuntu enrichment failed: {e}")
 
-    print("enrich_all: starting CVSS enrichment (post-Ubuntu, new CVEs only)")
+    print("enrich_all: starting Debian enrichment")
+    try:
+        enrich_debian_advisories()
+    except Exception as e:
+        print(f"enrich_all: Debian enrichment failed: {e}")
+
+    print("enrich_all: starting CVSS enrichment (post-Ubuntu/Debian, new CVEs only)")
     try:
         enrich_cvss()
     except Exception as e:
-        print(f"enrich_all: CVSS post-Ubuntu enrichment failed: {e}")
+        print(f"enrich_all: CVSS post-enrichment failed: {e}")
 
     print("enrich_all: done")
+    
