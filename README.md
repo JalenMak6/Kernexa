@@ -1,4 +1,4 @@
-# Kernexa 
+# Kernexa
 
 A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, and CVE advisories — all surfaced in a clean web dashboard.
 
@@ -21,29 +21,72 @@ A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to sc
 | Distribution | Versions | CVE Source |
 |---|---|---|
 | RHEL | 7, 8, 9, 10 | Red Hat Security API (RHSA) |
-| Rocky Linux | 8, 9, 10| Rocky Errata API (RLSA) |
+| Rocky Linux | 8, 9, 10 | Rocky Errata API (RLSA) |
 | Ubuntu | 20.04, 22.04, 24.04 | Ubuntu CVE Tracker |
 
 > Other distributions are scanned for kernel/package status but CVE enrichment will not be available.
 
 ---
 
-## Quick Start
+## Deployment
 
-**1. Clone and configure**
+There are two ways to run Kernexa — using the pre-built image from Docker Hub (recommended) or building from source.
+
+### Option 1 — Pre-built Image (Recommended)
+
+The easiest way to get started. No build step required — pulls the latest stable image directly from Docker Hub.
+
+**1. Clone the repo to get the compose file and env template:**
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/JalenMak6/Kernexa.git
 cd kernexa
-cp .env.example .env        # edit with your preferred credentials
 ```
 
-**2. Generate a credentials encryption key**
+**2. Set up your environment:**
+```bash
+cp env.example .env
+vi .env   # fill in your values
+```
+
+**3. Generate a credentials encryption key:**
 ```bash
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 Add the output to your `.env` as `CREDENTIALS_KEY`.
 
-**3. Start services**
+**4. Deploy using the stable compose file:**
+```bash
+docker compose -f docker-compose-stable.yml up -d
+```
+
+Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://localhost:8080](http://localhost:8080).
+
+**To update to the latest stable release:**
+```bash
+docker compose -f docker-compose-stable.yml pull app
+docker compose -f docker-compose-stable.yml up -d --force-recreate app
+```
+
+---
+
+### Option 2 — Build from Source
+
+Use this if you want to run a modified version or contribute to development.
+
+**1. Clone and configure:**
+```bash
+git clone https://github.com/JalenMak6/Kernexa.git
+cd kernexa
+cp env-example .env        # edit with your preferred credentials
+```
+
+**2. Generate a credentials encryption key:**
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+Add the output to your `.env` as `CREDENTIALS_KEY`.
+
+**3. Build and start:**
 ```bash
 docker compose up --build -d
 ```
@@ -52,20 +95,47 @@ Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://local
 
 ---
 
+## Docker Hub
+
+The Kernexa image is published at [hub.docker.com/r/jalenmakdocker/kernexa](https://hub.docker.com/r/jalenmakdocker/kernexa).
+
+| Tag | Description |
+|---|---|
+| `latest` | Newest dev build — updated on every push to dev |
+| `stable` | Last promoted production release |
+| `v0.0.1` | Pinned release — never changes |
+
+To pin to a specific version, update `IMAGE` in your `.env`:
+```env
+IMAGE=jalenmakdocker/kernexa:v0.0.1
+```
+
+---
+
 ## Configuration
 
 ### .env
 
-Copy `.env.example` to `.env` and set your own values. This file is never committed.
+Copy `env-example` to `.env` and set your own values. This file is never committed.
 
 ```env
+# Database
 POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
 POSTGRES_PASSWORD=changeme
-POSTGRES_PORT=5432
+
+# App
 NVD_API_KEY=your-nvd-api-key-here
 CREDENTIALS_KEY=your-fernet-key-here
 ENABLE_DOCS=false
+
+# Ports
+APP_PORT=8000
+DB_PORT=5432
+ADMINER_PORT=8080
+
+# Image (used by docker-compose-stable.yml)
+IMAGE=jalenmakdocker/kernexa:stable
 ```
 
 **NVD_API_KEY** is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
@@ -108,41 +178,10 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 
 ---
 
-## Project Structure
-
-```
-.
-├── main.py              # FastAPI — all API routes + email report builder
-├── scanner.py           # ansible-runner integration
-├── database.py          # DB queries (psycopg2)
-├── enricher.py          # CVE enrichment (RHSA / RLSA / Ubuntu) + CVSS scoring
-├── init_db.py           # Schema init — safe to re-run on upgrades
-├── patch_scan.yml       # Ansible playbook — fully raw, no Python on remote hosts
-├── docker-compose.yml
-├── Dockerfile
-├── .env                 # Your local config (not committed)
-├── .env.example         # Template — copy to .env
-├── inventory/hosts      # Active inventory (written at runtime)
-└── patch-scan-ui/       # React + Vite frontend source
-    └── src/
-        ├── App.jsx
-        └── components/
-            ├── ComplianceTrendChart.jsx
-            ├── CveTab.jsx
-            ├── HostRow.jsx
-            ├── HostsManager.jsx
-            ├── InventoryManager.jsx
-            ├── ScanFailuresModal.jsx
-            ├── SettingsTab.jsx
-            └── StatCard.jsx
-```
-
----
-
 ## How It Works
 
 1. Upload an Ansible inventory and set SSH credentials in the UI
-2. Trigger a scan manually or let the auto-scheduler run every 3 hours
+2. Trigger a scan manually or let the auto-scheduler run (configurable interval from the dashboard)
 3. Ansible collects kernel versions and pending security packages from each host using raw SSH — no Python version requirement on remote hosts
 4. Results are saved to PostgreSQL and CVE data is enriched from upstream security APIs
 5. CVSS scores are fetched automatically — Red Hat Security Data API as primary source, NVD as fallback
@@ -157,7 +196,8 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 - Kernel compliance — current vs latest available security kernel per host, based on security advisories (RHSA/RLSA) rather than all available repo kernels
 - Pending security packages per host
 - Raw SSH scanning — works on any Python version including Python 2.6, 3.6, or no Python at all; uses `/bin/sh` to skip `.bashrc` and avoid shell noise from tools like conda
-- Auto-scheduler runs every 3 hours; manual trigger available from the UI
+- Configurable auto-scan interval from the dashboard (minutes / hours / days) — persists across restarts
+- Manual scan trigger available from the UI
 - Scan failure capture — per-host Ansible errors and unreachable hosts surfaced in the UI with full Ansible log viewer
 
 **CVE Advisories**
@@ -212,22 +252,48 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 
 ---
 
+## CI/CD
+
+Kernexa uses GitHub Actions with a self-hosted runner for the full CI/CD pipeline.
+
+| Trigger | Pipeline |
+|---|---|
+| Push to `dev` | Build → Trivy scan → pytest → push `:latest` |
+| PR to `main` | Build → Trivy scan (merge gate) |
+| Merge to `main` | Build → Trivy scan → push `:stable` |
+| `git tag v*.*.*` | Build → Trivy scan → push `:vX.X.X` + `:stable` |
+
+Trivy blocks on CRITICAL CVEs only. HIGH CVEs are reported in the scan email but do not block the pipeline.
+
+---
+
+## Testing
+
+See [tests/README.md](tests/README.md) for full setup and usage.
+
+```bash
+pip install -r requirements-test.txt
+TEST_BASE_URL=http://localhost:8000 pytest tests/test_api.py --tb=short --verbose
+```
+
+---
+
 ## API Docs
 
-Interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`. This should never be enabled on a public-facing instance.
+Interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`. Never enable this on a public-facing instance.
 
 ---
 
 ## Development
 
-**Backend without Docker**
+**Backend without Docker:**
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
 ENABLE_DOCS=true uvicorn main:app --reload
 ```
 
-**Frontend dev server**
+**Frontend dev server:**
 ```bash
 cd patch-scan-ui
 npm install
