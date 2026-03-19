@@ -1,8 +1,7 @@
 ---
 # =============================================================================
 # Kernexa — Patch Compliance Scanner
-# Supports: RHEL 7/8/9/10, Rocky Linux 8/9, AlmaLinux 8/9/10,
-#           Ubuntu 20.04/22.04/24.04
+# Supports: RHEL 7/8/9/10, Rocky Linux 8/9, Ubuntu 20.04/22.04/24.04, debian 12/13
 #
 # FULLY RAW — zero Python dependency on remote hosts.
 # ansible_python_interpreter=disabled stops interpreter auto-discovery.
@@ -57,13 +56,18 @@
       changed_when: false
 
     # ── Latest SECURITY kernel (RedHat) ──────────────────────────────────────
+    # Only kernels referenced by a RHSA/RLSA advisory are considered.
+    # Output is the full uname-r style string (e.g. 4.18.0-553.111.1.el8_10.x86_64)
+    # so it matches uname -r exactly.
+    # If no kernel security advisory exists, return the running kernel → compliant.
 
     - name: Get latest security kernel (RedHat family)
       ansible.builtin.raw: |
         RUNNING=$(uname -r)
 
+        # Pull kernel packages from security advisories, strip arch suffix once
         SEC_KERNEL=$(yum updateinfo list security 2>/dev/null \
-          | grep -E "^(RHSA|RLSA|ALSA)" \
+          | grep -E "^(RHSA|RLSA)" \
           | awk '{print $3}' \
           | grep "^kernel-[0-9]" \
           | sed 's/^kernel-//' \
@@ -72,6 +76,7 @@
           | tail -1)
 
         if [ -n "$SEC_KERNEL" ]; then
+          # Append .x86_64 only if not already present
           case "$SEC_KERNEL" in
             *.x86_64) echo "$SEC_KERNEL" ;;
             *)         echo "${SEC_KERNEL}.x86_64" ;;
@@ -85,6 +90,9 @@
       ignore_errors: true
 
     # ── Latest kernel (Debian) ────────────────────────────────────────────────
+    # apt-cache policy linux-image-$(uname -r) gives the candidate for the
+    # exact running flavour. Fall back to linux-image-generic.
+    # Output matches uname -r format: 5.15.0-171-generic
 
     - name: Get latest available kernel (Debian family)
       ansible.builtin.raw: |
@@ -160,13 +168,13 @@
       changed_when: false
       ignore_errors: true
 
-    # ── Advisory IDs (RHSA / RLSA / ALSA) ────────────────────────────────────
+    # ── Advisory IDs (RedHat/Rocky only) ─────────────────────────────────────
 
-    - name: Get security advisory IDs
+    - name: Get RLSA/RHSA advisory IDs
       ansible.builtin.raw: |
         yum updateinfo list security 2>/dev/null \
           | awk '{print $1}' \
-          | grep -E '^(RLSA|RHSA|ALSA)' \
+          | grep -E '^(RLSA|RHSA)' \
           | sort -u
       register: advisory_ids_raw
       when: _os_family == "RedHat"
@@ -215,7 +223,6 @@
         _os_version_str: >-
           {%- if _os_id == 'rhel' -%}Red Hat Enterprise Linux {{ _os_version }}
           {%- elif _os_id == 'rocky' -%}Rocky Linux {{ _os_version }}
-          {%- elif _os_id == 'almalinux' -%}AlmaLinux {{ _os_version }}
           {%- elif _os_id == 'ubuntu' -%}Ubuntu {{ _os_version }}
           {%- elif _os_id == 'debian' -%}Debian {{ _os_version }}
           {%- else -%}{{ _os_id }} {{ _os_version }}{%- endif -%}
@@ -232,3 +239,4 @@
           last_reboot_time:                "{{ last_reboot_raw.stdout | default('') | trim | regex_replace('\\r','') }}"
           advisory_ids:                    "{{ _advisory_ids }}"
           package_source_map:              "{{ _pkg_source_map }}"
+          

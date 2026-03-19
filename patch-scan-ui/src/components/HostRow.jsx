@@ -460,6 +460,7 @@ function osVersionBadge(osVersion) {
   if (lower.includes("ubuntu"))                                                              { bg = "#fef3c7"; color = "#92400e"; border = "#fde68a"; }
   else if (lower.includes("rocky"))                                                          { bg = "#dbeafe"; color = "#1e40af"; border = "#93c5fd"; }
   else if (lower.includes("alma"))                                                           { bg = "#f0fdf4"; color = "#166534"; border = "#bbf7d0"; }
+  else if (lower.includes("debian"))                                                         { bg = "#f5f3ff"; color = "#5b21b6"; border = "#ddd6fe"; }
   else if (lower.includes("redhat") || lower.includes("rhel") || lower.includes("red hat")) { bg = "#fee2e2"; color = "#991b1b"; border = "#fca5a5"; }
   else                                                                                       { bg = "#f1f5f9"; color = "#475569"; border = "#cbd5e1"; }
   return (
@@ -566,3 +567,4 @@ export function HostRow({ host }) {
     </>
   );
 }
+  
