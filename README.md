@@ -2,8 +2,10 @@
 
 A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, and CVE advisories — all surfaced in a clean web dashboard.
 
-![Kernexa Dashboard1](images/Dashboard11.png)
-![Kernexa Dashboard3](images/Dashboard3.png)
+![Kernexa Dashboard1](images/Dash1.png)
+![Kernexa Dashboard2](images/Dash2.png)
+![Kernexa Dashboard3](images/Dash3.png)
+![Kernexa Dashboard33](images/Dashboard3.png)
 ![Kernexa Dashboard4](images/Dashboard4.png)
 
 ## Stack
@@ -16,13 +18,13 @@ A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to sc
 | Frontend | React + Vite |
 | Deployment | Docker Compose |
 
-## Supported OS and CVE Advisories
-
 | Distribution | Versions | CVE Source |
 |---|---|---|
 | RHEL | 7, 8, 9, 10 | Red Hat Security API (RHSA) |
 | Rocky Linux | 8, 9, 10 | Rocky Errata API (RLSA) |
+| AlmaLinux | 8, 9, 10 | AlmaLinux OSV Database (ALSA) |
 | Ubuntu | 20.04, 22.04, 24.04 | Ubuntu CVE Tracker |
+| Debian | 11 (Bullseye), 12 (Bookworm), 13 (Trixie) | Debian Security Tracker |
 
 > Other distributions are scanned for kernel/package status but CVE enrichment will not be available.
 
@@ -282,20 +284,3 @@ TEST_BASE_URL=http://localhost:8000 pytest tests/test_api.py --tb=short --verbos
 
 Interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`. Never enable this on a public-facing instance.
 
----
-
-## Development
-
-**Backend without Docker:**
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-ENABLE_DOCS=true uvicorn main:app --reload
-```
-
-**Frontend dev server:**
-```bash
-cd patch-scan-ui
-npm install
-npm run dev    # Vite on :5173 — proxies API calls to :8000
-```
