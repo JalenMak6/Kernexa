@@ -239,3 +239,4 @@
           last_reboot_time:                "{{ last_reboot_raw.stdout | default('') | trim | regex_replace('\\r','') }}"
           advisory_ids:                    "{{ _advisory_ids }}"
           package_source_map:              "{{ _pkg_source_map }}"
+          

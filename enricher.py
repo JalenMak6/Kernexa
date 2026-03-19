@@ -821,3 +821,4 @@ def enrich_all():
         print(f"enrich_all: CVSS post-enrichment failed: {e}")
 
     print("enrich_all: done")
+    
