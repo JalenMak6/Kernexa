@@ -1,0 +1,179 @@
+---
+# =============================================================================
+# Kernexa — Windows Patch Compliance Scanner
+# Supports: Windows Server 2012 R2, 2016, 2019, 2022, 2025, Windows 10/11
+#
+# Output schema:
+#   hostname | osName | osVersion | patchName | patchId | KBID | version |
+#   publishedDateTime | rebootRequired | classification | msrcSeverity |
+#   classificationPriority | queryRunDateTime
+# =============================================================================
+
+- name: Collect Windows patch compliance data
+  hosts: windows_hosts
+  gather_facts: false
+  strategy: free
+  become: false
+  vars:
+    ansible_forks: 50
+    ansible_shell_type: powershell
+    ansible_become_method: runas
+
+  tasks:
+
+    # ── OS info ───────────────────────────────────────────────────────────────
+
+    - name: Get Windows OS info
+      ansible.windows.win_shell: |
+        $os = Get-CimInstance Win32_OperatingSystem
+        Write-Output "$($os.Caption)|$($os.Version)"
+      register: os_info_raw
+      changed_when: false
+
+    # ── Pending Windows Updates ───────────────────────────────────────────────
+    # Queries the Windows Update COM API for all pending updates.
+    # For each update emits a pipe-delimited line:
+    #
+    #   patchName | patchId | KBID | version | publishedDateTime |
+    #   rebootRequired | classification | msrcSeverity |
+    #   classificationPriority | queryRunDateTime
+    #
+    # rebootRequired values (IUpdate.InstallationBehavior.RebootBehavior):
+    #   0 = NeverReboots
+    #   1 = AlwaysRequiresReboot
+    #   2 = CanRequestReboot
+    #
+    # classificationPriority:
+    #   Definition Updates = 2
+    #   Update Rollups     = 1
+    #   Security Updates   = 0
+    #   Critical Updates   = 0
+
+    - name: Get pending Windows updates with full metadata
+      ansible.windows.win_shell: |
+        $targetCategories = @(
+          'Critical Updates',
+          'Security Updates',
+          'Update Rollups',
+          'Definition Updates'
+        )
+
+        $priorityMap = @{
+          'Critical Updates'   = 0
+          'Security Updates'   = 0
+          'Update Rollups'     = 1
+          'Definition Updates' = 2
+        }
+
+        $rebootMap = @{
+          0 = 'NeverReboots'
+          1 = 'AlwaysRequiresReboot'
+          2 = 'CanRequestReboot'
+        }
+
+        $updateSession  = New-Object -ComObject Microsoft.Update.Session
+        $updateSearcher = $updateSession.CreateUpdateSearcher()
+        $updateSearcher.Online = $true
+        # Force live check against WU/WSUS instead of stale cache
+
+        try {
+          $searchResult = $updateSearcher.Search("IsInstalled=0 and IsHidden=0")
+        } catch {
+          Write-Output "ERROR: $_"
+          exit 1
+        }
+
+        $queryTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ")
+
+        foreach ($update in $searchResult.Updates) {
+          $matchedCat      = $null
+          $matchedPriority = $null
+          foreach ($cat in $update.Categories) {
+            if ($targetCategories -contains $cat.Name) {
+              $matchedCat      = $cat.Name
+              $matchedPriority = $priorityMap[$cat.Name]
+              break
+            }
+          }
+          if (-not $matchedCat) { continue }
+
+          # KB ID
+          $kb = if ($update.KBArticleIDs.Count -gt 0) { $update.KBArticleIDs[0] } else { "" }
+
+          # GUID / patchId
+          $patchId = $update.Identity.UpdateID
+
+          # Version — extract from title if present e.g. "(Version 1.445.627.0)"
+          $version = ""
+          if ($update.Title -match '\(Version ([^\)]+)\)') {
+            $version = $Matches[1]
+          }
+
+          # Published date — ISO 8601
+          $published = ""
+          try {
+            $published = $update.LastDeploymentChangeTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          } catch {}
+
+          # Reboot behavior
+          $rebootVal = 2
+          try { $rebootVal = $update.InstallationBehavior.RebootBehavior } catch {}
+          $rebootStr = if ($rebootMap.ContainsKey($rebootVal)) { $rebootMap[$rebootVal] } else { "CanRequestReboot" }
+
+          # MSRC severity
+          $severity = if ($update.MsrcSeverity -and $update.MsrcSeverity -ne "") {
+            $update.MsrcSeverity
+          } else { "NotAvailable" }
+
+          # Title — sanitise pipe characters
+          $title = $update.Title -replace '\|', '-'
+
+          Write-Output "$title|$patchId|$kb|$version|$published|$rebootStr|$matchedCat|$severity|$matchedPriority|$queryTime"
+        }
+      register: pending_updates_raw
+      changed_when: false
+      ignore_errors: true
+      timeout: 120
+
+    # ── Parse fields ──────────────────────────────────────────────────────────
+
+    - name: Parse OS fields
+      ansible.builtin.set_fact:
+        _os_name:    "{{ os_info_raw.stdout | trim | split('|') | first }}"
+        _os_version: "{{ os_info_raw.stdout | trim | split('|') | last }}"
+        _hostname:   "{{ inventory_hostname | upper }}"
+
+    - name: Parse update rows into structured records
+      ansible.builtin.set_fact:
+        _updates: >-
+          {%- set rows = [] -%}
+          {%- for line in pending_updates_raw.stdout_lines | default([]) -%}
+            {%- if '|' in line and not line.startswith('ERROR') -%}
+              {%- set f = line.split('|') -%}
+              {%- if f | length >= 10 -%}
+                {%- set _ = rows.append({
+                  'KBID':                   f[2],
+                  'patchName':              f[0],
+                  'patchId':                f[1],
+                  'version':                f[3],
+                  'publishedDateTime':      f[4],
+                  'rebootRequired':         f[5],
+                  'classification':         f[6],
+                  'msrcSeverity':           f[7],
+                  'classificationPriority': f[8],
+                  'queryRunDateTime':       f[9]
+                }) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ rows }}
+
+    # ── Emit structured result — consumed by scanner.py ──────────────────────
+
+    - name: Print Windows patch compliance data
+      ansible.builtin.debug:
+        msg:
+          hostname:  "{{ _hostname }}"
+          osName:    "{{ _os_name }}"
+          osVersion: "{{ _os_version }}"
+          updates:   "{{ _updates }}"

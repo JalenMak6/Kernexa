@@ -2,8 +2,8 @@ POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
 POSTGRES_PASSWORD=supersecret
 POSTGRES_PORT=5432
-NVD_API_KEY=5ffffffd-eff9-477f-8ff3-9a5fffff84
-CREDENTIALS_KEY=cmu22xnffffcQh_zN_3zNfffffzjfx3HVm5Sch8BzU=
+NVD_API_KEY=5fc9cf5d-ece9-4773-8513-9a5d07dfd984
+CREDENTIALS_KEY=NLraLITQ0OOwVlResg19ajhtR5NYdnWB2-CDrsqMAUw=
 IMAGE=jalenmakdocker/kernexa:stable
 APP_PORT=8000
 DB_PORT=5432

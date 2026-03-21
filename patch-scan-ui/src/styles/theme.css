@@ -1,0 +1,147 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Kernexa Design Tokens
+   Import this file once in main.jsx: import "./styles/theme.css"
+   All components reference var(--token) instead of hardcoded hex values.
+───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Surfaces ────────────────────────────────────────────────────────────── */
+  --bg-page:         #f8fafc;   /* outer page background                       */
+  --bg-card:         #ffffff;   /* card, modal, input background                */
+  --bg-row:          #fafafa;   /* zebra / expanded row background              */
+  --bg-hover:        #f8fafc;   /* table row hover                              */
+  --bg-subtle:       #f1f5f9;   /* dividers, muted section bg, toggle off       */
+  --bg-sidebar:      #0f172a;   /* sidebar background                           */
+  --bg-sidebar-item: #1e293b;   /* sidebar active item / dark hover             */
+
+  /* ── Borders ─────────────────────────────────────────────────────────────── */
+  --border:          #e2e8f0;   /* standard border (cards, inputs, tables)      */
+  --border-subtle:   #f1f5f9;   /* subtle divider (table rows)                  */
+  --border-muted:    #cbd5e1;   /* muted border (dashed tag btn)                */
+  --border-dark:     #1e293b;   /* sidebar / dark-surface border                */
+
+  /* ── Text ────────────────────────────────────────────────────────────────── */
+  --text-primary:    #0f172a;   /* headings, strong values                      */
+  --text-secondary:  #334155;   /* body text                                    */
+  --text-muted:      #475569;   /* labels, icon captions                        */
+  --text-faint:      #64748b;   /* placeholders, sub-labels                     */
+  --text-ghost:      #94a3b8;   /* empty states, very muted                     */
+  --text-disabled:   #cbd5e1;   /* disabled / faded                             */
+
+  /* ── Blue ────────────────────────────────────────────────────────────────── */
+  --blue:            #3b82f6;
+  --blue-dark:       #2563eb;
+  --blue-deep:       #1d4ed8;
+  --blue-tint:       #eff6ff;
+  --blue-border:     #bfdbfe;
+  --blue-light:      #93c5fd;
+
+  /* ── Indigo ──────────────────────────────────────────────────────────────── */
+  --indigo:          #6366f1;
+  --indigo-dark:     #4f46e5;
+  --indigo-tint:     #eef2ff;
+  --indigo-border:   #c7d2fe;
+
+  /* ── Cyan ────────────────────────────────────────────────────────────────── */
+  --cyan:            #0ea5e9;
+  --cyan-dark:       #0284c7;
+  --cyan-tint:       #e0f2fe;
+  --cyan-border:     #7dd3fc;
+
+  /* ── Green ───────────────────────────────────────────────────────────────── */
+  --green:           #10b981;
+  --green-dark:      #16a34a;
+  --green-deeper:    #15803d;
+  --green-text:      #166534;
+  --green-bright:    #22c55e;
+  --green-light:     #4ade80;
+  --green-tint:      #f0fdf4;
+  --green-tint-mid:  #dcfce7;
+  --green-border:    #bbf7d0;
+  --green-border-lt: #86efac;
+  --green-bg-dark:   #14532d;
+  --green-bg-darkest:#0f2d1f;
+
+  /* ── Red ─────────────────────────────────────────────────────────────────── */
+  --red:             #ef4444;
+  --red-dark:        #dc2626;
+  --red-darker:      #b91c1c;
+  --red-text:        #991b1b;
+  --red-tint:        #fef2f2;
+  --red-tint-mid:    #fee2e2;
+  --red-border:      #fecaca;
+  --red-border-lt:   #fca5a5;
+
+  /* ── Orange / Amber ──────────────────────────────────────────────────────── */
+  --amber:           #f59e0b;
+  --orange:          #ea580c;
+  --orange-dark:     #c2410c;
+  --orange-darker:   #9a3412;
+  --orange-text:     #92400e;
+  --orange-tint:     #fff7ed;
+  --amber-tint:      #fffbeb;
+  --amber-tint-lt:   #fef3c7;
+  --orange-border:   #fed7aa;
+  --orange-border-lt:#fdba74;
+  --yellow-border:   #fde68a;
+
+  /* ── Purple ──────────────────────────────────────────────────────────────── */
+  --purple:          #8b5cf6;
+  --purple-dark:     #7e22ce;
+  --purple-tint:     #fdf4ff;
+  --purple-border:   #e9d5ff;
+  --purple-tint-lt:  #f5f3ff;
+  --purple-border-lt:#ddd6fe;
+
+  /* ── Teal ────────────────────────────────────────────────────────────────── */
+  --teal:            #0f766e;
+  --teal-tint:       #f0fdfa;
+  --teal-border:     #99f6e4;
+
+  /* ── Yellow ──────────────────────────────────────────────────────────────── */
+  --yellow-dark:     #a16207;
+  --yellow-darker:   #854d0e;
+  --yellow-tint:     #fefce8;
+  --yellow-border:   #fef08a;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────────── */
+  --shadow-card:     0 1px 4px rgba(0,0,0,0.05);
+  --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.15);
+  --shadow-modal:    0 20px 60px rgba(0,0,0,0.25);
+  --shadow-modal-lg: 0 24px 64px rgba(0,0,0,0.2);
+  --shadow-toast:    0 4px 16px rgba(0,0,0,0.2);
+  --shadow-tooltip:  0 4px 16px rgba(0,0,0,0.3);
+  --backdrop:        rgba(0,0,0,0.45);
+  --backdrop-dark:   rgba(0,0,0,0.5);
+
+  /* ── Border radii ────────────────────────────────────────────────────────── */
+  --radius-sm:   4px;    /* monospace chips, tiny badges      */
+  --radius-md:   6px;    /* small badges, compact buttons     */
+  --radius-base: 8px;    /* inputs, standard buttons          */
+  --radius-lg:   10px;   /* dropdowns, CVE rows               */
+  --radius-xl:   12px;   /* CVE severity cards                */
+  --radius-2xl:  14px;   /* main content cards                */
+  --radius-3xl:  16px;   /* modals, large panels              */
+  --radius-pill: 999px;  /* pill badges, tags, toggles        */
+
+  /* ── Font sizes ──────────────────────────────────────────────────────────── */
+  --text-xs:   10px;
+  --text-sm:   11px;
+  --text-base: 12px;
+  --text-md:   13px;
+  --text-lg:   14px;
+  --text-xl:   15px;
+  --text-2xl:  16px;
+  --text-3xl:  18px;
+  --text-4xl:  22px;
+  --text-5xl:  32px;
+
+  /* ── Spacing ─────────────────────────────────────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+}
