@@ -1,0 +1,241 @@
+---
+# =============================================================================
+# Kernexa — Patch Compliance Scanner
+# Supports: RHEL 7/8/9/10, Rocky Linux 8/9, Ubuntu 20.04/22.04/24.04
+#
+# FULLY RAW — zero Python dependency on remote hosts.
+# ansible_python_interpreter=disabled stops interpreter auto-discovery.
+# =============================================================================
+
+- name: Collect kernel and patch compliance data
+  hosts: all
+  gather_facts: false
+  become: true
+  become_method: sudo
+  strategy: free
+  vars:
+    ansible_forks: 50
+    ansible_python_interpreter: disabled
+
+  tasks:
+
+    # ── OS detection ──────────────────────────────────────────────────────────
+
+    - name: Detect OS family and version
+      ansible.builtin.raw: |
+        if [ -f /etc/os-release ]; then
+          . /etc/os-release
+          printf '%s %s\n' "$ID" "$VERSION_ID"
+        elif [ -f /etc/redhat-release ]; then
+          VER=$(grep -oE '[0-9]+\.[0-9]+' /etc/redhat-release | head -1)
+          printf 'rhel %s\n' "$VER"
+        else
+          printf 'unknown 0\n'
+        fi
+      register: os_info_raw
+      changed_when: false
+
+    - name: Parse OS facts
+      ansible.builtin.set_fact:
+        _os_id:      "{{ os_info_raw.stdout | trim | regex_replace('\\r','') | split(' ') | first | lower }}"
+        _os_version: "{{ os_info_raw.stdout | trim | regex_replace('\\r','') | split(' ') | last }}"
+
+    - name: Derive OS family and major version
+      ansible.builtin.set_fact:
+        _os_family: >-
+          {%- if _os_id in ['rhel','centos','rocky','almalinux','fedora','ol'] -%}RedHat
+          {%- elif _os_id in ['ubuntu','debian'] -%}Debian
+          {%- else -%}Unknown{%- endif -%}
+        _os_major: "{{ _os_version.split('.')[0] }}"
+
+    # ── Current kernel ────────────────────────────────────────────────────────
+
+    - name: Get current running kernel
+      ansible.builtin.raw: uname -r
+      register: kernel_raw
+      changed_when: false
+
+    # ── Latest SECURITY kernel (RedHat) ──────────────────────────────────────
+    # Only kernels referenced by a RHSA/RLSA advisory are considered.
+    # Output is the full uname-r style string (e.g. 4.18.0-553.111.1.el8_10.x86_64)
+    # so it matches uname -r exactly.
+    # If no kernel security advisory exists, return the running kernel → compliant.
+
+    - name: Get latest security kernel (RedHat family)
+      ansible.builtin.raw: |
+        RUNNING=$(uname -r)
+
+        # Pull kernel packages from security advisories, strip arch suffix once
+        SEC_KERNEL=$(yum updateinfo list security 2>/dev/null \
+          | grep -E "^(RHSA|RLSA)" \
+          | awk '{print $3}' \
+          | grep "^kernel-[0-9]" \
+          | sed 's/^kernel-//' \
+          | sed 's/\.x86_64$//' \
+          | sort -t. -k1,1n -k2,2n -k3,3n \
+          | tail -1)
+
+        if [ -n "$SEC_KERNEL" ]; then
+          # Append .x86_64 only if not already present
+          case "$SEC_KERNEL" in
+            *.x86_64) echo "$SEC_KERNEL" ;;
+            *)         echo "${SEC_KERNEL}.x86_64" ;;
+          esac
+        else
+          echo "$RUNNING"
+        fi
+      register: latest_kernel_rh_raw
+      when: _os_family == "RedHat"
+      changed_when: false
+      ignore_errors: true
+
+    # ── Latest kernel (Debian) ────────────────────────────────────────────────
+    # apt-cache policy linux-image-$(uname -r) gives the candidate for the
+    # exact running flavour. Fall back to linux-image-generic.
+    # Output matches uname -r format: 5.15.0-171-generic
+
+    - name: Get latest available kernel (Debian family)
+      ansible.builtin.raw: |
+        RUNNING=$(uname -r)
+        FLAVOUR=$(echo "$RUNNING" | grep -oE '[a-z]+$' || echo "generic")
+
+        CANDIDATE=$(apt-cache policy linux-image-generic 2>/dev/null \
+          | grep "Candidate:" | awk '{print $2}')
+
+        if [ -z "$CANDIDATE" ]; then
+          echo "$RUNNING"
+        else
+          KVER=$(apt-cache show "linux-image-generic=${CANDIDATE}" 2>/dev/null \
+            | grep "^Depends:" \
+            | grep -oE 'linux-image-[0-9][^ ,]+' \
+            | head -1 \
+            | sed 's/linux-image-//')
+
+          if [ -n "$KVER" ]; then
+            echo "$KVER"
+          else
+            echo "$RUNNING"
+          fi
+        fi
+      register: latest_kernel_deb_raw
+      when: _os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
+    # ── Pending security packages ─────────────────────────────────────────────
+
+    - name: Get pending security packages (RHEL 7)
+      ansible.builtin.raw: |
+        yum updateinfo list security 2>/dev/null \
+          | grep -E "x86_64|noarch" \
+          | awk '{print $3}' \
+          | sort -u
+      register: pending_pkgs_rh7_raw
+      when: _os_family == "RedHat" and _os_major == "7"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get pending security packages (RHEL 8+)
+      ansible.builtin.raw: |
+        yum updateinfo list security 2>/dev/null \
+          | grep -E "x86_64|noarch" \
+          | grep -v "Red Hat " \
+          | awk '{print $3}' \
+          | sort -u
+      register: pending_pkgs_rh8_raw
+      when: _os_family == "RedHat" and _os_major != "7"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Get pending security packages (Debian family)
+      ansible.builtin.raw: |
+        apt list --upgradable 2>/dev/null \
+          | grep -v "^Listing" \
+          | awk -F/ '{print $1}'
+      register: pending_pkgs_deb_raw
+      when: _os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
+    # ── Last reboot ───────────────────────────────────────────────────────────
+
+    - name: Get last reboot time
+      ansible.builtin.raw: |
+        who -b 2>/dev/null | awk '{print $3" "$4}' \
+          || uptime -s 2>/dev/null \
+          || echo ""
+      register: last_reboot_raw
+      changed_when: false
+      ignore_errors: true
+
+    # ── Advisory IDs (RedHat/Rocky only) ─────────────────────────────────────
+
+    - name: Get RLSA/RHSA advisory IDs
+      ansible.builtin.raw: |
+        yum updateinfo list security 2>/dev/null \
+          | awk '{print $1}' \
+          | grep -E '^(RLSA|RHSA)' \
+          | sort -u
+      register: advisory_ids_raw
+      when: _os_family == "RedHat"
+      changed_when: false
+      ignore_errors: true
+
+    # ── Source package map (Debian/Ubuntu only) ───────────────────────────────
+
+    - name: Get binary-to-source package map
+      ansible.builtin.raw: |
+        apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}' | \
+        while read pkg; do
+          src=$(dpkg-query -f='${Source}\n' -W "$pkg" 2>/dev/null | head -1)
+          echo "$pkg:${src:-$pkg}"
+        done
+      register: pkg_source_map_raw
+      when: _os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
+    # ── Consolidate all facts ─────────────────────────────────────────────────
+
+    - name: Consolidate compliance facts
+      ansible.builtin.set_fact:
+        _current_kernel: "{{ kernel_raw.stdout | trim | regex_replace('\\r','') }}"
+
+        _latest_kernel: >-
+          {%- if _os_family == 'RedHat' -%}
+            {{ latest_kernel_rh_raw.stdout | default('') | trim | regex_replace('\r','') }}
+          {%- elif _os_family == 'Debian' -%}
+            {{ latest_kernel_deb_raw.stdout | default('') | trim | regex_replace('\r','') }}
+          {%- else -%}{{ '' }}{%- endif -%}
+
+        _pending_pkgs: >-
+          {%- if _os_family == 'RedHat' and _os_major == '7' -%}
+            {{ pending_pkgs_rh7_raw.stdout_lines | default([]) | map('regex_replace', '\r', '') | list }}
+          {%- elif _os_family == 'RedHat' -%}
+            {{ pending_pkgs_rh8_raw.stdout_lines | default([]) | map('regex_replace', '\r', '') | list }}
+          {%- elif _os_family == 'Debian' -%}
+            {{ pending_pkgs_deb_raw.stdout_lines | default([]) | map('regex_replace', '\r', '') | list }}
+          {%- else -%}{{ [] }}{%- endif -%}
+
+        _advisory_ids: "{{ advisory_ids_raw.stdout_lines | default([]) | map('regex_replace', '\\r', '') | list }}"
+        _pkg_source_map: "{{ pkg_source_map_raw.stdout_lines | default([]) | map('regex_replace', '\\r', '') | list }}"
+
+        _os_version_str: >-
+          {%- if _os_id == 'rhel' -%}Red Hat Enterprise Linux {{ _os_version }}
+          {%- elif _os_id == 'rocky' -%}Rocky Linux {{ _os_version }}
+          {%- elif _os_id == 'ubuntu' -%}Ubuntu {{ _os_version }}
+          {%- elif _os_id == 'debian' -%}Debian {{ _os_version }}
+          {%- else -%}{{ _os_id }} {{ _os_version }}{%- endif -%}
+
+    # ── Emit structured result — consumed by scanner.py ──────────────────────
+
+    - name: Print kernel version and packages
+      ansible.builtin.debug:
+        msg:
+          current_kernel_version:          "{{ _current_kernel }}"
+          latest_available_kernel_version: "{{ _latest_kernel | trim }}"
+          pending_security_packages:       "{{ _pending_pkgs }}"
+          os_version:                      "{{ _os_version_str | trim }}"
+          last_reboot_time:                "{{ last_reboot_raw.stdout | default('') | trim | regex_replace('\\r','') }}"
+          advisory_ids:                    "{{ _advisory_ids }}"
+          package_source_map:              "{{ _pkg_source_map }}"

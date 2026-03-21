@@ -3,18 +3,27 @@ import { Icon, Icons } from "../utils/icons.jsx";
 export function StatCard({ icon, label, value, sub, accent }) {
   return (
     <div style={{
-      background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14,
-      padding: "20px 24px", display: "flex", flexDirection: "column", gap: 6,
-      boxShadow: "0 1px 4px rgba(0,0,0,0.05)"
+      background: "var(--bg-card)",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius-2xl)",
+      padding: "var(--space-5) var(--space-6)",
+      display: "flex", flexDirection: "column", gap: "var(--space-1)",
+      boxShadow: "var(--shadow-card)",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Icon d={Icons[icon]} size={18} color={accent || "#64748b"} />
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#64748b" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+        <Icon d={Icons[icon]} size={18} color={accent || "var(--text-faint)"} />
+        <span style={{
+          fontSize: "var(--text-base)", fontWeight: 600,
+          letterSpacing: "0.06em", textTransform: "uppercase",
+          color: "var(--text-faint)",
+        }}>
           {label}
         </span>
       </div>
-      <div style={{ fontSize: 32, fontWeight: 800, color: "#0f172a", lineHeight: 1.1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 12, color: "#94a3b8" }}>{sub}</div>}
+      <div style={{ fontSize: "var(--text-5xl)", fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.1 }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: "var(--text-base)", color: "var(--text-ghost)" }}>{sub}</div>}
     </div>
   );
 }
