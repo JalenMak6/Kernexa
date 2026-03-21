@@ -66,14 +66,18 @@ def init():
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS inventories (
-                id          SERIAL PRIMARY KEY,
-                name        TEXT NOT NULL,
-                content     TEXT NOT NULL,
-                host_count  INTEGER,
-                uploaded_at TIMESTAMP DEFAULT NOW(),
-                is_active   BOOLEAN DEFAULT FALSE
+                id             SERIAL PRIMARY KEY,
+                name           TEXT NOT NULL,
+                content        TEXT NOT NULL,
+                host_count     INTEGER,
+                uploaded_at    TIMESTAMP DEFAULT NOW(),
+                is_active      BOOLEAN DEFAULT FALSE,
+                inventory_type TEXT NOT NULL DEFAULT 'linux'
             )
         ''')
+        # Migration: add inventory_type to existing deployments
+        cursor.execute("ALTER TABLE inventories ADD COLUMN IF NOT EXISTS inventory_type TEXT NOT NULL DEFAULT 'linux'")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS credentials (
                 id           SERIAL PRIMARY KEY,
@@ -102,6 +106,7 @@ def init():
         ''')
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_hostname ON host_tags(hostname)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_tags_tag ON host_tags(tag)")
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS notification_settings (
                 id            INTEGER PRIMARY KEY DEFAULT 1,
@@ -117,8 +122,47 @@ def init():
                 CONSTRAINT single_row CHECK (id = 1)
             )
         ''')
-        # migration: add scan_interval to existing deployments
         cursor.execute("ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS scan_interval INTEGER NOT NULL DEFAULT 180")
+
+        # ── Windows WinRM credentials ──────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS windows_credentials (
+                id         INTEGER PRIMARY KEY DEFAULT 1,
+                username   TEXT    NOT NULL DEFAULT '',
+                password   TEXT    NOT NULL DEFAULT '',
+                domain     TEXT    NOT NULL DEFAULT '',
+                port       INTEGER NOT NULL DEFAULT 5986,
+                transport  TEXT    NOT NULL DEFAULT 'ntlm',
+                updated_at TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT single_win_creds CHECK (id = 1)
+            )
+        ''')
+        cursor.execute("ALTER TABLE windows_credentials ADD COLUMN IF NOT EXISTS domain    TEXT    NOT NULL DEFAULT ''")
+        cursor.execute("ALTER TABLE windows_credentials ADD COLUMN IF NOT EXISTS port      INTEGER NOT NULL DEFAULT 5986")
+        cursor.execute("ALTER TABLE windows_credentials ADD COLUMN IF NOT EXISTS transport TEXT    NOT NULL DEFAULT 'ntlm'")
+
+        # ── Windows patch scan results ─────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS windows_scan_results (
+                id                      SERIAL PRIMARY KEY,
+                scan_id                 TEXT        NOT NULL REFERENCES scan_runs(scan_id),
+                hostname                TEXT        NOT NULL,
+                os_name                 TEXT,
+                os_version              TEXT,
+                kb_id                   TEXT,
+                patch_id                TEXT,
+                patch_name              TEXT,
+                version                 TEXT,
+                published_date_time     TIMESTAMPTZ,
+                reboot_required         TEXT,
+                classification          TEXT,
+                msrc_severity           TEXT,
+                classification_priority INTEGER,
+                query_run_date_time     TIMESTAMPTZ
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_win_scan_results_scan_id  ON windows_scan_results(scan_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_win_scan_results_hostname ON windows_scan_results(hostname)")
 
         conn.commit()
         print("Database tables created/migrated successfully")
