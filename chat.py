@@ -32,6 +32,7 @@ from database import (
     get_scan_history     as db_get_scan_history,
     get_host_history     as db_get_host_history,
     get_host_cves        as db_get_host_cves,
+    get_host_ports       as db_get_host_ports,
 )
 
 # ── System prompt ─────────────────────────────────────────────────────────────

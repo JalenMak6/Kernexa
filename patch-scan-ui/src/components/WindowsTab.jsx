@@ -162,10 +162,10 @@ function WinHostRow({ hostname, osName, osVersion, updates }) {
         </td>
         <td style={{ padding: "14px 16px", width: 200 }}>
           <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
-            {securityCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint-mid)",  color: "var(--red-text)",    border: "1px solid var(--red-border-lt)",    padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🔒 {securityCount} Security</span>}
-            {criticalCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint)",     color: "var(--red-dark)",    border: "1px solid var(--red-border)",      padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>⚠ {criticalCount} Critical</span>}
-            {rollupCount     > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--orange-tint)",  color: "var(--orange-dark)", border: "1px solid var(--orange-border)",   padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>📦 {rollupCount} Rollup</span>}
-            {definitionCount > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--blue-tint)",    color: "var(--blue-deep)",   border: "1px solid var(--blue-border)",     padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🛡 {definitionCount} Def</span>}
+            {securityCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint-mid)",  color: "var(--red-text)",    border: "1px solid var(--red-border-lt)",    padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🔒 {securityCount} Security Updates</span>}
+            {criticalCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint)",     color: "var(--red-dark)",    border: "1px solid var(--red-border)",      padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>⚠ {criticalCount} Critical Updates</span>}
+            {rollupCount     > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--orange-tint)",  color: "var(--orange-dark)", border: "1px solid var(--orange-border)",   padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>📦 {rollupCount} Rollout Updates</span>}
+            {definitionCount > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--blue-tint)",    color: "var(--blue-deep)",   border: "1px solid var(--blue-border)",     padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🛡 {definitionCount} Definition Updates</span>}
             {updates.length === 0 && <span style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>—</span>}
           </div>
         </td>

@@ -7,6 +7,56 @@ def parse_packages(package_lines: list) -> list:
     return [line.strip() for line in package_lines if line.strip()]
 
 
+def parse_ports(port_lines: list) -> list:
+    """
+    Parse port lines emitted by the playbook.
+    Each line: PROTOCOL|BIND_ADDRESS|PORT|SERVICE|PID
+    e.g.: tcp|0.0.0.0|22|sshd|1234
+    Returns a sorted list of dicts.
+    """
+    ports = []
+    seen  = set()
+    for line in port_lines:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split('|')
+        if len(parts) < 4:
+            continue
+        protocol     = parts[0].lower().strip()
+        bind_address = parts[1].strip()
+        port_str     = parts[2].strip()
+        service      = parts[3].strip() or "unknown"
+        pid_str      = parts[4].strip() if len(parts) > 4 else ""
+
+        # Skip non-numeric ports and any IPv6 addresses
+        if not port_str.isdigit():
+            continue
+        if ':' in bind_address:
+            continue
+
+        port = int(port_str)
+        pid  = int(pid_str) if pid_str.isdigit() else None
+
+        # Deduplicate same protocol + bind + port
+        key = (protocol, bind_address, port)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        ports.append({
+            'protocol':     protocol,
+            'bind_address': bind_address,
+            'port':         port,
+            'state':        'LISTEN',
+            'service':      service,
+            'pid':          pid,
+        })
+
+    ports.sort(key=lambda p: p['port'])
+    return ports
+
+
 # ── Linux patch scan ──────────────────────────────────────────────────────────
 
 def run_patch_scan() -> dict:
@@ -15,14 +65,13 @@ def run_patch_scan() -> dict:
         raise RuntimeError("No credentials found for active inventory. Set credentials in Settings first.")
 
     # Clear any cached extravars/env from previous runs (e.g. Windows scan)
-    # to prevent ansible_shell_type=powershell bleeding into Linux scans
     for stale in ["/app/env/extravars", "/app/env/envvars"]:
         if os.path.exists(stale):
             os.remove(stale)
 
     extravars = {
-        'ansible_connection':      'ssh',         # explicitly SSH — overrides any cached winrm
-        'ansible_shell_type':      'sh',          # explicitly sh — overrides any cached powershell
+        'ansible_connection':      'ssh',
+        'ansible_shell_type':      'sh',
         'ansible_user':            creds['username'],
         'ansible_password':        creds['password'],
         'ansible_become':          True,
@@ -92,6 +141,9 @@ def run_patch_scan() -> dict:
                         source_map[binary.strip()] = source.strip()
                 flat['package_source_map'] = source_map
 
+            # Parse open ports
+            flat['open_ports'] = parse_ports(flat.get('open_ports', []))
+
             output['hosts'][host] = flat
 
         elif event_type == 'runner_on_failed':
@@ -125,11 +177,6 @@ def run_patch_scan() -> dict:
 # ── Windows patch scan ────────────────────────────────────────────────────────
 
 def run_windows_patch_scan() -> dict:
-    """
-    Runs win_patch_scan.yml via ansible-runner against [windows_hosts].
-    Reads WinRM credentials and the active Windows inventory from the database,
-    writes the inventory to /app/inventory/win_hosts, then runs the playbook.
-    """
     from database import get_windows_credentials, get_active_windows_inventory
 
     creds = get_windows_credentials()
@@ -140,14 +187,12 @@ def run_windows_patch_scan() -> dict:
     if not win_inv:
         raise RuntimeError("No active Windows inventory found. Activate a Windows inventory in Inventories.")
 
-    # Write Windows inventory to its own file — never touches /app/inventory/hosts
     win_inv_path = "/app/inventory/win_hosts"
     os.makedirs(os.path.dirname(win_inv_path), exist_ok=True)
     content = win_inv['content'].replace('\r\n', '\n').replace('\r', '\n')
     with open(win_inv_path, "w") as f:
         f.write(content)
 
-    # Build ansible_user — include domain prefix if provided
     ansible_user = f"{creds['domain']}\\{creds['username']}" if creds.get('domain') else creds['username']
 
     extravars = {
@@ -170,8 +215,6 @@ def run_windows_patch_scan() -> dict:
         extravars=extravars,
     )
 
-    # Clean up Windows-specific env files after scan so they don't
-    # bleed into subsequent Linux scans
     for stale in ["/app/env/extravars", "/app/env/envvars"]:
         if os.path.exists(stale):
             try:

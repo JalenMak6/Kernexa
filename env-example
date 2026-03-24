@@ -10,3 +10,9 @@ DB_PORT=5432
 ADMINER_PORT=8080
 ENABLE_DOCS=false
 OPENAI_API_KEY=sk-xxxxxxx
+# For Azure OpenAI, use the following variables instead of OPENAI_API_KEY
+
+AZURE_OPENAI_API_KEY=C3ixxxxxbxxxxxxx
+AZURE_OPENAI_ENDPOINT=https://xxxxxx.cognitiveservices.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview

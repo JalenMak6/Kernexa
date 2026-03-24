@@ -49,22 +49,23 @@ export function HostsTab({
         />
       </div>
 
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
           <tr>
             <th style={thStyle("host")} onClick={() => sortBy("host")}>Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
-            <th style={{ ...thStyle("os_version"), width: 120 }} onClick={() => sortBy("os_version")}>OS {sortCol === "os_version" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
-            <th style={{ ...thStyle("last_reboot_time"), width: 140 }} onClick={() => sortBy("last_reboot_time")}>Last Reboot</th>
-            <th style={thStyle("current_kernel_version")} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
-            <th style={thStyle(null)}>Latest Kernel</th>
-            <th style={{ ...thStyle(null), width: 130 }}>Kernel Status</th>
-            <th style={{ ...thStyle("package_count"), width: 160 }} onClick={() => sortBy("package_count")}>Pending Security Patches</th>
-            <th style={{ ...thStyle(null), width: 80 }}></th>
+            <th style={{ ...thStyle("os_version"), width: 100 }} onClick={() => sortBy("os_version")}>OS {sortCol === "os_version" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
+            <th style={{ ...thStyle("last_reboot_time"), width: 120 }} onClick={() => sortBy("last_reboot_time")}>Last Reboot</th>
+            <th style={{ ...thStyle("current_kernel_version"), width: 160 }} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
+            <th style={{ ...thStyle(null), width: 160 }}>Latest Kernel</th>
+            <th style={{ ...thStyle(null), width: 110 }}>Kernel Status</th>
+            <th style={{ ...thStyle("package_count"), width: 130 }} onClick={() => sortBy("package_count")}>Pending Patches</th>
+            <th style={{ ...thStyle(null), width: 180 }}>Open Ports</th>
+            <th style={{ ...thStyle(null), width: 75 }}></th>
           </tr>
         </thead>
         <tbody>
           {filteredHosts.length === 0
-            ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
+            ? <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
             : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
           }
         </tbody>

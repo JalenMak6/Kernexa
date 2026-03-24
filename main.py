@@ -39,6 +39,7 @@ from database import (
     get_cve_details, get_scan_failures, get_host_history, get_host_cves,
     get_notification_settings, save_notification_settings,
     get_scan_interval, save_scan_interval,
+    get_host_ports,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
@@ -449,6 +450,13 @@ async def test_notification(background_tasks: BackgroundTasks):
         return {"message": f"Test email sent to {', '.join(settings['recipients'])}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── Host ports endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/hosts/{hostname}/ports")
+async def get_ports(hostname: str):
+    ports = get_host_ports(hostname)
+    return {"hostname": hostname, "ports": ports}
 
 # ── AI chat — client factory ──────────────────────────────────────────────────
 
