@@ -18,6 +18,7 @@ import { WindowsCredentialsForm } from "./components/WindowsCredentialsForm.jsx"
 import { DashboardTab }           from "./components/DashboardTab.jsx";
 import { HostsTab }               from "./components/HostsTab.jsx";
 import { ScanHistoryTab }         from "./components/ScanHistoryTab.jsx";
+import { ChatWidget }             from "./components/ChatWidget.jsx";
 
 // ── Tab ↔ URL mapping ─────────────────────────────────────────────────────────
 
@@ -559,6 +560,9 @@ export default function App() {
           Refreshed at {refreshedAt.toLocaleTimeString()}
         </div>
       )}
+
+      {/* ── AI Chat Widget ── */}
+      <ChatWidget />
     </div>
   );
 }

@@ -16,15 +16,21 @@ A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to sc
 | Frontend | React + Vite |
 | Deployment | Docker Compose |
 
+
 ## Supported OS and CVE Advisories
 
 | Distribution | Versions | CVE Source |
-|---|---|---|
+| --- | --- | --- |
 | RHEL | 7, 8, 9, 10 | Red Hat Security API (RHSA) |
 | Rocky Linux | 8, 9, 10 | Rocky Errata API (RLSA) |
+| AlmaLinux | 8, 9, 10 | AlmaLinux Errata API (ALSA) |
 | Ubuntu | 20.04, 22.04, 24.04 | Ubuntu CVE Tracker |
+| Debian | 10, 11, 12 | Debian Security Tracker |
+| Windows Server | 2012, 2016, 2019, 2022 | Microsoft WSUS / Windows Update (KB-based) |
+| Windows | 10, 11 | Microsoft WSUS / Windows Update (KB-based) |
 
 > Other distributions are scanned for kernel/package status but CVE enrichment will not be available.
+> Windows hosts report pending KBs with MSRC severity ratings (Critical / Important / Moderate / Low) rather than CVE advisory IDs.
 
 ---
 

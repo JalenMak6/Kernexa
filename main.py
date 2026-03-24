@@ -15,14 +15,15 @@ Business logic lives in:
 from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import uuid
 import os
 import smtplib
+import json
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
@@ -49,6 +50,10 @@ INVENTORY_PATH = "./inventory/hosts"
 
 class HostsUpdate(BaseModel):
     hosts: List[str]
+
+class ChatMessage(BaseModel):
+    message: str
+    history: Optional[List[dict]] = []
 
 class TagAdd(BaseModel):
     tag: str
@@ -444,6 +449,107 @@ async def test_notification(background_tasks: BackgroundTasks):
         return {"message": f"Test email sent to {', '.join(settings['recipients'])}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── AI chat endpoint ──────────────────────────────────────────────────────────
+
+@app.post("/api/chat")
+async def chat(body: ChatMessage):
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openai package not installed — run: pip install openai")
+
+    from chat import SYSTEM_PROMPT, TOOLS, _run_tool
+
+    # Build message list: system + history (last 10 turns) + new user message
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for turn in (body.history or [])[-10:]:
+        if turn.get("role") in ("user", "assistant", "tool") and turn.get("content"):
+            messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": body.message})
+
+    def stream_response():
+        try:
+            # ── Tool calling loop ─────────────────────────────────────────────
+            # Step 1: Ask the model — it may respond directly or call a tool.
+            # Step 2: If it calls tools, execute them and feed results back.
+            # Step 3: Repeat until the model produces a final text response.
+            # Step 4: Stream the final response token by token.
+            MAX_TOOL_ROUNDS = 5  # prevent runaway loops
+            local_messages  = list(messages)
+
+            for _ in range(MAX_TOOL_ROUNDS):
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=local_messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    max_tokens=1024,
+                    temperature=0.3,
+                    stream=False,   # non-streaming for tool rounds
+                )
+
+                msg = response.choices[0].message
+
+                # No tool calls — model has a final answer, stream it
+                if not msg.tool_calls:
+                    content = msg.content or ""
+                    # Stream word by word for a natural feel
+                    words = content.split(" ")
+                    for i, word in enumerate(words):
+                        chunk = word if i == len(words) - 1 else word + " "
+                        yield f"data: {json.dumps({'content': chunk})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                # Tool calls requested — execute each one
+                # Add the assistant's tool_use message to history
+                local_messages.append({
+                    "role":       "assistant",
+                    "content":    msg.content,
+                    "tool_calls": [
+                        {
+                            "id":       tc.id,
+                            "type":     "function",
+                            "function": {
+                                "name":      tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in msg.tool_calls
+                    ],
+                })
+
+                # Execute each tool and append results
+                for tc in msg.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except Exception:
+                        args = {}
+                    result = _run_tool(tc.function.name, args)
+                    local_messages.append({
+                        "role":         "tool",
+                        "tool_call_id": tc.id,
+                        "content":      result,
+                    })
+
+            # Safety fallback — should not normally reach here
+            yield f"data: {json.dumps({'content': 'Sorry, I could not complete this request.'})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        stream_response(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 # ── serve React SPA — MUST BE LAST ───────────────────────────────────────────
 
