@@ -1,7 +1,8 @@
 ---
 # =============================================================================
 # Kernexa — Patch Compliance Scanner
-# Supports: RHEL 7/8/9/10, Rocky Linux 8/9, Ubuntu 20.04/22.04/24.04
+# Supports: RHEL 7/8/9/10, Rocky Linux 8/9/10, AlmaLinux 8/9/10,
+#           Ubuntu 20.04/22.04/24.04, Debian 10/11/12
 #
 # FULLY RAW — zero Python dependency on remote hosts.
 # ansible_python_interpreter=disabled stops interpreter auto-discovery.
@@ -56,10 +57,8 @@
       changed_when: false
 
     # ── Latest SECURITY kernel (RedHat) ──────────────────────────────────────
-    # Only kernels referenced by a RHSA/RLSA advisory are considered.
-    # Output is the full uname-r style string (e.g. 4.18.0-553.111.1.el8_10.x86_64)
-    # so it matches uname -r exactly.
-    # If no kernel security advisory exists, return the running kernel → compliant.
+    # Only kernels referenced by a RHSA/RLSA/ALSA advisory are considered.
+    # Uses sort -V for correct version ordering (e.g. 124.45 > 124.8).
 
     - name: Get latest security kernel (RedHat family)
       ansible.builtin.raw: |
@@ -88,9 +87,6 @@
       ignore_errors: true
 
     # ── Latest kernel (Debian) ────────────────────────────────────────────────
-    # apt-cache policy linux-image-$(uname -r) gives the candidate for the
-    # exact running flavour. Fall back to linux-image-generic.
-    # Output matches uname -r format: 5.15.0-171-generic
 
     - name: Get latest available kernel (Debian family)
       ansible.builtin.raw: |
@@ -121,15 +117,6 @@
       ignore_errors: true
 
     # ── Pending security packages ─────────────────────────────────────────────
-    # Uses "yum update --security --assumeno" to simulate the exact same
-    # package list that "yum update --security" would patch.
-    # Captures both Installing: and Upgrading: sections, skips Removing:
-    # so kernel removals of old versions don't pollute the list.
-    # Strips trailing arch suffix (.x86_64 / .noarch / .aarch64) from each name.
-    #
-    # This replaces the old "yum updateinfo list security" approach which
-    # returned already-applied advisories and mismatched what actually
-    # gets patched during a real "yum update --security" run.
 
     - name: Get pending security packages (RedHat family)
       ansible.builtin.raw: |
@@ -167,7 +154,7 @@
       changed_when: false
       ignore_errors: true
 
-    # ── Advisory IDs (RedHat/Rocky only) ─────────────────────────────────────
+    # ── Advisory IDs (RedHat/Rocky/AlmaLinux) ────────────────────────────────
 
     - name: Get RLSA/RHSA/ALSA advisory IDs
       ansible.builtin.raw: |
@@ -194,6 +181,69 @@
       changed_when: false
       ignore_errors: true
 
+    # ── Open listening ports (IPv4 only) ─────────────────────────────────────
+    # Uses ss (preferred) with netstat fallback.
+    # Only IPv4 LISTEN entries are collected — IPv6 (:::*) excluded.
+    # Output format (one port per line):
+    #   PROTOCOL|BIND_ADDRESS|PORT|SERVICE|PID
+    # e.g.:
+    #   tcp|0.0.0.0|22|sshd|1234
+    #   tcp|127.0.0.1|3306|mysqld|5678
+    #   tcp|192.168.1.5|8080|node|9012
+
+    - name: Get open listening ports
+      ansible.builtin.raw: |
+        if command -v ss >/dev/null 2>&1; then
+          ss -tlnup 2>/dev/null \
+            | awk 'NR>1 {
+                netid=$1; local=$5
+                proc=$NF
+                if (local ~ /^\[/) next
+                n = split(local, a, ":")
+                port = a[n]
+                bind = ""
+                for (i=1; i<n; i++) {
+                  bind = (i==1 ? a[i] : bind ":" a[i])
+                }
+                service = "unknown"
+                pid = ""
+                if (proc ~ /users:/) {
+                  tmp = proc
+                  gsub(/.*\(\("/, "", tmp)
+                  gsub(/".*/, "", tmp)
+                  if (tmp != "") service = tmp
+                  p = proc
+                  gsub(/.*pid=/, "", p)
+                  gsub(/,.*/, "", p)
+                  if (p ~ /^[0-9]+$/) pid = p
+                }
+                print netid "|" bind "|" port "|" service "|" pid
+              }'
+        elif command -v netstat >/dev/null 2>&1; then
+          netstat -tlnup 2>/dev/null \
+            | awk 'NR>2 {
+                proto=$1; local=$4; proc=$7
+                if (local ~ /^:::/ || local ~ /^\[:/) next
+                n = split(local, a, ":")
+                port = a[n]
+                bind = ""
+                for (i=1; i<n; i++) {
+                  bind = (i==1 ? a[i] : bind ":" a[i])
+                }
+                service = "unknown"
+                pid = ""
+                split(proc, p, "/")
+                if (p[2] != "") service = p[2]
+                if (p[1] ~ /^[0-9]+$/) pid = p[1]
+                print proto "|" bind "|" port "|" service "|" pid
+              }'
+        else
+          echo ""
+        fi
+      register: ports_raw
+      changed_when: false
+      ignore_errors: true
+
     # ── Consolidate all facts ─────────────────────────────────────────────────
 
     - name: Consolidate compliance facts
@@ -216,6 +266,7 @@
 
         _advisory_ids: "{{ advisory_ids_raw.stdout_lines | default([]) | map('regex_replace', '\\r', '') | list }}"
         _pkg_source_map: "{{ pkg_source_map_raw.stdout_lines | default([]) | map('regex_replace', '\\r', '') | list }}"
+        _open_ports: "{{ ports_raw.stdout_lines | default([]) | map('regex_replace', '\\r', '') | select('match', '^(tcp|udp)\\|') | list }}"
 
         _os_version_str: >-
           {%- if _os_id == 'rhel' -%}Red Hat Enterprise Linux {{ _os_version }}
@@ -237,3 +288,4 @@
           last_reboot_time:                "{{ last_reboot_raw.stdout | default('') | trim | regex_replace('\\r','') }}"
           advisory_ids:                    "{{ _advisory_ids }}"
           package_source_map:              "{{ _pkg_source_map }}"
+          open_ports:                      "{{ _open_ports }}"

@@ -148,29 +148,30 @@ export function DashboardTab({
           />
         </div>
         {hasLinuxData ? (
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
               <tr>
                 <th style={thStyle("host")} onClick={() => sortBy("host")}>Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
-                <th style={{ ...thStyle("os_version"), width: 120 }} onClick={() => sortBy("os_version")}>OS</th>
-                <th style={{ ...thStyle("last_reboot_time"), width: 140 }} onClick={() => sortBy("last_reboot_time")}>Last Reboot</th>
-                <th style={thStyle("current_kernel_version")} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
-                <th style={thStyle(null)}>Latest Kernel</th>
-                <th style={{ ...thStyle(null), width: 130 }}>Kernel Status</th>
-                <th style={{ ...thStyle("package_count"), width: 160 }} onClick={() => sortBy("package_count")}>Pending Security Patches</th>
-                <th style={{ ...thStyle(null), width: 80 }}></th>
+                <th style={{ ...thStyle("os_version"), width: 100 }} onClick={() => sortBy("os_version")}>OS</th>
+                <th style={{ ...thStyle("last_reboot_time"), width: 120 }} onClick={() => sortBy("last_reboot_time")}>Last Reboot</th>
+                <th style={{ ...thStyle("current_kernel_version"), width: 160 }} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
+                <th style={{ ...thStyle(null), width: 160 }}>Latest Kernel</th>
+                <th style={{ ...thStyle(null), width: 110 }}>Kernel Status</th>
+                <th style={{ ...thStyle("package_count"), width: 130 }} onClick={() => sortBy("package_count")}>Pending Patches</th>
+                <th style={{ ...thStyle(null), width: 180 }}>Open Ports</th>
+                <th style={{ ...thStyle(null), width: 75 }}></th>
               </tr>
             </thead>
             <tbody>
               {filteredHosts.length === 0
-                ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
+                ? <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
                 : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
               }
             </tbody>
           </table>
         ) : (
           <div style={{ padding: "32px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-            No Linux scan data — click <strong>Linux Scan</strong> with a Linux inventory active.
+            No Linux scan data — click <strong>Run Scan</strong> with a Linux inventory active.
           </div>
         )}
       </div>
@@ -249,9 +250,9 @@ export function DashboardTab({
                     </td>
                     <td style={{ padding: "13px 16px" }}>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        {secCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "2px 7px", borderRadius: 999 }}>🔒 {secCount} Security Patches</span>}
-                        {ruCount  > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", padding: "2px 7px", borderRadius: 999 }}>📦 {ruCount} Rollout Patches</span>}
-                        {defCount > 0 && <span style={{ fontSize: 11, fontWeight: 600, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", padding: "2px 7px", borderRadius: 999 }}>🛡 {defCount} Definition Patches</span>}
+                        {secCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "2px 7px", borderRadius: 999 }}>🔒 {secCount} Security Updates</span>}
+                        {ruCount  > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", padding: "2px 7px", borderRadius: 999 }}>📦 {ruCount} Rollout Updates</span>}
+                        {defCount > 0 && <span style={{ fontSize: 11, fontWeight: 600, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", padding: "2px 7px", borderRadius: 999 }}>🛡 {defCount} Definition Updates</span>}
                         {isClean && <span style={{ fontSize: 11, color: "#94a3b8" }}>—</span>}
                       </div>
                     </td>

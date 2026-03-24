@@ -287,3 +287,88 @@ def save_hosts(hostnames: list):
     finally:
         cursor.close()
         conn.close()
+
+
+def save_host_ports(scan_id: str, host: str, ports: list):
+    """Save open port data for a host collected during a scan."""
+    if not ports:
+        return
+    conn   = get_conn()
+    cursor = conn.cursor()
+    try:
+        for p in ports:
+            cursor.execute('''
+                INSERT INTO host_ports
+                    (scan_id, host, port, protocol, state, bind_address, service, pid)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                scan_id,
+                host,
+                p['port'],
+                p.get('protocol'),
+                p.get('state', 'LISTEN'),
+                p.get('bind_address'),
+                p.get('service'),
+                p.get('pid'),
+            ))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_host_ports(hostname: str) -> list:
+    """
+    Return open ports for a host from the latest scan.
+    Each entry: port, protocol, bind_address, service, pid, exposure.
+    exposure is 'external' (0.0.0.0), 'internal' (127.0.0.1),
+    or 'interface' (specific IP).
+    """
+    conn   = get_conn()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT s.scan_id FROM scan_runs s
+            WHERE EXISTS (
+                SELECT 1 FROM host_ports hp
+                WHERE hp.scan_id = s.scan_id AND hp.host = %s
+            )
+            ORDER BY s.scanned_at DESC LIMIT 1
+        ''', (hostname,))
+        row = cursor.fetchone()
+        if not row:
+            return []
+        latest_scan_id = row[0]
+
+        cursor.execute('''
+            SELECT port, protocol, state, bind_address, service, pid
+            FROM host_ports
+            WHERE scan_id = %s AND host = %s
+            ORDER BY port ASC
+        ''', (latest_scan_id, hostname))
+
+        rows = cursor.fetchall()
+        result = []
+        for port, protocol, state, bind_address, service, pid in rows:
+            if bind_address == '0.0.0.0':
+                exposure = 'external'
+            elif bind_address == '127.0.0.1':
+                exposure = 'internal'
+            else:
+                exposure = 'interface'
+            result.append({
+                'port':         port,
+                'protocol':     protocol,
+                'state':        state,
+                'bind_address': bind_address,
+                'service':      service,
+                'pid':          pid,
+                'exposure':     exposure,
+            })
+        return result
+    finally:
+        cursor.close()
+        conn.close()

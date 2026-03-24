@@ -39,6 +39,7 @@ from database import (
     get_cve_details, get_scan_failures, get_host_history, get_host_cves,
     get_notification_settings, save_notification_settings,
     get_scan_interval, save_scan_interval,
+    get_host_ports,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
@@ -450,19 +451,76 @@ async def test_notification(background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ── Host ports endpoint ───────────────────────────────────────────────────────
+
+@app.get("/api/hosts/{hostname}/ports")
+async def get_ports(hostname: str):
+    ports = get_host_ports(hostname)
+    return {"hostname": hostname, "ports": ports}
+
+# ── AI chat — client factory ──────────────────────────────────────────────────
+
+def _get_openai_client():
+    """
+    Returns (client, model) for either Azure OpenAI or standard OpenAI.
+
+    Azure OpenAI   — set AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
+    Standard OpenAI — set OPENAI_API_KEY
+
+    Azure takes priority when both sets of vars are present.
+
+    .env variables:
+      # Standard OpenAI
+      OPENAI_API_KEY=sk-...
+
+      # Azure OpenAI
+      AZURE_OPENAI_API_KEY=...
+      AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+      AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini      # your deployment name
+      AZURE_OPENAI_API_VERSION=2024-02-01      # optional, defaults to 2024-02-01
+    """
+    try:
+        from openai import AzureOpenAI, OpenAI
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="openai package not installed — run: pip install openai"
+        )
+
+    azure_key      = os.getenv("AZURE_OPENAI_API_KEY", "")
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+
+    if azure_key and azure_endpoint:
+        client = AzureOpenAI(
+            api_key        = azure_key,
+            azure_endpoint = azure_endpoint,
+            api_version    = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+        )
+        model = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+        print(f"Chat: using Azure OpenAI — endpoint={azure_endpoint} deployment={model}")
+        return client, model
+
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    if openai_key:
+        client = OpenAI(api_key=openai_key)
+        model  = "gpt-4o-mini"
+        print("Chat: using standard OpenAI — model=gpt-4o-mini")
+        return client, model
+
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            "No OpenAI credentials configured. "
+            "Set OPENAI_API_KEY for standard OpenAI, or "
+            "AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT for Azure OpenAI."
+        )
+    )
+
 # ── AI chat endpoint ──────────────────────────────────────────────────────────
 
 @app.post("/api/chat")
 async def chat(body: ChatMessage):
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
-
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-    except ImportError:
-        raise HTTPException(status_code=500, detail="openai package not installed — run: pip install openai")
+    client, model = _get_openai_client()
 
     from chat import SYSTEM_PROMPT, TOOLS, _run_tool
 
@@ -480,18 +538,18 @@ async def chat(body: ChatMessage):
             # Step 2: If it calls tools, execute them and feed results back.
             # Step 3: Repeat until the model produces a final text response.
             # Step 4: Stream the final response token by token.
-            MAX_TOOL_ROUNDS = 5  # prevent runaway loops
+            MAX_TOOL_ROUNDS = 5
             local_messages  = list(messages)
 
             for _ in range(MAX_TOOL_ROUNDS):
                 response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=local_messages,
-                    tools=TOOLS,
-                    tool_choice="auto",
-                    max_tokens=1024,
-                    temperature=0.3,
-                    stream=False,   # non-streaming for tool rounds
+                    model         = model,
+                    messages      = local_messages,
+                    tools         = TOOLS,
+                    tool_choice   = "auto",
+                    max_tokens    = 1024,
+                    temperature   = 0.3,
+                    stream        = False,
                 )
 
                 msg = response.choices[0].message
@@ -499,16 +557,14 @@ async def chat(body: ChatMessage):
                 # No tool calls — model has a final answer, stream it
                 if not msg.tool_calls:
                     content = msg.content or ""
-                    # Stream word by word for a natural feel
-                    words = content.split(" ")
+                    words   = content.split(" ")
                     for i, word in enumerate(words):
                         chunk = word if i == len(words) - 1 else word + " "
                         yield f"data: {json.dumps({'content': chunk})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
 
-                # Tool calls requested — execute each one
-                # Add the assistant's tool_use message to history
+                # Tool calls — execute and append results
                 local_messages.append({
                     "role":       "assistant",
                     "content":    msg.content,
@@ -525,7 +581,6 @@ async def chat(body: ChatMessage):
                     ],
                 })
 
-                # Execute each tool and append results
                 for tc in msg.tool_calls:
                     try:
                         args = json.loads(tc.function.arguments)
@@ -538,7 +593,7 @@ async def chat(body: ChatMessage):
                         "content":      result,
                     })
 
-            # Safety fallback — should not normally reach here
+            # Safety fallback
             yield f"data: {json.dumps({'content': 'Sorry, I could not complete this request.'})}\n\n"
             yield "data: [DONE]\n\n"
 
