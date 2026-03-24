@@ -14,3 +14,4 @@ wheel>=0.46.2
 jaraco.context>=6.1.0
 pywinrm[kerberos]
 requests-ntlm
+openai>=1.0.0

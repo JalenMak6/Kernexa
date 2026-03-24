@@ -65,18 +65,16 @@
       ansible.builtin.raw: |
         RUNNING=$(uname -r)
 
-        # Pull kernel packages from security advisories, strip arch suffix once
         SEC_KERNEL=$(yum updateinfo list security 2>/dev/null \
-          | grep -E "^(RHSA|RLSA)" \
+          | grep -E "^(RHSA|RLSA|ALSA)" \
           | awk '{print $3}' \
           | grep "^kernel-[0-9]" \
           | sed 's/^kernel-//' \
           | sed 's/\.x86_64$//' \
-          | sort -t. -k1,1n -k2,2n -k3,3n \
+          | sort -V \
           | tail -1)
 
         if [ -n "$SEC_KERNEL" ]; then
-          # Append .x86_64 only if not already present
           case "$SEC_KERNEL" in
             *.x86_64) echo "$SEC_KERNEL" ;;
             *)         echo "${SEC_KERNEL}.x86_64" ;;
@@ -171,11 +169,11 @@
 
     # ── Advisory IDs (RedHat/Rocky only) ─────────────────────────────────────
 
-    - name: Get RLSA/RHSA advisory IDs
+    - name: Get RLSA/RHSA/ALSA advisory IDs
       ansible.builtin.raw: |
         yum updateinfo list security 2>/dev/null \
           | awk '{print $1}' \
-          | grep -E '^(RLSA|RHSA)' \
+          | grep -E '^(RLSA|RHSA|ALSA)' \
           | sort -u
       register: advisory_ids_raw
       when: _os_family == "RedHat"
@@ -222,6 +220,7 @@
         _os_version_str: >-
           {%- if _os_id == 'rhel' -%}Red Hat Enterprise Linux {{ _os_version }}
           {%- elif _os_id == 'rocky' -%}Rocky Linux {{ _os_version }}
+          {%- elif _os_id == 'almalinux' -%}AlmaLinux {{ _os_version }}
           {%- elif _os_id == 'ubuntu' -%}Ubuntu {{ _os_version }}
           {%- elif _os_id == 'debian' -%}Debian {{ _os_version }}
           {%- else -%}{{ _os_id }} {{ _os_version }}{%- endif -%}

@@ -41,6 +41,86 @@ def get_ubuntu_codename(os_version: str) -> str | None:
             return codename
     return None
 
+# ── Cleanup resolved advisories ───────────────────────────────────────────────
+
+def cleanup_resolved_advisories():
+    """
+    Delete any advisory from cve_details that is no longer referenced by any
+    host in the latest scan. This handles the case where all affected hosts
+    have been patched — the advisory should disappear from the CVE tab.
+
+    Only advisories that are not RHSA/RLSA/ALSA type (i.e. Ubuntu CVE-* IDs)
+    are cleaned up differently — for those we check advisory_id directly.
+    For RHSA/RLSA/ALSA we check if the advisory_id appears in any host's
+    advisory_ids array in the latest scan.
+    """
+    conn   = get_conn()
+    cursor = conn.cursor()
+    try:
+        # Get the latest scan_id
+        cursor.execute("SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1")
+        row = cursor.fetchone()
+        if not row:
+            print("Cleanup: no scans found, skipping")
+            return
+        latest_scan_id = row[0]
+
+        # Collect all advisory IDs referenced by any host in the latest scan
+        cursor.execute("""
+            SELECT DISTINCT unnest(advisory_ids)
+            FROM scan_results
+            WHERE scan_id = %s
+              AND advisory_ids IS NOT NULL
+              AND array_length(advisory_ids, 1) > 0
+        """, (latest_scan_id,))
+        active_advisories = {row[0] for row in cursor.fetchall() if row[0]}
+
+        # Also collect Ubuntu CVEs still referenced via scan_packages in latest scan
+        cursor.execute("""
+            SELECT DISTINCT cd.advisory_id
+            FROM cve_details cd
+            WHERE cd.advisory_id LIKE 'CVE-%%'
+              AND cd.source_package IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM scan_packages sp
+                WHERE sp.scan_id = %s
+                  AND sp.package_name ILIKE cd.source_package || '%%'
+              )
+        """, (latest_scan_id,))
+        active_ubuntu = {row[0] for row in cursor.fetchall()}
+        active_advisories |= active_ubuntu
+
+        if not active_advisories:
+            print("Cleanup: no active advisories found in latest scan — skipping to avoid wiping all CVEs")
+            return
+
+        # Find advisories in cve_details that are no longer active
+        cursor.execute("SELECT advisory_id FROM cve_details")
+        all_stored = {row[0] for row in cursor.fetchall()}
+        orphaned   = all_stored - active_advisories
+
+        if not orphaned:
+            print("Cleanup: no resolved advisories to remove")
+            return
+
+        print(f"Cleanup: removing {len(orphaned)} resolved advisories: {sorted(orphaned)[:10]}{'...' if len(orphaned) > 10 else ''}")
+
+        cursor.execute("""
+            DELETE FROM cve_details
+            WHERE advisory_id = ANY(%s)
+        """, (list(orphaned),))
+
+        deleted = cursor.rowcount
+        conn.commit()
+        print(f"Cleanup: deleted {deleted} resolved advisories")
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Cleanup: error during advisory cleanup: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
 # ── Rocky / RLSA + AlmaLinux / ALSA enrichment ───────────────────────────────
 
 def get_uncached_advisories() -> list:
@@ -137,12 +217,8 @@ def fetch_rocky_advisory(advisory_id: str) -> dict | None:
         return None
 
 def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None:
-    """
-    Fetch AlmaLinux ALSA advisory from the OSV GitHub database.
-    URL: .../almalinux{major}/{advisory_id}.json (colon kept in filename)
-    """
     try:
-        major = "9"  # default
+        major = "9"
         if os_version:
             m = re.search(r'(\d+)', os_version)
             if m:
@@ -167,9 +243,7 @@ def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None
             print(f"Enricher: {advisory_id} returned HTTP {resp.status_code}, skipping")
             return None
 
-        data = resp.json()
-
-        # CVE IDs are in references[] urls and aliases[]
+        data    = resp.json()
         cve_ids = []
         for ref in data.get('references', []):
             cve_match = re.search(r'(CVE-\d{4}-\d+)', ref.get('url', ''))
@@ -184,17 +258,15 @@ def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None
         synopsis    = data.get('summary', advisory_id)
         description = data.get('details', synopsis)
 
-        # Severity: check database_specific at top level or inside first affected entry
         severity = 'Moderate'
         affected = data.get('affected', [])
-        sev_raw = data.get('database_specific', {}).get('severity', '').lower()
+        sev_raw  = data.get('database_specific', {}).get('severity', '').lower()
         if not sev_raw and affected:
             sev_raw = affected[0].get('database_specific', {}).get('severity', '').lower()
-        sev_map = {'critical': 'Critical', 'important': 'Important',
-                   'moderate': 'Moderate', 'low': 'Low'}
+        sev_map  = {'critical': 'Critical', 'important': 'Important',
+                    'moderate': 'Moderate', 'low': 'Low'}
         severity = sev_map.get(sev_raw, 'Moderate')
 
-        # Package names (skip debug packages)
         pkg_names = sorted({
             a['package']['name']
             for a in affected
@@ -468,7 +540,7 @@ def fetch_rh_cvss(cve_id: str) -> dict | None:
     try:
         resp = requests.get(RH_CVE_API.format(cve_id), timeout=(5, 15))
         if resp.status_code == 200:
-            data = resp.json()
+            data   = resp.json()
             score  = data.get("cvss3_score")
             vector = data.get("cvss3_scoring_vector")
             if score and float(score) > 0:
@@ -588,8 +660,8 @@ def get_cves_needing_cvss_enrichment() -> list[dict]:
         conn.close()
 
 def _fetch_best_cvss_for_advisory(record: dict) -> tuple:
-    advisory_id  = record["advisory_id"]
-    cve_ids      = record["cve_ids"]
+    advisory_id = record["advisory_id"]
+    cve_ids     = record["cve_ids"]
     best = None
     for cve_id in cve_ids[:3]:
         result = fetch_cvss(cve_id)
@@ -652,5 +724,11 @@ def enrich_all():
         enrich_cvss()
     except Exception as e:
         print(f"enrich_all: CVSS post-Ubuntu enrichment failed: {e}")
+
+    print("enrich_all: cleaning up resolved advisories")
+    try:
+        cleanup_resolved_advisories()
+    except Exception as e:
+        print(f"enrich_all: cleanup failed: {e}")
 
     print("enrich_all: done")
