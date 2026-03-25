@@ -30,6 +30,8 @@ from database.scans import (
     get_cve_details,
     get_hosts,
     save_hosts,
+    save_host_ports,
+    get_host_ports,
 )
 
 from database.windows import (
@@ -67,6 +69,7 @@ __all__ = [
     # linux scans
     "save_to_db", "get_latest_scan", "get_scan_history",
     "get_scan_failures", "get_cve_details", "get_hosts", "save_hosts",
+    "save_host_ports", "get_host_ports",
     # windows scans
     "save_windows_to_db", "get_latest_windows_scan",
     # hosts

@@ -14,7 +14,6 @@ const TAG_COLORS = [
   { bg: "var(--yellow-tint)",  color: "var(--yellow-dark)",  border: "var(--yellow-border)"  },
 ];
 
-// Raw hex needed for hash lookup — keep parallel array
 const TAG_COLORS_RAW = [
   { bg: "#eff6ff", color: "#1d4ed8", border: "#bfdbfe" },
   { bg: "#f0fdf4", color: "#15803d", border: "#bbf7d0" },
@@ -217,15 +216,39 @@ function SeverityBadge({ severity }) {
   );
 }
 
+// ── Exposure badge for ports ───────────────────────────────────────────────────
+
+function ExposureBadge({ exposure, bindAddress }) {
+  const cfg = {
+    external:  { bg: "var(--blue-tint)",   color: "var(--blue-deep)",   border: "var(--blue-border)",   label: "External"  },
+    internal:  { bg: "var(--green-tint)",  color: "var(--green-dark)",  border: "var(--green-border)",  label: "Internal"  },
+    interface: { bg: "var(--amber-tint)",  color: "var(--amber)",       border: "var(--yellow-border)", label: "Interface" },
+  }[exposure] || { bg: "var(--bg-subtle)", color: "var(--text-faint)", border: "var(--border)", label: exposure };
+
+  return (
+    <span title={bindAddress} style={{
+      background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+      borderRadius: "var(--radius-md)", padding: "2px 8px",
+      fontSize: "var(--text-sm)", fontWeight: 700, whiteSpace: "nowrap",
+    }}>
+      {cfg.label}
+    </span>
+  );
+}
+
 // ── Host Detail Panel ─────────────────────────────────────────────────────────
 
 function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
-  const [activeTab, setActiveTab]           = useState("overview");
-  const [cves, setCves]                     = useState([]);
-  const [history, setHistory]               = useState([]);
-  const [loadingCves, setLoadingCves]       = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [cveSearch, setCveSearch]           = useState("");
+  const [activeTab,       setActiveTab]       = useState("overview");
+  const [cves,            setCves]            = useState([]);
+  const [history,         setHistory]         = useState([]);
+  const [ports,           setPorts]           = useState([]);
+  const [loadingCves,     setLoadingCves]     = useState(false);
+  const [loadingHistory,  setLoadingHistory]  = useState(false);
+  const [loadingPorts,    setLoadingPorts]    = useState(false);
+  const [cveSearch,       setCveSearch]       = useState("");
+  const [portSearch,      setPortSearch]      = useState("");
+  const [portFilter,      setPortFilter]      = useState("all"); // all | external | internal | interface
 
   const outdated = kernelOutdated(host.current_kernel_version, host.latest_available_kernel_version);
   const pkgCount = host.pending_security_packages?.length || 0;
@@ -243,6 +266,12 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
         .then(r => r.json()).then(d => { setHistory(d); setLoadingHistory(false); })
         .catch(() => setLoadingHistory(false));
     }
+    if (activeTab === "ports" && ports.length === 0) {
+      setLoadingPorts(true);
+      fetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
+        .then(r => r.json()).then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
+        .catch(() => setLoadingPorts(false));
+    }
   }, [activeTab]);
 
   const filteredCves = cves.filter(c =>
@@ -251,6 +280,20 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
     c.synopsis?.toLowerCase().includes(cveSearch.toLowerCase()) ||
     c.cve_ids?.some(id => id.toLowerCase().includes(cveSearch.toLowerCase()))
   );
+
+  const filteredPorts = ports.filter(p => {
+    const matchExposure = portFilter === "all" || p.exposure === portFilter;
+    const matchSearch   = !portSearch ||
+      String(p.port).includes(portSearch) ||
+      p.service?.toLowerCase().includes(portSearch.toLowerCase()) ||
+      p.bind_address?.includes(portSearch);
+    return matchExposure && matchSearch;
+  });
+
+  const portCounts = ports.reduce((acc, p) => {
+    acc[p.exposure] = (acc[p.exposure] || 0) + 1;
+    return acc;
+  }, {});
 
   const cveCounts = { Critical: 0, Important: 0, Moderate: 0, Low: 0 };
   cves.forEach(c => { if (cveCounts[c.severity] !== undefined) cveCounts[c.severity]++; });
@@ -264,9 +307,14 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
 
   const tabs = [
     { id: "overview", label: "Overview" },
+    { id: "ports",    label: `Open Ports${ports.length > 0 ? ` (${ports.length})` : ""}` },
     { id: "cves",     label: `CVE Advisories${cves.length > 0 ? ` (${cves.length})` : ""}` },
     { id: "history",  label: "Kernel History" },
   ];
+
+  const thStyle = { padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700,
+    letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-ghost)",
+    background: "var(--bg-subtle)", borderBottom: "1px solid var(--border)" };
 
   const InfoRow = ({ label, value }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "9px 0", borderBottom: "1px solid var(--border-subtle)" }}>
@@ -341,6 +389,7 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
         {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-5) var(--space-6)" }}>
 
+          {/* ── Overview ── */}
           {activeTab === "overview" && (
             <div>
               <InfoRow label="OS Version"     value={host.os_version} />
@@ -362,6 +411,105 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
             </div>
           )}
 
+          {/* ── Open Ports ── */}
+          {activeTab === "ports" && (
+            <div>
+              {loadingPorts ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>Loading port data...</div>
+              ) : ports.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>No port data available. Run a scan to collect port information.</div>
+              ) : (
+                <div>
+                  {/* Exposure summary cards */}
+                  <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+                    {[
+                      { key: "external",  label: "External",  bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)",   desc: "0.0.0.0"   },
+                      { key: "internal",  label: "Internal",  bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)",  desc: "127.0.0.1" },
+                      { key: "interface", label: "Interface", bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)", desc: "Specific IP" },
+                    ].map(s => (
+                      <div key={s.key} style={{
+                        flex: 1, background: s.bg, border: `1px solid ${s.border}`,
+                        borderRadius: "var(--radius-base)", padding: "10px 14px", textAlign: "center",
+                        cursor: "pointer", outline: portFilter === s.key ? `2px solid ${s.color}` : "none",
+                        transition: "all 0.15s",
+                      }}
+                        onClick={() => setPortFilter(portFilter === s.key ? "all" : s.key)}
+                      >
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: s.color, marginTop: 2 }}>{portCounts[s.key] || 0}</div>
+                        <div style={{ fontSize: "var(--text-xs)", color: s.color, opacity: 0.7 }}>{s.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Search */}
+                  <input
+                    value={portSearch}
+                    onChange={e => setPortSearch(e.target.value)}
+                    placeholder="Search port, service, or bind address..."
+                    style={{
+                      width: "100%", padding: "8px 12px",
+                      border: "1px solid var(--border)", borderRadius: "var(--radius-base)",
+                      fontSize: "var(--text-md)", marginBottom: "var(--space-3)",
+                      fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+                      background: "var(--bg-page)", color: "var(--text-primary)",
+                    }}
+                  />
+
+                  {/* Ports table */}
+                  <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr>
+                          {["Port", "Protocol", "Bind Address", "Service", "Exposure"].map(h => (
+                            <th key={h} style={thStyle}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredPorts.length === 0 ? (
+                          <tr><td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>No ports match your filter</td></tr>
+                        ) : filteredPorts.map((p, i) => (
+                          <tr key={i}
+                            style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
+                            onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
+                            onMouseLeave={e => e.currentTarget.style.background = ""}
+                          >
+                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 700, fontSize: "var(--text-md)", color: "var(--text-primary)" }}>
+                              {p.port}
+                            </td>
+                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>
+                              {p.protocol}
+                            </td>
+                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>
+                              {p.bind_address}
+                            </td>
+                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-secondary)", fontFamily: "monospace" }}>
+                              {p.service || "-"}
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <ExposureBadge exposure={p.exposure} bindAddress={p.bind_address} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ marginTop: "var(--space-3)", fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>
+                    {filteredPorts.length} of {ports.length} ports shown
+                    {portFilter !== "all" && (
+                      <button onClick={() => setPortFilter("all")} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--blue-deep)", cursor: "pointer", fontSize: "var(--text-sm)", padding: 0, fontFamily: "inherit" }}>
+                        clear filter ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CVE Advisories ── */}
           {activeTab === "cves" && (
             <div>
               {loadingCves ? (
@@ -410,6 +558,7 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
             </div>
           )}
 
+          {/* ── Kernel History ── */}
           {activeTab === "history" && (
             <div>
               {loadingHistory ? (
@@ -460,6 +609,7 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
               )}
             </div>
           )}
+
         </div>
       </div>
     </div>
@@ -501,12 +651,28 @@ function shortKernel(v) {
 // ── HostRow ───────────────────────────────────────────────────────────────────
 
 export function HostRow({ host }) {
-  const [expanded,   setExpanded]   = useState(false);
-  const [showDetail, setShowDetail] = useState(false);
-  const [tags,       setTags]       = useState(host.tags || []);
+  const [expanded,     setExpanded]     = useState(false);
+  const [showDetail,   setShowDetail]   = useState(false);
+  const [tags,         setTags]         = useState(host.tags || []);
+  const [ports,        setPorts]        = useState(null); // null = not loaded yet
+  const [loadingPorts, setLoadingPorts] = useState(false);
 
   const outdated = kernelOutdated(host.current_kernel_version, host.latest_available_kernel_version);
   const pkgCount = host.pending_security_packages?.length || 0;
+
+  // Fetch ports eagerly on mount so the column shows data immediately
+  useEffect(() => {
+    setLoadingPorts(true);
+    fetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
+      .then(r => r.json())
+      .then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
+      .catch(() => { setPorts([]); setLoadingPorts(false); });
+  }, [host.host]);
+
+  const externalPorts  = (ports || []).filter(p => p.exposure === "external");
+  const internalPorts  = (ports || []).filter(p => p.exposure === "internal");
+  const interfacePorts = (ports || []).filter(p => p.exposure === "interface");
+  const portCount      = (ports || []).length;
 
   return (
     <>
@@ -533,47 +699,183 @@ export function HostRow({ host }) {
           </div>
         </td>
 
-        <td style={{ padding: "14px 16px", width: 120 }}>{osVersionBadge(host.os_version)}</td>
-        <td style={{ padding: "14px 16px", width: 140, fontSize: "var(--text-base)", color: "var(--text-muted)" }}>
+        <td style={{ padding: "14px 16px", width: 100 }}>{osVersionBadge(host.os_version)}</td>
+        <td style={{ padding: "14px 16px", width: 120, fontSize: "var(--text-base)", color: "var(--text-muted)" }}>
           {host.last_reboot_time || <span style={{ color: "var(--text-disabled)" }}>-</span>}
         </td>
-        <td title={host.current_kernel_version} style={{ padding: "14px 16px", fontSize: "var(--text-base)", fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+        <td title={host.current_kernel_version} style={{ padding: "14px 16px", width: 160, fontSize: "var(--text-base)", fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {shortKernel(host.current_kernel_version)}
         </td>
-        <td title={host.latest_available_kernel_version} style={{ padding: "14px 16px", fontSize: "var(--text-base)", fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+        <td title={host.latest_available_kernel_version} style={{ padding: "14px 16px", width: 160, fontSize: "var(--text-base)", fontFamily: "monospace", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {shortKernel(host.latest_available_kernel_version)}
         </td>
-        <td style={{ padding: "14px 16px", width: 130 }}>
+        <td style={{ padding: "14px 16px", width: 110 }}>
           {outdated ? badge("Outdated", "red") : badge("Up to date", "green")}
         </td>
-        <td style={{ padding: "14px 16px", width: 140 }}>
+        <td style={{ padding: "14px 16px", width: 130 }}>
           {pkgCount > 0 ? badge(`${pkgCount} packages`, "yellow") : badge("Clean", "green")}
         </td>
-        <td style={{ padding: "14px 16px", width: 80 }}>
-          {pkgCount > 0 && (
-            <button onClick={() => setExpanded(!expanded)} style={{
-              background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
-              padding: "4px 10px", cursor: "pointer", fontSize: "var(--text-base)", color: "var(--text-muted)",
-              display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit",
-            }}>
-              {expanded ? "Hide" : "View"}
-              <div style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
-                <Icon d={Icons.chevron} size={12} />
-              </div>
-            </button>
+
+        {/* Open Ports column */}
+        <td style={{ padding: "10px 16px", width: 150 }}>
+          {loadingPorts ? (
+            <span style={{ color: "var(--text-ghost)", fontSize: "var(--text-sm)" }}>...</span>
+          ) : ports === null || portCount === 0 ? (
+            <span style={{ color: "var(--text-disabled)", fontSize: "var(--text-sm)" }}>—</span>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              {(() => {
+                const allChips = [
+                  ...externalPorts.map(p => ({ ...p, type: "external" })),
+                  ...internalPorts.map(p => ({ ...p, type: "internal" })),
+                  ...interfacePorts.map(p => ({ ...p, type: "interface" })),
+                ];
+                const MAX = 5;
+                const shown   = allChips.slice(0, MAX);
+                const overflow = allChips.length - MAX;
+                const colorMap = {
+                  external:  { bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)"   },
+                  internal:  { bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)"  },
+                  interface: { bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)" },
+                };
+                return (
+                  <>
+                    {shown.map((p, i) => {
+                      const c = colorMap[p.type];
+                      return (
+                        <span key={i}
+                          title={`${p.protocol?.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
+                          style={{
+                            background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+                            borderRadius: "var(--radius-sm)", padding: "1px 6px",
+                            fontSize: "var(--text-xs)", fontFamily: "monospace", fontWeight: 700,
+                            whiteSpace: "nowrap",
+                          }}>
+                          {p.port}{p.service && p.service !== "unknown" ? ` ${p.service}` : ""}
+                        </span>
+                      );
+                    })}
+                    {overflow > 0 && (
+                      <span
+                        title={allChips.slice(MAX).map(p => `${p.port} ${p.service}`).join(", ")}
+                        style={{
+                          background: "var(--bg-subtle)", color: "var(--text-ghost)",
+                          border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                          padding: "1px 6px", fontSize: "var(--text-xs)", fontWeight: 600,
+                          whiteSpace: "nowrap", cursor: "default",
+                        }}>
+                        +{overflow}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           )}
+        </td>
+
+        <td style={{ padding: "14px 16px", width: 75 }}>
+          {/* Always show View — shows packages + ports */}
+          <button onClick={() => setExpanded(!expanded)} style={{
+            background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-md)",
+            padding: "4px 10px", cursor: "pointer", fontSize: "var(--text-base)", color: "var(--text-muted)",
+            display: "flex", alignItems: "center", gap: 4, fontFamily: "inherit",
+          }}>
+            {expanded ? "Hide" : "View"}
+            <div style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+              <Icon d={Icons.chevron} size={12} />
+            </div>
+          </button>
         </td>
       </tr>
 
-      {expanded && pkgCount > 0 && (
+      {expanded && (
         <tr style={{ background: "var(--bg-hover)" }}>
-          <td colSpan={8} style={{ padding: "0 16px 16px 16px" }}>
-            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", padding: "var(--space-3)", display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
-              {host.pending_security_packages.map((pkg, i) => (
-                <span key={i} style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "3px 8px", fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--text-secondary)" }}>
-                  {pkg}
-                </span>
-              ))}
+          <td colSpan={9} style={{ padding: "0 16px 16px 16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+
+              {/* Pending packages */}
+              {pkgCount > 0 && (
+                <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", padding: "var(--space-3)" }}>
+                  <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-ghost)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+                    Pending Security Packages ({pkgCount})
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+                    {host.pending_security_packages.map((pkg, i) => (
+                      <span key={i} style={{ background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "3px 8px", fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--text-secondary)" }}>
+                        {pkg}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Open ports summary */}
+              <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", padding: "var(--space-3)" }}>
+                <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: "var(--text-ghost)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+                  Open Ports {loadingPorts ? "..." : ports !== null ? `(${portCount})` : ""}
+                </div>
+
+                {loadingPorts ? (
+                  <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>Loading...</div>
+                ) : ports === null || portCount === 0 ? (
+                  <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>No port data — run a scan to collect.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                    {/* External ports — shown prominently */}
+                    {externalPorts.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--blue-deep)", marginBottom: 5 }}>
+                          External (0.0.0.0) — {externalPorts.length} port{externalPorts.length > 1 ? "s" : ""}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+                          {externalPorts.map((p, i) => (
+                            <span key={i} title={`${p.protocol.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
+                              style={{ background: "var(--blue-tint)", border: "1px solid var(--blue-border)", borderRadius: "var(--radius-sm)", padding: "3px 8px", fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--blue-deep)", fontWeight: 600 }}>
+                              {p.port} <span style={{ fontWeight: 400, opacity: 0.8 }}>{p.service !== "unknown" ? p.service : p.protocol}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Internal ports — compact */}
+                    {internalPorts.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--green-dark)", marginBottom: 5 }}>
+                          Internal (127.0.0.1) — {internalPorts.length} port{internalPorts.length > 1 ? "s" : ""}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+                          {internalPorts.map((p, i) => (
+                            <span key={i} title={`${p.protocol.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
+                              style={{ background: "var(--green-tint)", border: "1px solid var(--green-border)", borderRadius: "var(--radius-sm)", padding: "3px 8px", fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--green-dark)" }}>
+                              {p.port} <span style={{ fontWeight: 400, opacity: 0.8 }}>{p.service !== "unknown" ? p.service : p.protocol}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Interface-bound ports */}
+                    {(ports || []).filter(p => p.exposure === "interface").length > 0 && (
+                      <div>
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--amber)", marginBottom: 5 }}>
+                          Interface-bound — {(ports || []).filter(p => p.exposure === "interface").length} port{(ports || []).filter(p => p.exposure === "interface").length > 1 ? "s" : ""}
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+                          {(ports || []).filter(p => p.exposure === "interface").map((p, i) => (
+                            <span key={i} title={`${p.protocol.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
+                              style={{ background: "var(--amber-tint)", border: "1px solid var(--yellow-border)", borderRadius: "var(--radius-sm)", padding: "3px 8px", fontSize: "var(--text-sm)", fontFamily: "monospace", color: "var(--amber)" }}>
+                              {p.port} <span style={{ fontWeight: 400, opacity: 0.8 }}>{p.bind_address}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
           </td>
         </tr>

@@ -5,6 +5,14 @@ Tool calling implementation for the Kernexa AI chatbot.
 The system prompt is tiny — just role + instructions.
 Data is only fetched when the model explicitly calls a tool.
 
+The OpenAI client and model are constructed in main.py (_get_openai_client())
+which auto-detects whether to use standard OpenAI or Azure OpenAI based on
+the environment variables present:
+
+  Standard OpenAI:  OPENAI_API_KEY
+  Azure OpenAI:     AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT
+                    + AZURE_OPENAI_DEPLOYMENT + AZURE_OPENAI_API_VERSION
+
 Available tools:
   get_linux_summary()              overall Linux compliance stats
   get_linux_host_details(hostname) one host's current status + pending packages
@@ -24,6 +32,7 @@ from database import (
     get_scan_history     as db_get_scan_history,
     get_host_history     as db_get_host_history,
     get_host_cves        as db_get_host_cves,
+    get_host_ports       as db_get_host_ports,
 )
 
 # ── System prompt ─────────────────────────────────────────────────────────────

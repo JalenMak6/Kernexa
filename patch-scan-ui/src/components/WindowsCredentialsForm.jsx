@@ -117,7 +117,7 @@ export function WindowsCredentialsForm({ onClose }) {
               <input
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder={existing ? existing.username : "jmak05.adm"}
+                placeholder={existing ? existing.username : "administrator/Domain Account"}
                 style={inputStyle}
               />
             </div>
@@ -128,7 +128,7 @@ export function WindowsCredentialsForm({ onClose }) {
               <input
                 value={domain}
                 onChange={e => setDomain(e.target.value)}
-                placeholder={existing?.domain || "EAD.UBC.CA"}
+                placeholder={existing?.domain || "EAD.ABC.CA"}
                 style={inputStyle}
               />
             </div>

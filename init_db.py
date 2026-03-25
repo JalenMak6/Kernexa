@@ -75,7 +75,6 @@ def init():
                 inventory_type TEXT NOT NULL DEFAULT 'linux'
             )
         ''')
-        # Migration: add inventory_type to existing deployments
         cursor.execute("ALTER TABLE inventories ADD COLUMN IF NOT EXISTS inventory_type TEXT NOT NULL DEFAULT 'linux'")
 
         cursor.execute('''
@@ -163,6 +162,23 @@ def init():
         ''')
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_win_scan_results_scan_id  ON windows_scan_results(scan_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_win_scan_results_hostname ON windows_scan_results(hostname)")
+
+        # ── Host open ports ────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS host_ports (
+                id           SERIAL PRIMARY KEY,
+                scan_id      TEXT    NOT NULL REFERENCES scan_runs(scan_id),
+                host         TEXT    NOT NULL,
+                port         INTEGER NOT NULL,
+                protocol     TEXT,
+                state        TEXT,
+                bind_address TEXT,
+                service      TEXT,
+                pid          INTEGER
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_ports_scan_id ON host_ports(scan_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_ports_host    ON host_ports(host)")
 
         conn.commit()
         print("Database tables created/migrated successfully")

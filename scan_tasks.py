@@ -14,6 +14,7 @@ from enricher import enrich_all
 from database import (
     save_to_db, save_windows_to_db,
     get_latest_scan, get_latest_windows_scan,
+    save_host_ports,
     get_conn,
 )
 from reports.linux   import send_scan_report
@@ -29,6 +30,13 @@ def run_and_save(scan_id: str, scanned_at: datetime):
         running_scans[scan_id] = "running"
         output = run_patch_scan()
         save_to_db(output, scan_id, scanned_at)
+
+        # Save open port data for each host
+        for host, data in output.get('hosts', {}).items():
+            ports = data.get('open_ports', [])
+            if ports:
+                save_host_ports(scan_id, host, ports)
+
         running_scans[scan_id] = "enriching"
         print(f"Scan {scan_id} saved — starting CVE enrichment")
         enrich_all()
