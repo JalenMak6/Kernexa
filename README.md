@@ -1,10 +1,8 @@
 # Kernexa
 
-A patch compliance platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, and CVE advisories — all surfaced in a clean web dashboard.
+An Security Patch Compliance Platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, opening ports and CVE advisories — all surfaced in a clean web dashboard.
 
-![Kernexa Dashboard1](images/Dashboard11.png)
-![Kernexa Dashboard3](images/Dashboard3.png)
-![Kernexa Dashboard4](images/Dashboard4.png)
+![Kernexa Dashboard1](images/dashboard1.png)
 
 ## Stack
 
@@ -43,9 +41,9 @@ There are two ways to run Kernexa — using the pre-built image from Docker Hub 
 The easiest way to get started. No build step required — pulls the latest stable image directly from Docker Hub.
 
 **1. Clone the repo to get the compose file and env template:**
-```bash
+``` bash
 git clone https://github.com/JalenMak6/Kernexa.git
-cd kernexa
+cd Kernexa
 ```
 
 **2. Set up your environment:**
@@ -125,23 +123,17 @@ IMAGE=jalenmakdocker/kernexa:v0.0.1
 Copy `env-example` to `.env` and set your own values. This file is never committed.
 
 ```env
-# Database
 POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
-POSTGRES_PASSWORD=changeme
-
-# App
-NVD_API_KEY=your-nvd-api-key-here
-CREDENTIALS_KEY=your-fernet-key-here
-ENABLE_DOCS=false
-
-# Ports
-APP_PORT=8000
-DB_PORT=5432
-ADMINER_PORT=8080
-
-# Image (used by docker-compose-stable.yml)
-IMAGE=jalenmakdocker/kernexa:stable
+POSTGRES_PASSWORD=supersecret
+POSTGRES_PORT=5432
+NVD_API_KEY=5fcxxxxxx
+CREDENTIALS_KEY=cmuxxxxxxx
+OPENAI_API_KEY=sk-proj-xxxxxxx
+AZURE_OPENAI_API_KEY=Cxxxxxxxxxxx
+AZURE_OPENAI_ENDPOINT=https://xxxx.cognitiveservices.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
 ```
 
 **NVD_API_KEY** is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
@@ -151,6 +143,12 @@ IMAGE=jalenmakdocker/kernexa:stable
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 Keep this key safe — losing it means existing encrypted credentials in the DB can no longer be decrypted and will need to be re-entered in the UI.
+
+**OPENAI_API_KEY** is optional
+**AZURE_OPENAI_API_KEY** is optional
+**AZURE_OPENAI_ENDPOINT** is optional
+**AZURE_OPENAI_DEPLOYMENT** is optional
+**AZURE_OPENAI_API_VERSION** is optional
 
 **ENABLE_DOCS** controls whether the `/docs`, `/redoc`, and `/openapi.json` endpoints are exposed. Defaults to `false`. Set to `true` only in local development — never expose these on a public-facing instance as they allow anyone to browse and call your API directly.
 
@@ -239,22 +237,6 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 - Encryption key stored separately in `.env`, never in the database
 - Credentials decrypted in memory only at scan time — never written to disk
 - `/docs`, `/redoc`, and `/openapi.json` endpoints disabled by default — enable only for local development via `ENABLE_DOCS=true` in `.env`
-
----
-
-## Database Schema
-
-| Table | Description |
-|-------|-------------|
-| `scan_runs` | Scan metadata — ID, status, timestamp, return code, per-host failures, Ansible log |
-| `scan_results` | Per-host kernel versions and package→source map |
-| `scan_packages` | Pending security packages per host per scan |
-| `cve_details` | Enriched CVE/advisory data with CVSS scores cached from upstream APIs |
-| `inventories` | Uploaded inventory files |
-| `credentials` | SSH credentials per inventory (AES-256 encrypted) |
-| `hosts` | Known hostnames |
-| `host_tags` | Tags assigned to hosts — persists across scans |
-| `notification_settings` | SMTP configuration and recipient list |
 
 ---
 
