@@ -18,7 +18,7 @@ function fmtWinDate(iso) {
 
 function shortOsLabel(osName) {
   if (!osName) return "Unknown";
-  const year    = osName.match(/\b(2008|2012|2016|2019|2022|2025|10|11)\b/)?.[1] || "";
+  const year     = osName.match(/\b(2008|2012|2016|2019|2022|2025|10|11)\b/)?.[1] || "";
   const isServer = /server/i.test(osName);
   const isEval   = /evaluation/i.test(osName);
   const isDC     = /datacenter/i.test(osName);
@@ -33,13 +33,13 @@ function osVersionBadge(osName) {
   if (!osName) return null;
   const lower = osName.toLowerCase();
   let bg, color, border;
-  if      (lower.includes("2022")) { bg = "var(--blue-tint)";    color = "var(--blue-deep)";    border = "var(--blue-border)";    }
-  else if (lower.includes("2019")) { bg = "var(--green-tint)";   color = "var(--green-deeper)"; border = "var(--green-border)";   }
-  else if (lower.includes("2016")) { bg = "var(--purple-tint)";  color = "var(--purple-dark)";  border = "var(--purple-border)";  }
-  else if (lower.includes("2012")) { bg = "var(--orange-tint)";  color = "var(--orange-dark)";  border = "var(--orange-border)";  }
-  else if (lower.includes("10"))   { bg = "var(--yellow-tint)";  color = "var(--yellow-dark)";  border = "var(--yellow-border)";  }
-  else if (lower.includes("11"))   { bg = "var(--teal-tint)";    color = "var(--teal)";         border = "var(--teal-border)";    }
-  else                              { bg = "var(--bg-subtle)";    color = "var(--text-muted)";   border = "var(--border-muted)";   }
+  if      (lower.includes("2022")) { bg = "var(--blue-tint)";   color = "var(--blue-deep)";    border = "var(--blue-border)";   }
+  else if (lower.includes("2019")) { bg = "var(--green-tint)";  color = "var(--green-deeper)"; border = "var(--green-border)";  }
+  else if (lower.includes("2016")) { bg = "var(--purple-tint)"; color = "var(--purple-dark)";  border = "var(--purple-border)"; }
+  else if (lower.includes("2012")) { bg = "var(--orange-tint)"; color = "var(--orange-dark)";  border = "var(--orange-border)"; }
+  else if (lower.includes("10"))   { bg = "var(--yellow-tint)"; color = "var(--yellow-dark)";  border = "var(--yellow-border)"; }
+  else if (lower.includes("11"))   { bg = "var(--teal-tint)";   color = "var(--teal)";         border = "var(--teal-border)";   }
+  else                              { bg = "var(--bg-subtle)";   color = "var(--text-muted)";   border = "var(--border-muted)";  }
   return (
     <span style={{ background: bg, color, border: `1px solid ${border}`, padding: "2px 8px", borderRadius: "var(--radius-pill)", fontSize: "var(--text-sm)", fontWeight: 700, whiteSpace: "nowrap" }}>
       {shortOsLabel(osName)}
@@ -59,39 +59,109 @@ function severityBadge(sev) {
   return <span style={{ background: bg, color, border: `1px solid ${border}`, padding: "2px 8px", borderRadius: "var(--radius-pill)", fontSize: "var(--text-sm)", fontWeight: 700 }}>{sev}</span>;
 }
 
+// ── Exposure badge ────────────────────────────────────────────────────────────
+
+function ExposureBadge({ exposure, bindAddress }) {
+  const cfg = {
+    external:  { bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)",   label: "External"  },
+    internal:  { bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)",  label: "Internal"  },
+    interface: { bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)", label: "Interface" },
+  }[exposure] || { bg: "var(--bg-subtle)", color: "var(--text-faint)", border: "var(--border)", label: exposure };
+  return (
+    <span title={bindAddress} style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`, borderRadius: "var(--radius-md)", padding: "2px 8px", fontSize: "var(--text-sm)", fontWeight: 700, whiteSpace: "nowrap" }}>
+      {cfg.label}
+    </span>
+  );
+}
+
 // ── Host detail panel ─────────────────────────────────────────────────────────
 
 function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
+  const [activeTab,    setActiveTab]    = useState("patches");
+  const [ports,        setPorts]        = useState([]);
+  const [loadingPorts, setLoadingPorts] = useState(false);
+  const [portSearch,   setPortSearch]   = useState("");
+  const [portFilter,   setPortFilter]   = useState("all");
+
   const byClass   = {};
   updates.forEach(u => { const cls = u.classification || "Other"; if (!byClass[cls]) byClass[cls] = []; byClass[cls].push(u); });
   const clsOrder  = ["Security Updates", "Critical Updates", "Update Rollups", "Definition Updates"];
   const sortedCls = [...clsOrder.filter(c => byClass[c]), ...Object.keys(byClass).filter(c => !clsOrder.includes(c))];
 
+  useEffect(() => {
+    if (activeTab === "ports" && ports.length === 0) {
+      setLoadingPorts(true);
+      fetch(`/api/hosts/${encodeURIComponent(hostname)}/ports`)
+        .then(r => r.json())
+        .then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
+        .catch(() => setLoadingPorts(false));
+    }
+  }, [activeTab]);
+
+  const filteredPorts = ports.filter(p => {
+    const matchExposure = portFilter === "all" || p.exposure === portFilter;
+    const matchSearch   = !portSearch ||
+      String(p.port).includes(portSearch) ||
+      p.service?.toLowerCase().includes(portSearch.toLowerCase()) ||
+      p.bind_address?.includes(portSearch);
+    return matchExposure && matchSearch;
+  });
+
+  const portCounts = ports.reduce((acc, p) => { acc[p.exposure] = (acc[p.exposure] || 0) + 1; return acc; }, {});
+
+  const thStyle = { padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700,
+    letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-ghost)",
+    background: "var(--bg-subtle)", borderBottom: "1px solid var(--border)" };
+
+  const tabs = [
+    { id: "patches", label: `Patches (${updates.length})` },
+    { id: "ports",   label: `Open Ports${ports.length > 0 ? ` (${ports.length})` : ""}` },
+  ];
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "var(--backdrop-dark)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--space-6)", backdropFilter: "blur(2px)" }}>
       <div style={{ background: "var(--bg-card)", borderRadius: "var(--radius-3xl)", width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-modal-lg)", overflow: "hidden" }}>
 
-        <div style={{ padding: "var(--space-5) var(--space-6)", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: "var(--text-xl)", color: "var(--text-primary)", fontFamily: "monospace" }}>🪟 {hostname}</div>
-            <div style={{ fontSize: "var(--text-base)", color: "var(--text-faint)", marginTop: 2 }}>{osName} · {osVersion}</div>
-            <div style={{ marginTop: "var(--space-2)", display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-              {sortedCls.map(cls => (
-                <span key={cls} style={{ fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>
-                  <strong>{byClass[cls].length}</strong> {cls}
-                </span>
-              ))}
+        {/* Header */}
+        <div style={{ padding: "var(--space-5) var(--space-6) 0", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "var(--space-3)" }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: "var(--text-xl)", color: "var(--text-primary)", fontFamily: "monospace" }}>🪟 {hostname}</div>
+              <div style={{ fontSize: "var(--text-base)", color: "var(--text-faint)", marginTop: 2 }}>{osName} · {osVersion}</div>
+              <div style={{ marginTop: "var(--space-2)", display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                {sortedCls.map(cls => (
+                  <span key={cls} style={{ fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>
+                    <strong>{byClass[cls].length}</strong> {cls}
+                  </span>
+                ))}
+              </div>
             </div>
+            <button onClick={onClose}
+              style={{ background: "var(--bg-subtle)", border: "1px solid var(--border-muted)", borderRadius: "var(--radius-base)", width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--text-secondary)", flexShrink: 0 }}
+              onMouseEnter={e => e.currentTarget.style.background = "var(--border)"}
+              onMouseLeave={e => e.currentTarget.style.background = "var(--bg-subtle)"}
+            >×</button>
           </div>
-          <button onClick={onClose}
-            style={{ background: "var(--bg-subtle)", border: "1px solid var(--border-muted)", borderRadius: "var(--radius-base)", width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--text-secondary)", flexShrink: 0 }}
-            onMouseEnter={e => e.currentTarget.style.background = "var(--border)"}
-            onMouseLeave={e => e.currentTarget.style.background = "var(--bg-subtle)"}
-          >×</button>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 2 }}>
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+                padding: "8px 16px", fontSize: "var(--text-md)", fontWeight: 600, cursor: "pointer",
+                border: "none", background: "none", fontFamily: "inherit",
+                color: activeTab === t.id ? "var(--indigo)" : "var(--text-faint)",
+                borderBottom: `2px solid ${activeTab === t.id ? "var(--indigo)" : "transparent"}`,
+                transition: "all 0.15s",
+              }}>{t.label}</button>
+            ))}
+          </div>
         </div>
 
+        {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-4) var(--space-6)" }}>
-          {sortedCls.map(cls => (
+
+          {/* ── Patches tab ── */}
+          {activeTab === "patches" && sortedCls.map(cls => (
             <div key={cls} style={{ marginBottom: "var(--space-5)" }}>
               <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--space-2)" }}>
                 {cls} ({byClass[cls].length})
@@ -117,6 +187,84 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
               </div>
             </div>
           ))}
+
+          {/* ── Open Ports tab ── */}
+          {activeTab === "ports" && (
+            <div>
+              {loadingPorts ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)" }}>Loading port data...</div>
+              ) : ports.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)" }}>No port data available. Run a Windows scan to collect port information.</div>
+              ) : (
+                <div>
+                  {/* Exposure summary cards */}
+                  <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+                    {[
+                      { key: "external",  label: "External",  bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)",   desc: "0.0.0.0"    },
+                      { key: "internal",  label: "Internal",  bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)",  desc: "127.0.0.1"  },
+                      { key: "interface", label: "Interface", bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)", desc: "Specific IP" },
+                    ].map(s => (
+                      <div key={s.key} style={{
+                        flex: 1, background: s.bg, border: `1px solid ${s.border}`,
+                        borderRadius: "var(--radius-base)", padding: "10px 14px", textAlign: "center",
+                        cursor: "pointer", outline: portFilter === s.key ? `2px solid ${s.color}` : "none",
+                        transition: "all 0.15s",
+                      }} onClick={() => setPortFilter(portFilter === s.key ? "all" : s.key)}>
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: s.color, marginTop: 2 }}>{portCounts[s.key] || 0}</div>
+                        <div style={{ fontSize: "var(--text-xs)", color: s.color, opacity: 0.7 }}>{s.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Search */}
+                  <input value={portSearch} onChange={e => setPortSearch(e.target.value)}
+                    placeholder="Search port, service, or bind address..."
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", marginBottom: "var(--space-3)", fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "var(--bg-page)", color: "var(--text-primary)" }}
+                  />
+
+                  {/* Ports table */}
+                  <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr>
+                          {["Port", "Protocol", "Bind Address", "Service", "Exposure"].map(h => (
+                            <th key={h} style={thStyle}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredPorts.length === 0 ? (
+                          <tr><td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "var(--text-ghost)" }}>No ports match your filter</td></tr>
+                        ) : filteredPorts.map((p, i) => (
+                          <tr key={i}
+                            style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
+                            onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
+                            onMouseLeave={e => e.currentTarget.style.background = ""}
+                          >
+                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 700, fontSize: "var(--text-md)", color: "var(--text-primary)" }}>{p.port}</td>
+                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>{p.protocol}</td>
+                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>{p.bind_address}</td>
+                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-secondary)", fontFamily: "monospace" }}>{p.service || "—"}</td>
+                            <td style={{ padding: "10px 12px" }}><ExposureBadge exposure={p.exposure} bindAddress={p.bind_address} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{ marginTop: "var(--space-3)", fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>
+                    {filteredPorts.length} of {ports.length} ports shown
+                    {portFilter !== "all" && (
+                      <button onClick={() => setPortFilter("all")} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--blue-deep)", cursor: "pointer", fontSize: "var(--text-sm)", padding: 0, fontFamily: "inherit" }}>
+                        clear filter ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -126,12 +274,38 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
 // ── Windows host row ──────────────────────────────────────────────────────────
 
 function WinHostRow({ hostname, osName, osVersion, updates }) {
-  const [showDetail, setShowDetail] = useState(false);
+  const [showDetail,   setShowDetail]   = useState(false);
+  const [ports,        setPorts]        = useState(null);
+  const [loadingPorts, setLoadingPorts] = useState(false);
+
   const securityCount   = updates.filter(u => u.classification === "Security Updates").length;
   const criticalCount   = updates.filter(u => u.classification === "Critical Updates").length;
   const rollupCount     = updates.filter(u => u.classification === "Update Rollups").length;
   const definitionCount = updates.filter(u => u.classification === "Definition Updates").length;
   const needsReboot     = updates.some(u => u.rebootRequired === "AlwaysRequiresReboot" || u.rebootRequired === "CanRequestReboot");
+
+  // Fetch ports eagerly on mount
+  useEffect(() => {
+    setLoadingPorts(true);
+    fetch(`/api/hosts/${encodeURIComponent(hostname)}/ports`)
+      .then(r => r.json())
+      .then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
+      .catch(() => { setPorts([]); setLoadingPorts(false); });
+  }, [hostname]);
+
+  const externalPorts  = (ports || []).filter(p => p.exposure === "external");
+  const internalPorts  = (ports || []).filter(p => p.exposure === "internal");
+  const interfacePorts = (ports || []).filter(p => p.exposure === "interface");
+  const allChips       = [...externalPorts, ...internalPorts, ...interfacePorts];
+  const MAX            = 5;
+  const shown          = allChips.slice(0, MAX);
+  const overflow       = allChips.length - MAX;
+
+  const colorMap = {
+    external:  { bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)"   },
+    internal:  { bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)"  },
+    interface: { bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)" },
+  };
 
   return (
     <>
@@ -153,26 +327,55 @@ function WinHostRow({ hostname, osName, osVersion, updates }) {
           </button>
         </td>
 
-        <td style={{ padding: "14px 16px", width: 150 }}>{osVersionBadge(osName)}</td>
-        <td style={{ padding: "14px 16px", fontSize: "var(--text-base)", color: "var(--text-muted)", fontFamily: "monospace", width: 120 }}>{osVersion || "—"}</td>
-        <td style={{ padding: "14px 16px", width: 100 }}>
+        <td style={{ padding: "14px 16px", width: 140 }}>{osVersionBadge(osName)}</td>
+        <td style={{ padding: "14px 16px", fontSize: "var(--text-base)", color: "var(--text-muted)", fontFamily: "monospace", width: 110 }}>{osVersion || "—"}</td>
+        <td style={{ padding: "14px 16px", width: 90 }}>
           {updates.length > 0
             ? <span style={{ fontWeight: 700, fontSize: "var(--text-lg)", color: "var(--red-dark)" }}>{updates.length}</span>
             : <span style={{ color: "var(--green)", fontWeight: 700 }}>✓ Clean</span>}
         </td>
-        <td style={{ padding: "14px 16px", width: 200 }}>
+        <td style={{ padding: "14px 16px", width: 190 }}>
           <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
-            {securityCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint-mid)",  color: "var(--red-text)",    border: "1px solid var(--red-border-lt)",    padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🔒 {securityCount} Security Updates</span>}
-            {criticalCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint)",     color: "var(--red-dark)",    border: "1px solid var(--red-border)",      padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>⚠ {criticalCount} Critical Updates</span>}
-            {rollupCount     > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--orange-tint)",  color: "var(--orange-dark)", border: "1px solid var(--orange-border)",   padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>📦 {rollupCount} Rollout Updates</span>}
-            {definitionCount > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--blue-tint)",    color: "var(--blue-deep)",   border: "1px solid var(--blue-border)",     padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🛡 {definitionCount} Definition Updates</span>}
+            {securityCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint-mid)",  color: "var(--red-text)",    border: "1px solid var(--red-border-lt)",  padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🔒 {securityCount}</span>}
+            {criticalCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint)",     color: "var(--red-dark)",    border: "1px solid var(--red-border)",     padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>⚠ {criticalCount}</span>}
+            {rollupCount     > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--orange-tint)",  color: "var(--orange-dark)", border: "1px solid var(--orange-border)",  padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>📦 {rollupCount}</span>}
+            {definitionCount > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--blue-tint)",    color: "var(--blue-deep)",   border: "1px solid var(--blue-border)",    padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🛡 {definitionCount}</span>}
             {updates.length === 0 && <span style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>—</span>}
           </div>
         </td>
-        <td style={{ padding: "14px 16px", width: 130 }}>
+        <td style={{ padding: "14px 16px", width: 110 }}>
           {needsReboot ? badge("May Reboot", "yellow") : badge("No Reboot", "green")}
         </td>
-        <td style={{ padding: "14px 16px", width: 80 }}>
+
+        {/* Open Ports column */}
+        <td style={{ padding: "10px 16px", width: 160 }}>
+          {loadingPorts ? (
+            <span style={{ color: "var(--text-ghost)", fontSize: "var(--text-sm)" }}>...</span>
+          ) : ports === null || allChips.length === 0 ? (
+            <span style={{ color: "var(--text-disabled)", fontSize: "var(--text-sm)" }}>—</span>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              {shown.map((p, i) => {
+                const c = colorMap[p.exposure] || colorMap.external;
+                return (
+                  <span key={i}
+                    title={`${p.protocol?.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
+                    style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}`, borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: "var(--text-xs)", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
+                    {p.port}{p.service && p.service !== "unknown" ? ` ${p.service}` : ""}
+                  </span>
+                );
+              })}
+              {overflow > 0 && (
+                <span title={allChips.slice(MAX).map(p => `${p.port} ${p.service}`).join(", ")}
+                  style={{ background: "var(--bg-subtle)", color: "var(--text-ghost)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: "var(--text-xs)", fontWeight: 600, whiteSpace: "nowrap", cursor: "default" }}>
+                  +{overflow}
+                </span>
+              )}
+            </div>
+          )}
+        </td>
+
+        <td style={{ padding: "14px 16px", width: 75 }}>
           <button onClick={() => setShowDetail(true)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "4px 10px", cursor: "pointer", fontSize: "var(--text-base)", color: "var(--text-muted)", fontFamily: "inherit" }}>
             View
           </button>
@@ -248,8 +451,8 @@ export function WindowsTab() {
     return matchSearch && matchOS && matchCls;
   });
 
-  const thStyle = { padding: "12px 16px", textAlign: "left", fontSize: "var(--text-sm)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-faint)", whiteSpace: "nowrap", background: "transparent" };
-  const selectStyle = { padding: "6px 10px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-base)", fontFamily: "inherit", background: "var(--bg-card)", color: "var(--text-secondary)", outline: "none", cursor: "pointer" };
+  const thStyle      = { padding: "12px 16px", textAlign: "left", fontSize: "var(--text-sm)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-faint)", whiteSpace: "nowrap", background: "transparent" };
+  const selectStyle  = { padding: "6px 10px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-base)", fontFamily: "inherit", background: "var(--bg-card)", color: "var(--text-secondary)", outline: "none", cursor: "pointer" };
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
@@ -287,8 +490,8 @@ export function WindowsTab() {
             {filteredHosts.length} of {totalHosts} Windows hosts
           </div>
           <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
-            <select value={filterOS}  onChange={e => setFilterOS(e.target.value)}  style={selectStyle}>{osOptions.map(o  => <option key={o}  value={o}>{o  === "all" ? "All OS versions"     : o}</option>)}</select>
-            <select value={filterCls} onChange={e => setFilterCls(e.target.value)} style={selectStyle}>{clsOptions.map(o => <option key={o}  value={o}>{o  === "all" ? "All classifications"  : o}</option>)}</select>
+            <select value={filterOS}  onChange={e => setFilterOS(e.target.value)}  style={selectStyle}>{osOptions.map(o  => <option key={o} value={o}>{o  === "all" ? "All OS versions"    : o}</option>)}</select>
+            <select value={filterCls} onChange={e => setFilterCls(e.target.value)} style={selectStyle}>{clsOptions.map(o => <option key={o} value={o}>{o  === "all" ? "All classifications" : o}</option>)}</select>
             <div style={{ position: "relative" }}>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search hostname or KB..."
                 style={{ padding: "6px 10px 6px 30px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-base)", outline: "none", width: 200, fontFamily: "inherit" }} />
@@ -302,21 +505,22 @@ export function WindowsTab() {
           </div>
         </div>
 
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead style={{ background: "var(--bg-hover)", borderBottom: "1px solid var(--border-subtle)" }}>
             <tr>
               <th style={thStyle}>Host</th>
-              <th style={{ ...thStyle, width: 150 }}>OS</th>
-              <th style={{ ...thStyle, width: 120 }}>Version</th>
-              <th style={{ ...thStyle, width: 100 }}>Pending KBs</th>
-              <th style={{ ...thStyle, width: 210 }}>By Type</th>
-              <th style={{ ...thStyle, width: 130 }}>Reboot</th>
-              <th style={{ ...thStyle, width: 80 }}></th>
+              <th style={{ ...thStyle, width: 140 }}>OS</th>
+              <th style={{ ...thStyle, width: 110 }}>Version</th>
+              <th style={{ ...thStyle, width: 90  }}>Pending KBs</th>
+              <th style={{ ...thStyle, width: 190 }}>By Type</th>
+              <th style={{ ...thStyle, width: 110 }}>Reboot</th>
+              <th style={{ ...thStyle, width: 160 }}>Open Ports</th>
+              <th style={{ ...thStyle, width: 75  }}></th>
             </tr>
           </thead>
           <tbody>
             {filteredHosts.length === 0
-              ? <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>No hosts match your filters</td></tr>
+              ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>No hosts match your filters</td></tr>
               : filteredHosts.map(h => <WinHostRow key={h.hostname} hostname={h.hostname} osName={h.osName} osVersion={h.osVersion} updates={h.updates} />)
             }
           </tbody>

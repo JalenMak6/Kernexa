@@ -7,6 +7,59 @@ def parse_packages(package_lines: list) -> list:
     return [line.strip() for line in package_lines if line.strip()]
 
 
+def _parse_windows_ports(port_records: list) -> list:
+    """
+    Parse open_ports from Windows playbook output.
+    Each record is already a dict with protocol, bind_address, port, service, pid
+    (parsed by Ansible set_fact in the playbook).
+    Classifies exposure same as Linux: external / internal / interface.
+    """
+    ports = []
+    seen  = set()
+    for r in port_records:
+        if not isinstance(r, dict):
+            continue
+        protocol     = str(r.get('protocol', 'tcp')).lower().strip()
+        bind_address = str(r.get('bind_address', '')).strip()
+        port_str     = str(r.get('port', '')).strip()
+        service      = str(r.get('service', 'unknown')).strip() or 'unknown'
+        pid_str      = str(r.get('pid', '')).strip()
+
+        if not port_str.isdigit():
+            continue
+        # Skip IPv6
+        if ':' in bind_address and bind_address not in ('0.0.0.0',):
+            continue
+
+        port = int(port_str)
+        pid  = int(pid_str) if pid_str.isdigit() else None
+
+        key = (protocol, bind_address, port)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if bind_address == '0.0.0.0':
+            exposure = 'external'
+        elif bind_address in ('127.0.0.1', '::1'):
+            exposure = 'internal'
+        else:
+            exposure = 'interface'
+
+        ports.append({
+            'protocol':     protocol,
+            'bind_address': bind_address,
+            'port':         port,
+            'state':        'LISTEN',
+            'service':      service,
+            'pid':          pid,
+            'exposure':     exposure,
+        })
+
+    ports.sort(key=lambda p: p['port'])
+    return ports
+
+
 def parse_ports(port_lines: list) -> list:
     """
     Parse port lines emitted by the playbook.
@@ -252,10 +305,11 @@ def run_windows_patch_scan() -> dict:
                 continue
 
             output['hosts'][host] = {
-                'hostname':  msg.get('hostname', host),
-                'osName':    msg.get('osName', ''),
-                'osVersion': msg.get('osVersion', ''),
-                'updates':   msg.get('updates', []),
+                'hostname':   msg.get('hostname', host),
+                'osName':     msg.get('osName', ''),
+                'osVersion':  msg.get('osVersion', ''),
+                'updates':    msg.get('updates', []),
+                'open_ports': _parse_windows_ports(msg.get('open_ports', [])),
             }
 
         elif event_type == 'runner_on_failed':
