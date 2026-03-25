@@ -209,6 +209,32 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_host_ports",
+            "description": (
+                "Returns all open listening ports for a specific host (Linux or Windows) "
+                "from the latest scan. Each entry includes port number, protocol (tcp/udp), "
+                "bind address, service name, and exposure level: "
+                "'external' (0.0.0.0 — reachable from network), "
+                "'internal' (127.0.0.1 — localhost only), "
+                "'interface' (bound to a specific IP). "
+                "Use when the user asks about open ports, network exposure, or running "
+                "services on a specific host."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hostname": {
+                        "type": "string",
+                        "description": "The hostname or IP address of the host.",
+                    }
+                },
+                "required": ["hostname"],
+            },
+        },
+    },
 ]
 
 # ── Tool executors ─────────────────────────────────────────────────────────────
@@ -232,6 +258,8 @@ def _run_tool(name: str, arguments: dict) -> str:
             return _get_windows_host_kbs(arguments.get("hostname", ""))
         elif name == "get_scan_history":
             return _get_scan_history()
+        elif name == "get_host_ports":
+            return _get_host_ports(arguments.get("hostname", ""))
         else:
             return json.dumps({"error": f"Unknown tool: {name}"})
     except Exception as e:
@@ -382,3 +410,24 @@ def _get_scan_history() -> str:
     if not history:
         return json.dumps({"error": "No scan history available."})
     return json.dumps({"runs": history[:10]})
+
+
+def _get_host_ports(hostname: str) -> str:
+    ports = db_get_host_ports(hostname)
+    if not ports:
+        return json.dumps({
+            "hostname": hostname,
+            "ports": [],
+            "message": f"No port data found for '{hostname}'. Run a scan to collect port information.",
+        })
+    external  = [p for p in ports if p.get("exposure") == "external"]
+    internal  = [p for p in ports if p.get("exposure") == "internal"]
+    interface = [p for p in ports if p.get("exposure") == "interface"]
+    return json.dumps({
+        "hostname":       hostname,
+        "total_ports":    len(ports),
+        "external_count": len(external),
+        "internal_count": len(internal),
+        "interface_count": len(interface),
+        "ports": ports,
+    })

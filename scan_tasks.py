@@ -94,6 +94,15 @@ def run_windows_and_save(scan_id: str, scanned_at: datetime):
             conn.close()
 
         save_windows_to_db(output, scan_id)
+
+        # Save open port data for each Windows host
+        # Use the hostname field from the msg (FQDN) not the ansible connection key
+        for host, data in output.get('hosts', {}).items():
+            ports    = data.get('open_ports', [])
+            hostname = data.get('hostname') or host
+            if ports:
+                save_host_ports(scan_id, hostname, ports)
+
         running_scans[scan_id] = "complete"
         print(f"Windows scan {scan_id} complete — {len(output['hosts'])} hosts, {len(output['failures'])} failures")
 

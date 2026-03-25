@@ -31,23 +31,6 @@
       changed_when: false
 
     # ── Pending Windows Updates ───────────────────────────────────────────────
-    # Queries the Windows Update COM API for all pending updates.
-    # For each update emits a pipe-delimited line:
-    #
-    #   patchName | patchId | KBID | version | publishedDateTime |
-    #   rebootRequired | classification | msrcSeverity |
-    #   classificationPriority | queryRunDateTime
-    #
-    # rebootRequired values (IUpdate.InstallationBehavior.RebootBehavior):
-    #   0 = NeverReboots
-    #   1 = AlwaysRequiresReboot
-    #   2 = CanRequestReboot
-    #
-    # classificationPriority:
-    #   Definition Updates = 2
-    #   Update Rollups     = 1
-    #   Security Updates   = 0
-    #   Critical Updates   = 0
 
     - name: Get pending Windows updates with full metadata
       ansible.windows.win_shell: |
@@ -74,7 +57,6 @@
         $updateSession  = New-Object -ComObject Microsoft.Update.Session
         $updateSearcher = $updateSession.CreateUpdateSearcher()
         $updateSearcher.Online = $true
-        # Force live check against WU/WSUS instead of stale cache
 
         try {
           $searchResult = $updateSearcher.Search("IsInstalled=0 and IsHidden=0")
@@ -97,35 +79,27 @@
           }
           if (-not $matchedCat) { continue }
 
-          # KB ID
           $kb = if ($update.KBArticleIDs.Count -gt 0) { $update.KBArticleIDs[0] } else { "" }
-
-          # GUID / patchId
           $patchId = $update.Identity.UpdateID
 
-          # Version — extract from title if present e.g. "(Version 1.445.627.0)"
           $version = ""
           if ($update.Title -match '\(Version ([^\)]+)\)') {
             $version = $Matches[1]
           }
 
-          # Published date — ISO 8601
           $published = ""
           try {
             $published = $update.LastDeploymentChangeTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           } catch {}
 
-          # Reboot behavior
           $rebootVal = 2
           try { $rebootVal = $update.InstallationBehavior.RebootBehavior } catch {}
           $rebootStr = if ($rebootMap.ContainsKey($rebootVal)) { $rebootMap[$rebootVal] } else { "CanRequestReboot" }
 
-          # MSRC severity
           $severity = if ($update.MsrcSeverity -and $update.MsrcSeverity -ne "") {
             $update.MsrcSeverity
           } else { "NotAvailable" }
 
-          # Title — sanitise pipe characters
           $title = $update.Title -replace '\|', '-'
 
           Write-Output "$title|$patchId|$kb|$version|$published|$rebootStr|$matchedCat|$severity|$matchedPriority|$queryTime"
@@ -134,6 +108,96 @@
       changed_when: false
       ignore_errors: true
       timeout: 120
+
+    # ── Open listening ports (IPv4 only) ──────────────────────────────────────
+    # Uses Get-NetTCPConnection for TCP and Get-NetUDPEndpoint for UDP.
+    # Only LISTEN state TCP and bound UDP ports are included.
+    # Process name is resolved from PID via Get-Process.
+    # Output format (one port per line):
+    #   PROTOCOL|BIND_ADDRESS|PORT|SERVICE|PID
+    # e.g.:
+    #   tcp|0.0.0.0|22|sshd|1234
+    #   tcp|127.0.0.1|3306|mysqld|5678
+    #
+    # IPv6 entries (::, ::1, fe80) are excluded.
+    # Pipe characters in process names are replaced with dashes.
+
+    - name: Get open listening ports
+      ansible.windows.win_shell: |
+        $lines = @()
+
+        # Build PID -> process name map
+        $procMap = @{}
+        Get-Process | ForEach-Object { $procMap[$_.Id] = $_.ProcessName }
+
+        # Build PID -> service name map (resolves svchost to actual service name)
+        $svcMap = @{}
+        try {
+          Get-WmiObject Win32_Service -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.ProcessId -and $_.ProcessId -gt 0) {
+              $existing = $svcMap[$_.ProcessId]
+              $svcMap[$_.ProcessId] = if ($existing) { "$existing+$($_.Name)" } else { $_.Name }
+            }
+          }
+        } catch {}
+
+        # Well-known port -> service name fallback table
+        $portNames = @{
+          20='ftp-data'; 21='ftp'; 22='ssh'; 23='telnet'; 25='smtp';
+          53='dns'; 67='dhcp'; 68='dhcp-client'; 69='tftp'; 80='http';
+          88='kerberos'; 110='pop3'; 111='rpc'; 123='ntp'; 135='msrpc';
+          137='netbios-ns'; 138='netbios-dgm'; 139='netbios-ssn'; 143='imap';
+          161='snmp'; 162='snmptrap'; 389='ldap'; 443='https'; 445='smb';
+          464='kpasswd'; 500='isakmp'; 514='syslog'; 587='smtp-submission';
+          636='ldaps'; 993='imaps'; 995='pop3s'; 1433='mssql';
+          1434='mssql-browser'; 1521='oracle'; 2049='nfs'; 3306='mysql';
+          3389='rdp'; 5353='mdns'; 5432='postgresql'; 5985='winrm-http';
+          5986='winrm-https'; 6379='redis'; 8080='http-alt'; 8443='https-alt';
+          9100='jetdirect'; 27017='mongodb';
+        }
+
+        function Resolve-ServiceName($pid_, $port) {
+          # 1. Service map — most accurate, resolves svchost to real service
+          if ($svcMap.ContainsKey($pid_)) { return $svcMap[$pid_] }
+          # 2. Process map — skip generic names
+          if ($procMap.ContainsKey($pid_)) {
+            $p = $procMap[$pid_]
+            if ($p -notin @('svchost','System','services','lsass','')) { return $p }
+          }
+          # 3. Well-known port table
+          if ($portNames.ContainsKey($port)) { return $portNames[$port] }
+          return 'unknown'
+        }
+
+        # TCP LISTEN ports — exclude ephemeral (< 49152)
+        Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+          Where-Object { $_.LocalPort -lt 49152 } | ForEach-Object {
+          $addr = $_.LocalAddress
+          if ($addr -match ':' -and $addr -ne '0.0.0.0') { return }
+          if ($addr -eq '::') { return }
+          $pid_ = $_.OwningProcess
+          $svc  = (Resolve-ServiceName $pid_ $_.LocalPort) -replace '\|','-'
+          $lines += "tcp|$addr|$($_.LocalPort)|$svc|$pid_"
+        }
+
+        # UDP bound ports — only well-known (< 1024)
+        Get-NetUDPEndpoint -ErrorAction SilentlyContinue |
+          Where-Object { $_.LocalPort -lt 1024 } | ForEach-Object {
+          $addr = $_.LocalAddress
+          if ($addr -match ':' -and $addr -ne '0.0.0.0') { return }
+          if ($addr -eq '::') { return }
+          $pid_ = $_.OwningProcess
+          $svc  = (Resolve-ServiceName $pid_ $_.LocalPort) -replace '\|','-'
+          $lines += "udp|$addr|$($_.LocalPort)|$svc|$pid_"
+        }
+
+        # Deduplicate and sort by port
+        $lines | Sort-Object { [int]($_ -split '\|')[2] } |
+          Select-Object -Unique | ForEach-Object { Write-Output $_ }
+      register: ports_raw
+      changed_when: false
+      ignore_errors: true
+      timeout: 30
 
     # ── Parse fields ──────────────────────────────────────────────────────────
 
@@ -168,12 +232,34 @@
           {%- endfor -%}
           {{ rows }}
 
+    - name: Parse open port rows
+      ansible.builtin.set_fact:
+        _open_ports: >-
+          {%- set rows = [] -%}
+          {%- for line in ports_raw.stdout_lines | default([]) -%}
+            {%- set line = line | trim -%}
+            {%- if '|' in line -%}
+              {%- set f = line.split('|') -%}
+              {%- if f | length >= 4 -%}
+                {%- set _ = rows.append({
+                  'protocol':     f[0],
+                  'bind_address': f[1],
+                  'port':         f[2],
+                  'service':      f[3],
+                  'pid':          f[4] if f | length > 4 else ''
+                }) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ rows }}
+
     # ── Emit structured result — consumed by scanner.py ──────────────────────
 
     - name: Print Windows patch compliance data
       ansible.builtin.debug:
         msg:
-          hostname:  "{{ _hostname }}"
-          osName:    "{{ _os_name }}"
-          osVersion: "{{ _os_version }}"
-          updates:   "{{ _updates }}"
+          hostname:   "{{ _hostname }}"
+          osName:     "{{ _os_name }}"
+          osVersion:  "{{ _os_version }}"
+          updates:    "{{ _updates }}"
+          open_ports: "{{ _open_ports }}"
