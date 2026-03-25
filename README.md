@@ -4,9 +4,6 @@ An Security Patch Compliance Platform for Linux infrastructure. Kernexa uses Ans
 
 ![Kernexa Dashboard1](images/dashboard1.png)
 ![Kernexa Dashboard2](images/dashboard2.png)
-![Kernexa Dashboard3](images/Dashboard3.png)
-![Kernexa Dashboard4](images/Dashboard4.png)
-
 
 ## Stack
 
@@ -127,23 +124,17 @@ IMAGE=jalenmakdocker/kernexa:v0.0.1
 Copy `env-example` to `.env` and set your own values. This file is never committed.
 
 ```env
-# Database
 POSTGRES_DB=kernexa
 POSTGRES_USER=kernexa_user
-POSTGRES_PASSWORD=changeme
-
-# App
-NVD_API_KEY=your-nvd-api-key-here
-CREDENTIALS_KEY=your-fernet-key-here
-ENABLE_DOCS=false
-
-# Ports
-APP_PORT=8000
-DB_PORT=5432
-ADMINER_PORT=8080
-
-# Image (used by docker-compose-stable.yml)
-IMAGE=jalenmakdocker/kernexa:stable
+POSTGRES_PASSWORD=supersecret
+POSTGRES_PORT=5432
+NVD_API_KEY=5fcxxxxxx
+CREDENTIALS_KEY=cmuxxxxxxx
+OPENAI_API_KEY=sk-proj-xxxxxxx
+AZURE_OPENAI_API_KEY=Cxxxxxxxxxxx
+AZURE_OPENAI_ENDPOINT=https://xxxx.cognitiveservices.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
 ```
 
 **NVD_API_KEY** is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
