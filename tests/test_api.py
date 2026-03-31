@@ -1,18 +1,17 @@
 # ── Patch endpoints ───────────────────────────────────────────────────────────
-import requests
-from .utils import url, assert_json_list
 
 class TestPatch:
     """
     Tests for the patch trigger, status, and history endpoints.
 
     Strategy: These tests verify the API contract only — not whether patches
-    actually succeed on real hosts. We use 192.168.1.102 (RFC 5737 TEST-NET) as
+    actually succeed on real hosts. We use 192.0.2.1 (RFC 5737 TEST-NET) as
     the target host. Ansible will report the host as unreachable, but the API
     will still return 200 with a job_id immediately since patching runs in the
     background. This makes the tests stable, repeatable, and safe to run in CI
     without touching any real infrastructure.
     """
+
     def test_patch_history_returns_list(self):
         """GET /api/patch/history should always return a list (empty is fine)."""
         r = requests.get(url("/api/patch/history"), timeout=10)
@@ -43,7 +42,7 @@ class TestPatch:
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-ADVISORY",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    [],
                               "dry_run":     True,
                           },
@@ -52,11 +51,14 @@ class TestPatch:
             f"Expected 400 for empty packages, got {r.status_code}"
 
     def test_trigger_patch_dry_run_returns_job_id(self):
-        """POST /api/patch/trigger with dry_run=True should start a job and return a job_id."""
+        """
+        POST /api/patch/trigger with dry_run=True should immediately return a job_id.
+        Uses 192.0.2.1 (RFC 5737 TEST-NET) — Ansible fails gracefully but API returns 200.
+        """
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-ADVISORY",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    ["openssl"],
                               "dry_run":     True,
                           },
@@ -71,11 +73,14 @@ class TestPatch:
         assert body["status"] == "started", f"Expected status='started', got {body.get('status')}"
 
     def test_trigger_patch_apply_returns_job_id(self):
-        """POST /api/patch/trigger with dry_run=False should start an apply job."""
+        """
+        POST /api/patch/trigger with dry_run=False should start an apply job.
+        Uses 192.0.2.1 (RFC 5737 TEST-NET) — API contract test only.
+        """
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-ADVISORY",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    ["openssl"],
                               "dry_run":     False,
                           },
@@ -83,16 +88,15 @@ class TestPatch:
         assert r.status_code == 200, \
             f"POST /api/patch/trigger (apply) failed with {r.status_code}: {r.text}"
         body = r.json()
-        assert "job_id" in body,           "Response missing 'job_id'"
-        assert body["mode"] == "apply",    f"Expected mode='apply', got {body.get('mode')}"
+        assert "job_id" in body,        "Response missing 'job_id'"
+        assert body["mode"] == "apply", f"Expected mode='apply', got {body.get('mode')}"
 
     def test_patch_job_status_shape(self):
         """GET /api/patch/{job_id}/status should return full job details."""
-        # Trigger a job first to get a real job_id
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-STATUS",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    ["curl"],
                               "dry_run":     True,
                           },
@@ -100,7 +104,6 @@ class TestPatch:
         assert r.status_code == 200, f"Could not trigger patch job: {r.text}"
         job_id = r.json()["job_id"]
 
-        # Poll status
         r2 = requests.get(url(f"/api/patch/{job_id}/status"), timeout=10)
         assert r2.status_code == 200, \
             f"GET /api/patch/{job_id}/status failed with {r2.status_code}"
@@ -111,8 +114,10 @@ class TestPatch:
         assert "hosts"       in body, "Status response missing 'hosts'"
         assert "packages"    in body, "Status response missing 'packages'"
         assert "advisory_id" in body, "Status response missing 'advisory_id'"
-        assert body["job_id"] == job_id, "Returned job_id does not match requested job_id"
-        assert body["dry_run"] is True,  "dry_run flag should be True for this job"
+        assert body["job_id"]  == job_id, "Returned job_id does not match"
+        assert body["dry_run"] is True,   "dry_run should be True for this job"
+        assert body["status"] in ("running", "complete", "complete_with_errors", "failed"), \
+            f"Unexpected status value: {body['status']}"
 
     def test_patch_job_status_unknown_id(self):
         """GET /api/patch/{job_id}/status with a nonexistent ID should return 404."""
@@ -123,11 +128,10 @@ class TestPatch:
 
     def test_patch_history_records_triggered_jobs(self):
         """Jobs triggered via POST /api/patch/trigger should appear in GET /api/patch/history."""
-        # Trigger a job
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-HISTORY",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    ["vim"],
                               "dry_run":     True,
                           },
@@ -135,10 +139,7 @@ class TestPatch:
         assert r.status_code == 200
         job_id = r.json()["job_id"]
 
-        # Check it appears in history
-        r2 = requests.get(url("/api/patch/history"), timeout=10)
-        assert r2.status_code == 200
-        history = r2.json()
+        history = requests.get(url("/api/patch/history"), timeout=10).json()
         job_ids = [j["job_id"] for j in history]
         assert job_id in job_ids, \
             f"Triggered job {job_id} not found in patch history"
@@ -148,7 +149,7 @@ class TestPatch:
         r = requests.post(url("/api/patch/trigger"),
                           json={
                               "advisory_id": "CI-TEST-DRYRUN-FLAG",
-                              "hosts":       ["192.168.1.102"],   # RFC 5737 TEST-NET — never routable, Ansible will fail gracefully
+                              "hosts":       ["192.0.2.1"],
                               "packages":    ["bash"],
                               "dry_run":     True,
                           },
@@ -156,8 +157,7 @@ class TestPatch:
         assert r.status_code == 200
         job_id = r.json()["job_id"]
 
-        r2 = requests.get(url("/api/patch/history"), timeout=10)
-        history = r2.json()
+        history = requests.get(url("/api/patch/history"), timeout=10).json()
         job = next((j for j in history if j["job_id"] == job_id), None)
-        assert job is not None,      f"Job {job_id} not found in history"
+        assert job is not None,        f"Job {job_id} not found in history"
         assert job["dry_run"] is True, "dry_run should be True in history record"
