@@ -1,26 +1,26 @@
 ---
 # =============================================================================
 # Kernexa — Security Patch Applicator (Multi-OS)
+# gather_facts: false — works on Python 3.8 and older targets
 #
 # RHEL/Rocky/AlmaLinux:
-#   Dry run:  yum update --security --advisory=<id> --assumeno
-#   Apply:    yum update --security --advisory=<id> -y
-#   Package names parsed directly from yum stdout — no extra queries.
+#   Advisory ID: yum update --security --advisory=<id> --assumeno / -y
+#   Package:     yum update <pkg> --assumeno / -y
 #
 # Ubuntu/Debian:
-#   Dry run:  apt-get install --only-upgrade --dry-run <pkgs>
-#   Apply:    apt-get install --only-upgrade -y <pkgs>
+#   Package:     apt-get upgrade <pkg> --dry-run / -y
+#   NOTE: Pass the package name (e.g. coreutils), not a CVE/advisory ID
 #
 # Variables:
 #   target_hosts  — group name from temp inventory
-#   packages      — advisory ID (e.g. RHSA-2026:5080) or space-separated pkgs
-#   advisory_id   — same as packages for advisory-based patching
+#   packages      — advisory ID or space-separated package names
+#   advisory_id   — advisory ID for display
 #   dry_run       — true = simulate, false = apply
 # =============================================================================
 
 - name: Apply Security Patches
   hosts: "{{ target_hosts }}"
-  gather_facts: true
+  gather_facts: false
   become: true
   become_method: sudo
   strategy: free
@@ -30,82 +30,94 @@
 
   tasks:
 
-    - name: Set OS family
+    # ── Detect OS via raw shell ───────────────────────────────────────────────
+
+    - name: Detect OS family
+      ansible.builtin.raw: |
+        if [ -f /etc/redhat-release ]; then echo "redhat"
+        elif [ -f /etc/debian_version ]; then echo "debian"
+        else echo "unknown"; fi
+      register: os_detect
+      changed_when: false
+
+    - name: Set OS family fact
       ansible.builtin.set_fact:
-        _os_family: "{{ 'redhat' if ansible_facts.os_family == 'RedHat' else 'debian' if ansible_facts.os_family == 'Debian' else 'unknown' }}"
+        _os_family:   "{{ os_detect.stdout | trim }}"
         _is_advisory: "{{ packages | regex_search('^(RHSA|ALSA|RLSA|RHBA|RHEA)-') is not none }}"
 
     - name: Abort on unsupported OS
       ansible.builtin.fail:
-        msg: "Unsupported OS: {{ ansible_facts.os_family }}"
+        msg: "Unsupported OS — detected: {{ _os_family }}"
       when: _os_family == 'unknown'
 
-    # ── RedHat — single yum call ──────────────────────────────────────────────
+    # ── RedHat — yum ─────────────────────────────────────────────────────────
 
-    - name: Run yum patch (RedHat — advisory dry run)
-      ansible.builtin.shell: |
+    - name: Patch via advisory (RedHat — dry run)
+      ansible.builtin.raw: |
         yum update --security --advisory="{{ packages }}" --assumeno 2>&1 || true
       register: yum_output
       changed_when: false
-      ignore_errors: true
       when: _os_family == 'redhat' and (_is_advisory | bool) and (dry_run | bool)
 
-    - name: Run yum patch (RedHat — advisory apply)
-      ansible.builtin.shell: |
+    - name: Patch via advisory (RedHat — apply)
+      ansible.builtin.raw: |
         yum update --security --advisory="{{ packages }}" -y 2>&1
       register: yum_output
       changed_when: "'No packages marked for update' not in yum_output.stdout"
-      ignore_errors: true
       when: _os_family == 'redhat' and (_is_advisory | bool) and not (dry_run | bool)
 
-    - name: Run yum patch (RedHat — package dry run)
-      ansible.builtin.shell: |
+    - name: Patch via package names (RedHat — dry run)
+      ansible.builtin.raw: |
         yum update {{ packages }} --assumeno 2>&1 || true
       register: yum_output
       changed_when: false
-      ignore_errors: true
       when: _os_family == 'redhat' and not (_is_advisory | bool) and (dry_run | bool)
 
-    - name: Run yum patch (RedHat — package apply)
-      ansible.builtin.shell: |
+    - name: Patch via package names (RedHat — apply)
+      ansible.builtin.raw: |
         yum update {{ packages }} -y 2>&1
       register: yum_output
       changed_when: "'No packages marked for update' not in yum_output.stdout"
-      ignore_errors: true
       when: _os_family == 'redhat' and not (_is_advisory | bool) and not (dry_run | bool)
 
-    # ── Debian — single apt call ──────────────────────────────────────────────
+    # ── Debian/Ubuntu — apt-get upgrade ──────────────────────────────────────
 
     - name: Update apt cache (Debian)
-      ansible.builtin.apt:
-        update_cache: true
-        cache_valid_time: 3600
+      ansible.builtin.raw: apt-get update -qq 2>&1
+      changed_when: false
       ignore_errors: true
       when: _os_family == 'debian'
 
-    - name: Run apt patch (Debian — dry run)
-      ansible.builtin.shell: |
-        apt-get install --only-upgrade --dry-run {{ packages }} 2>&1 || true
+    - name: Patch via apt-get upgrade (Debian — dry run)
+      ansible.builtin.raw: |
+        apt-get upgrade --dry-run -y {{ packages }} 2>&1 || true
       register: apt_output
       changed_when: false
-      ignore_errors: true
       when: _os_family == 'debian' and (dry_run | bool)
 
-    - name: Run apt patch (Debian — apply)
-      ansible.builtin.shell: |
-        apt-get install --only-upgrade -y {{ packages }} 2>&1
+    - name: Patch via apt-get upgrade (Debian — apply)
+      ansible.builtin.raw: |
+        DEBIAN_FRONTEND=noninteractive apt-get upgrade -y {{ packages }} 2>&1
       register: apt_output
       changed_when: "'0 upgraded' not in apt_output.stdout"
       ignore_errors: true
       when: _os_family == 'debian' and not (dry_run | bool)
 
-    # ── Consolidate and emit ───────────────────────────────────────────────────
+    # ── Consolidate and emit ──────────────────────────────────────────────────
 
-    - name: Consolidate output
+    - name: Set output facts (RedHat)
       ansible.builtin.set_fact:
-        _stdout:  "{{ (yum_output.stdout if _os_family == 'redhat' else apt_output.stdout) | default('') }}"
-        _changed: "{{ (yum_output.changed if _os_family == 'redhat' else apt_output.changed) | default(false) }}"
-        _rc:      "{{ (yum_output.rc if _os_family == 'redhat' else apt_output.rc) | default(0) }}"
+        _stdout:  "{{ yum_output.stdout | default('') }}"
+        _changed: "{{ yum_output.changed | default(false) }}"
+        _rc:      "{{ yum_output.rc | default(0) }}"
+      when: _os_family == 'redhat'
+
+    - name: Set output facts (Debian)
+      ansible.builtin.set_fact:
+        _stdout:  "{{ apt_output.stdout | default('') }}"
+        _changed: "{{ '0 upgraded' not in (apt_output.stdout | default('')) and (apt_output.stdout | default('')) != '' }}"
+        _rc:      "{{ apt_output.rc | default(0) }}"
+      when: _os_family == 'debian'
 
     - name: Print patch results
       ansible.builtin.debug:

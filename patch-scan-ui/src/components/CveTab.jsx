@@ -118,6 +118,11 @@ function RemediationBlock({ remediation }) {
 function CveRow({ cve, onPatch }) {
   const [expanded, setExpanded] = useState(false);
   const canPatch = (cve.affected_hosts?.length || 0) > 0;
+  const hasPackage = /^(RHSA|ALSA|RLSA|RHBA|RHEA)-/.test(cve.advisory_id || '') ||
+    !!(cve.remediation?.match(/(?:yum update|apt-get upgrade|apt-get install)\s+([\w][\w.\-+]+)/i));
+  const patchTitle = !hasPackage
+    ? "No package name found in remediation — patch manually"
+    : `Patch ${cve.affected_hosts?.length} affected host${cve.affected_hosts?.length > 1 ? "s" : ""}`;
   return (
     <>
       <tr style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s", cursor: "pointer" }}
@@ -150,9 +155,9 @@ function CveRow({ cve, onPatch }) {
         <td style={{ padding: "10px 16px", width: 80, textAlign: "right" }} onClick={e => e.stopPropagation()}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
             {canPatch && (
-              <button onClick={() => onPatch(cve)}
-                style={{ padding: "4px 10px", border: "none", borderRadius: 6, background: "linear-gradient(135deg,#16a34a,#15803d)", color: "#fff", cursor: "pointer", fontSize: 11, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap" }}
-                title={`Patch ${cve.affected_hosts.length} affected host${cve.affected_hosts.length > 1 ? "s" : ""}`}>
+              <button onClick={() => onPatch(cve)} disabled={!hasPackage}
+                style={{ padding: "4px 10px", border: "none", borderRadius: 6, background: hasPackage ? "linear-gradient(135deg,#16a34a,#15803d)" : "#e2e8f0", color: hasPackage ? "#fff" : "#94a3b8", cursor: hasPackage ? "pointer" : "not-allowed", fontSize: 11, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap" }}
+                title={patchTitle}>
                 🛠 Patch
               </button>
             )}
@@ -253,9 +258,31 @@ function PatchModal({ cve, onClose }) {
   const [applyResult,setApplyResult]= useState(null);
   const [error,      setError]      = useState(null);
 
-  const packages = cve.remediation
-    ? cve.remediation.match(/yum update ([^\n]+)/)?.[1]?.trim().split(/\s+/) || []
-    : [];
+  // Extract package name from remediation text
+  // Handles: "yum update openssl", "apt-get update && apt-get upgrade coreutils"
+  const sourcePackage = cve.source_package || ''
+  const remediationPkgs = (() => {
+    if (!cve.remediation) return []
+    const text = cve.remediation
+    // Try all command patterns, pick the first match with an actual package name
+    const patterns = [
+      /apt-get upgrade\s+([\w][\w.\-+]+(?:\s+[\w][\w.\-+]+)*)/i,
+      /apt-get install(?:\s+--only-upgrade)?\s+([\w][\w.\-+]+(?:\s+[\w][\w.\-+]+)*)/i,
+      /yum update\s+([\w][\w.\-+]+(?:\s+[\w][\w.\-+]+)*)/i,
+    ]
+    for (const re of patterns) {
+      const m = text.match(re)
+      if (m) {
+        const pkgs = m[1].trim().split(/\s+/).filter(p => p.length > 1 && !p.startsWith('-'))
+        if (pkgs.length) return pkgs
+      }
+    }
+    return []
+  })()
+  const patchPackages = remediationPkgs.length ? remediationPkgs : sourcePackage ? [sourcePackage] : []
+
+  const isAdvisory    = /^(RHSA|ALSA|RLSA|RHBA|RHEA)-/.test(cve.advisory_id || '')
+  const isCveId       = patchPackages.length > 0 && /^CVE-/.test(patchPackages[0] || '')
 
   const toggleHost = (h) => {
     const next = new Set(selected);
@@ -276,13 +303,18 @@ function PatchModal({ cve, onClose }) {
 
   const runDryRun = async () => {
     if (selected.size === 0) { setError("Select at least one host"); return; }
+    // For non-advisory CVEs with no extractable package, block the attempt
+    if (!isAdvisory && patchPackages.length === 0) {
+      setError("No package name could be extracted from the remediation text. Please patch manually using the remediation command shown in the CVE details.");
+      return;
+    }
     setError(null); setPhase("dry_running");
     try {
       const res = await apiPost("/api/patch/trigger", {
         advisory_id: cve.advisory_id,
-        hosts:    [...selected],
-        packages: packages.length ? packages : [cve.advisory_id],
-        dry_run:  true,
+        hosts:       [...selected],
+        packages:    isAdvisory ? [cve.advisory_id] : patchPackages,
+        dry_run:     true,
       });
       setJobId(res.job_id);
       pollJob(res.job_id, (job) => {
@@ -293,13 +325,17 @@ function PatchModal({ cve, onClose }) {
   };
 
   const applyPatch = async () => {
+    if (!isAdvisory && patchPackages.length === 0) {
+      setError("No package name could be extracted. Please patch manually.");
+      return;
+    }
     setError(null); setPhase("applying");
     try {
       const res = await apiPost("/api/patch/trigger", {
         advisory_id: cve.advisory_id,
-        hosts:    [...selected],
-        packages: packages.length ? packages : [cve.advisory_id],
-        dry_run:  false,
+        hosts:       [...selected],
+        packages:    isAdvisory ? [cve.advisory_id] : patchPackages,
+        dry_run:     false,
       });
       setJobId(res.job_id);
       pollJob(res.job_id, (job) => {
@@ -312,8 +348,14 @@ function PatchModal({ cve, onClose }) {
   const hostResults = (result) => result?.results?.hosts || {};
   const hostFailures = (result) => result?.results?.failures || {};
 
+  const isBlocked = (h, result) => {
+    const hr = hostResults(result)[h];
+    return hr?.stdout?.startsWith("Cannot patch by CVE ID");
+  };
+
   const statusColor = (h, result) => {
     if (hostFailures(result)[h]) return "#dc2626";
+    if (isBlocked(h, result)) return "#d97706";
     const hr = hostResults(result)[h];
     if (!hr) return "#94a3b8";
     if (hr.failed) return "#dc2626";
@@ -322,11 +364,14 @@ function PatchModal({ cve, onClose }) {
 
   const statusLabel = (h, result) => {
     if (hostFailures(result)[h]) return "Unreachable";
+    if (isBlocked(h, result)) return "Cannot patch by CVE ID";
     const hr = hostResults(result)[h];
     if (!hr) return "No result";
     if (hr.failed) return "Error";
     return hr.changed ? (phase === "done" ? "Patched ✓" : "Would change") : "Already up to date";
   };
+
+  const allHostsBlocked = false; // package names now always extracted from remediation
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, backdropFilter: "blur(2px)" }}>
@@ -347,14 +392,20 @@ function PatchModal({ cve, onClose }) {
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
 
           {/* Packages to be updated */}
-          {packages.length > 0 && (
+          {patchPackages.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Packages</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {packages.map(p => (
+                {patchPackages.map(p => (
                   <span key={p} style={{ fontFamily: "monospace", fontSize: 12, background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 6, color: "#0f172a" }}>{p}</span>
                 ))}
               </div>
+            </div>
+          )}
+          {patchPackages.length === 0 && isAdvisory && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Advisory</div>
+              <span style={{ fontFamily: "monospace", fontSize: 12, background: "#eef2ff", border: "1px solid #c7d2fe", padding: "2px 8px", borderRadius: 6, color: "#4338ca" }}>{cve.advisory_id}</span>
             </div>
           )}
 
@@ -370,6 +421,14 @@ function PatchModal({ cve, onClose }) {
                   {selected.size === allHosts.length ? "Deselect all" : "Select all"}
                 </button>
               </div>
+
+              {/* Debian + CVE ID warning */}
+              {isCveId && (
+                <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#92400e", marginBottom: 8 }}>
+                  ⚠ <strong>Ubuntu/Debian hosts:</strong> CVE IDs cannot be used directly with apt. These hosts will be skipped unless a package name is available.
+                  {sourcePackage && <span> Detected package: <code style={{ background: "#fef3c7", padding: "1px 5px", borderRadius: 4 }}>{sourcePackage}</code></span>}
+                </div>
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {allHosts.map(h => (
                   <label key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: selected.has(h) ? "#eef2ff" : "#f8fafc", border: `1px solid ${selected.has(h) ? "#c7d2fe" : "#e2e8f0"}`, borderRadius: 8, cursor: "pointer", transition: "all 0.1s" }}>
@@ -420,13 +479,13 @@ function PatchModal({ cve, onClose }) {
                           ))}
                         </div>
                       )}
-                      {!pkgList.length && !isError && (
-                        <div style={{ fontSize: 12, color: "#94a3b8" }}>No packages need updating — already up to date.</div>
+                      {!pkgList.length && !isError && hr?.stdout && hr.stdout.startsWith("Cannot patch") && (
+                        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", fontSize: 11, color: "#92400e", marginTop: 4 }}>
+                          ⚠ {hr.stdout}
+                        </div>
                       )}
-                      {isError && hr?.stdout && !pkgList.length && (
-                        <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: "#94a3b8", whiteSpace: "pre-wrap", wordBreak: "break-word", background: "#1e293b", padding: "8px 10px", borderRadius: 6 }}>
-                          {hr.stdout.slice(0, 600)}
-                        </pre>
+                      {!pkgList.length && !isError && !hr?.stdout?.startsWith("Cannot patch") && (
+                        <div style={{ fontSize: 12, color: "#94a3b8" }}>No packages need updating — already up to date.</div>
                       )}
                     </div>
                   );
@@ -507,9 +566,10 @@ function PatchModal({ cve, onClose }) {
           {phase === "dry_done" && (
             <>
               <button onClick={() => setPhase("select")} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, color: "#64748b", fontFamily: "inherit" }}>← Back</button>
-              <button onClick={applyPatch}
-                style={{ padding: "8px 18px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#16a34a,#15803d)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-                ✓ Apply Patch
+              <button onClick={applyPatch} disabled={allHostsBlocked}
+                title={allHostsBlocked ? "Cannot apply — use package name instead of CVE ID on Debian/Ubuntu" : ""}
+                style={{ padding: "8px 18px", border: "none", borderRadius: 8, background: allHostsBlocked ? "#e2e8f0" : "linear-gradient(135deg,#16a34a,#15803d)", color: allHostsBlocked ? "#94a3b8" : "#fff", cursor: allHostsBlocked ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
+                {allHostsBlocked ? "⚠ Use Package Name" : "✓ Apply Patch"}
               </button>
             </>
           )}

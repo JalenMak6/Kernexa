@@ -368,8 +368,11 @@ def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
     tmp_inv.write(inv_content)
     tmp_inv.close()
 
-    # If packages contains an advisory ID, pass it directly as the packages var
-    pkg_str = advisory_id if advisory_id else ' '.join(packages)
+    import re as _re
+    # Use advisory ID for RHEL advisories (RHSA/ALSA/RLSA etc.)
+    # For everything else (CVE IDs, package names) use the packages list
+    _is_rhel_advisory = bool(_re.match(r'^(RHSA|ALSA|RLSA|RHBA|RHEA)-', advisory_id or ''))
+    pkg_str = advisory_id if _is_rhel_advisory else ' '.join(packages)
 
     extravars = {
         'ansible_connection':      'ssh',
@@ -458,19 +461,34 @@ def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
 
     def parse_apt_stdout(stdout: str) -> dict:
         """
-        Parse apt-get stdout for upgrade info.
-        Returns dict: { pkg_name: { 'from': old_ver, 'to': new_ver } }
+        Parse apt-get upgrade stdout for upgrade info.
+        Handles both --dry-run and actual upgrade output.
+
+        Dry-run lines:
+          Inst coreutils [8.30-3] (8.32-4 Ubuntu)
+          Inst openssl [1.1.1f-1] (1.1.1f-1ubuntu2.22 Ubuntu)
+
+        Actual upgrade lines:
+          Unpacking coreutils (8.32-4) over (8.30-3) ...
         """
         import re
         packages = {}
         for line in stdout.splitlines():
-            # "Inst nginx [1.18.0-6] (1.18.0-6.1 Ubuntu:20.04)"
+            # Dry-run: Inst pkg [old_ver] (new_ver distro)
             m = re.match(r'Inst (\S+)(?:\s+\[([^\]]+)\])?\s+\((\S+)', line)
             if m:
                 pkg_name = m.group(1)
                 old_ver  = m.group(2) or ''
                 new_ver  = m.group(3) or ''
                 packages[pkg_name] = {'action': 'upgrading', 'from': old_ver, 'to': new_ver}
+                continue
+            # Actual: Unpacking pkg (new) over (old)
+            m2 = re.match(r'Unpacking (\S+) \(([^)]+)\) over \(([^)]+)\)', line)
+            if m2:
+                pkg_name = m2.group(1)
+                new_ver  = m2.group(2)
+                old_ver  = m2.group(3)
+                packages[pkg_name] = {'action': 'upgraded', 'from': old_ver, 'to': new_ver}
         return packages
 
     for event in result.events:
