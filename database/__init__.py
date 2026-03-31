@@ -56,6 +56,13 @@ from database.settings import (
     save_scan_interval,
 )
 
+from database.patches import (
+    save_patch_job,
+    update_patch_job,
+    get_patch_job,
+    get_patch_history,
+)
+
 __all__ = [
     # connection
     "get_conn", "DB_CONFIG",
@@ -78,4 +85,6 @@ __all__ = [
     # settings
     "get_notification_settings", "save_notification_settings",
     "get_scan_interval", "save_scan_interval",
+    # patches
+    "save_patch_job", "update_patch_job", "get_patch_job", "get_patch_history",
 ]

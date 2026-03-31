@@ -74,9 +74,9 @@ class TestInventories:
         assert r.status_code == 200, \
             f"POST /api/inventories/upload (linux) failed with {r.status_code}: {r.text}"
         body = r.json()
-        assert "id"             in body,    "Response missing 'id'"
-        assert body["host_count"]      == 2,       f"Expected 2 hosts, got {body.get('host_count')}"
-        assert body["inventory_type"]  == "linux", f"Expected linux, got {body.get('inventory_type')}"
+        assert "id"                    in body, "Response missing 'id'"
+        assert body["host_count"]     == 2,       f"Expected 2 hosts, got {body.get('host_count')}"
+        assert body["inventory_type"] == "linux", f"Expected linux, got {body.get('inventory_type')}"
 
     def test_upload_windows_inventory(self):
         """POST /api/inventories/upload should accept a Windows inventory."""
@@ -87,9 +87,9 @@ class TestInventories:
         assert r.status_code == 200, \
             f"POST /api/inventories/upload (windows) failed with {r.status_code}: {r.text}"
         body = r.json()
-        assert "id"             in body,      "Response missing 'id'"
-        assert body["host_count"]     == 2,         f"Expected 2 hosts, got {body.get('host_count')}"
-        assert body["inventory_type"] == "windows", f"Expected windows, got {body.get('inventory_type')}"
+        assert "id"                       in body, "Response missing 'id'"
+        assert body["host_count"]     == 2,           f"Expected 2 hosts, got {body.get('host_count')}"
+        assert body["inventory_type"] == "windows",   f"Expected windows, got {body.get('inventory_type')}"
 
     def test_upload_empty_inventory_rejected(self):
         """POST /api/inventories/upload should reject an empty file."""
@@ -104,7 +104,6 @@ class TestInventories:
         Activating a Windows inventory should not deactivate the Linux inventory
         and vice versa — dual-inventory must work simultaneously.
         """
-        # Upload one of each type
         linux_content   = "[all]\n10.0.0.1\n"
         windows_content = "[windows_hosts]\n10.0.0.2\n"
 
@@ -125,11 +124,9 @@ class TestInventories:
         linux_id   = r_l.json()["id"]
         windows_id = r_w.json()["id"]
 
-        # Activate both
         requests.post(url(f"/api/inventories/{linux_id}/activate"),   timeout=10)
         requests.post(url(f"/api/inventories/{windows_id}/activate"), timeout=10)
 
-        # Check both are active
         invs = requests.get(url("/api/inventories"), timeout=10).json()
         active_types = {i["inventory_type"] for i in invs if i["is_active"]}
         assert "linux"   in active_types, "Linux inventory should still be active after Windows activated"
@@ -144,16 +141,16 @@ class TestHosts:
         r = requests.get(url("/api/hosts"), timeout=10)
         assert r.status_code == 200, f"GET /api/hosts failed with {r.status_code}"
         body = r.json()
-        assert "hosts" in body,                   "Response missing 'hosts' key"
-        assert isinstance(body["hosts"], list),   "hosts should be a list"
+        assert "hosts" in body,                 "Response missing 'hosts' key"
+        assert isinstance(body["hosts"], list), "hosts should be a list"
 
     def test_get_all_tags(self):
         """GET /api/tags should return a dict with a tags key."""
         r = requests.get(url("/api/tags"), timeout=10)
         assert r.status_code == 200, f"GET /api/tags failed with {r.status_code}"
         body = r.json()
-        assert "tags" in body,                  "Response missing 'tags' key"
-        assert isinstance(body["tags"], list),  "tags should be a list"
+        assert "tags" in body,                 "Response missing 'tags' key"
+        assert isinstance(body["tags"], list), "tags should be a list"
 
 
 # ── Scan endpoints ────────────────────────────────────────────────────────────
@@ -179,23 +176,17 @@ class TestScans:
         r = requests.get(url("/api/scans/current"), timeout=10)
         assert r.status_code == 200, f"GET /api/scans/current failed with {r.status_code}"
         body = r.json()
-        assert "scanning" in body,                    "Response missing 'scanning' key"
-        assert isinstance(body["scanning"], bool),    "'scanning' should be a bool"
+        assert "scanning" in body,                 "Response missing 'scanning' key"
+        assert isinstance(body["scanning"], bool), "'scanning' should be a bool"
 
     def test_trigger_scan_requires_credentials(self):
-        """
-        POST /api/scans/trigger should return 400 when no credentials are set,
-        not 500 (which would indicate a crash).
-        """
+        """POST /api/scans/trigger should return 400 when no credentials are set."""
         r = requests.post(url("/api/scans/trigger"), timeout=10)
         assert r.status_code in (400, 409), \
             f"POST /api/scans/trigger returned unexpected status {r.status_code}"
 
     def test_trigger_windows_scan_not_500(self):
-        """
-        POST /api/scans/trigger-windows should return 200 (started), 400 (no creds),
-        or 409 (busy) — never 404 (missing route) or 500 (crash).
-        """
+        """POST /api/scans/trigger-windows should never return 404 or 500."""
         r = requests.post(url("/api/scans/trigger-windows"), timeout=10)
         assert r.status_code in (200, 400, 409), \
             f"POST /api/scans/trigger-windows returned {r.status_code} — route missing or crashed"
@@ -264,7 +255,6 @@ class TestWindowsCredentials:
                               "transport": "ntlm",
                           },
                           timeout=10)
-        # 500 means CREDENTIALS_KEY is not set in the test environment
         if r.status_code == 500:
             pytest.skip("CREDENTIALS_KEY not set in test env — skipping credential save test")
         assert r.status_code == 200, \
@@ -297,7 +287,7 @@ class TestScheduler:
         r = requests.get(url("/api/scheduler/interval"), timeout=10)
         assert r.status_code == 200, f"GET /api/scheduler/interval failed with {r.status_code}"
         body = r.json()
-        assert "interval_minutes" in body,               "Response missing 'interval_minutes'"
+        assert "interval_minutes" in body,                "Response missing 'interval_minutes'"
         assert isinstance(body["interval_minutes"], int), "interval_minutes should be int"
         assert body["interval_minutes"] > 0,              "interval_minutes should be > 0"
 
@@ -354,11 +344,7 @@ class TestNotifications:
         assert password != "plaintext", "Password should never be returned as plaintext"
 
     def test_test_notification_requires_smtp_host(self):
-        """
-        POST /api/notifications/test should return 400 when SMTP is not configured,
-        never 500.
-        """
-        # Ensure SMTP is blank first
+        """POST /api/notifications/test should return 400 when SMTP is not configured."""
         requests.post(url("/api/notifications/settings"),
                       json={"smtp_host": "", "smtp_port": 587, "smtp_user": "",
                             "smtp_password": "", "smtp_from": "",
@@ -385,18 +371,9 @@ class TestCVEs:
 
 class TestSPARouting:
     def test_spa_routes_return_html(self):
-        """
-        All frontend URL paths should return index.html (not 404),
-        so URL-based navigation works after a page refresh.
-        """
-        spa_paths = [
-            "/",
-            "/linux-inventory",
-            "/windows-hosts",
-            "/scan-history",
-            "/cve-advisories",
-            "/settings",
-        ]
+        """All frontend URL paths should return index.html (not 404)."""
+        spa_paths = ["/", "/linux-inventory", "/windows-hosts",
+                     "/scan-history", "/cve-advisories", "/settings"]
         for path in spa_paths:
             r = requests.get(url(path), timeout=10)
             assert r.status_code == 200, \
@@ -405,18 +382,13 @@ class TestSPARouting:
                 f"SPA path '{path}' did not return HTML"
 
     def test_api_prefix_not_served_as_spa(self):
-        """
-        Unknown /api/ paths should return 404, not index.html.
-        """
+        """Unknown /api/ paths should return 404, not index.html."""
         r = requests.get(url("/api/does-not-exist"), timeout=10)
         assert r.status_code == 404, \
             f"Unknown API path should return 404, got {r.status_code}"
 
     def test_index_html_not_cached(self):
-        """
-        index.html should ideally be served with no-cache headers so browsers
-        always fetch fresh HTML after a deployment.
-        """
+        """index.html should be served with no-cache headers."""
         r = requests.get(url("/"), timeout=10)
         assert r.status_code == 200
         cache_control = r.headers.get("Cache-Control", "")
@@ -425,3 +397,141 @@ class TestSPARouting:
                 f"index.html missing no-cache header (got: '{cache_control}') — "
                 "add Cache-Control headers to serve_spa() in main.py"
             )
+
+
+# ── Patch endpoints ───────────────────────────────────────────────────────────
+
+class TestPatch:
+    """
+    Tests for the patch trigger, status, and history endpoints.
+
+    Strategy: These tests verify the API contract only — not whether patches
+    actually succeed on real hosts. We use 192.0.2.1 (RFC 5737 TEST-NET) as
+    the target host. Ansible will report the host as unreachable, but the API
+    will still return 200 with a job_id immediately since patching runs in the
+    background. This makes the tests stable, repeatable, and safe to run in CI
+    without touching any real infrastructure.
+    """
+
+    def test_patch_history_returns_list(self):
+        """GET /api/patch/history should always return a list (empty is fine)."""
+        r = requests.get(url("/api/patch/history"), timeout=10)
+        data = assert_json_list(r, "GET /api/patch/history")
+        for job in data:
+            assert "job_id"      in job, "patch job missing 'job_id'"
+            assert "advisory_id" in job, "patch job missing 'advisory_id'"
+            assert "status"      in job, "patch job missing 'status'"
+            assert "dry_run"     in job, "patch job missing 'dry_run'"
+            assert "hosts"       in job, "patch job missing 'hosts'"
+            assert "packages"    in job, "patch job missing 'packages'"
+
+    def test_trigger_patch_requires_hosts(self):
+        """POST /api/patch/trigger should return 400 when hosts list is empty."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-ADVISORY",
+                                "hosts": [], "packages": ["openssl"], "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 400, \
+            f"Expected 400 for empty hosts, got {r.status_code}"
+
+    def test_trigger_patch_requires_packages(self):
+        """POST /api/patch/trigger should return 400 when packages list is empty."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-ADVISORY",
+                                "hosts": ["192.0.2.1"], "packages": [], "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 400, \
+            f"Expected 400 for empty packages, got {r.status_code}"
+
+    def test_trigger_patch_dry_run_returns_job_id(self):
+        """
+        POST /api/patch/trigger with dry_run=True should immediately return a job_id.
+        Uses 192.0.2.1 (RFC 5737 TEST-NET) — Ansible fails gracefully but API returns 200.
+        """
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-ADVISORY",
+                                "hosts": ["192.0.2.1"], "packages": ["openssl"],
+                                "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 200, \
+            f"POST /api/patch/trigger failed with {r.status_code}: {r.text}"
+        body = r.json()
+        assert "job_id" in body,            "Response missing 'job_id'"
+        assert "status" in body,            "Response missing 'status'"
+        assert "mode"   in body,            "Response missing 'mode'"
+        assert body["mode"]   == "dry_run", f"Expected mode='dry_run', got {body.get('mode')}"
+        assert body["status"] == "started", f"Expected status='started', got {body.get('status')}"
+
+    def test_trigger_patch_apply_returns_job_id(self):
+        """POST /api/patch/trigger with dry_run=False should start an apply job."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-ADVISORY",
+                                "hosts": ["192.0.2.1"], "packages": ["openssl"],
+                                "dry_run": False},
+                          timeout=10)
+        assert r.status_code == 200, \
+            f"POST /api/patch/trigger (apply) failed with {r.status_code}: {r.text}"
+        body = r.json()
+        assert "job_id" in body,        "Response missing 'job_id'"
+        assert body["mode"] == "apply", f"Expected mode='apply', got {body.get('mode')}"
+
+    def test_patch_job_status_shape(self):
+        """GET /api/patch/{job_id}/status should return full job details."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-STATUS",
+                                "hosts": ["192.0.2.1"], "packages": ["curl"],
+                                "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 200, f"Could not trigger patch job: {r.text}"
+        job_id = r.json()["job_id"]
+
+        r2 = requests.get(url(f"/api/patch/{job_id}/status"), timeout=10)
+        assert r2.status_code == 200, \
+            f"GET /api/patch/{job_id}/status failed with {r2.status_code}"
+        body = r2.json()
+        assert "job_id"      in body, "Status response missing 'job_id'"
+        assert "status"      in body, "Status response missing 'status'"
+        assert "dry_run"     in body, "Status response missing 'dry_run'"
+        assert "hosts"       in body, "Status response missing 'hosts'"
+        assert "packages"    in body, "Status response missing 'packages'"
+        assert "advisory_id" in body, "Status response missing 'advisory_id'"
+        assert body["job_id"]  == job_id, "Returned job_id does not match"
+        assert body["dry_run"] is True,   "dry_run should be True for this job"
+        assert body["status"] in ("running", "complete", "complete_with_errors", "failed"), \
+            f"Unexpected status value: {body['status']}"
+
+    def test_patch_job_status_unknown_id(self):
+        """GET /api/patch/{job_id}/status with a nonexistent ID should return 404."""
+        r = requests.get(url("/api/patch/00000000-0000-0000-0000-000000000000/status"),
+                         timeout=10)
+        assert r.status_code == 404, \
+            f"Expected 404 for unknown job_id, got {r.status_code}"
+
+    def test_patch_history_records_triggered_jobs(self):
+        """Jobs triggered via POST /api/patch/trigger should appear in GET /api/patch/history."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-HISTORY",
+                                "hosts": ["192.0.2.1"], "packages": ["vim"],
+                                "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 200
+        job_id = r.json()["job_id"]
+
+        history = requests.get(url("/api/patch/history"), timeout=10).json()
+        assert job_id in [j["job_id"] for j in history], \
+            f"Triggered job {job_id} not found in patch history"
+
+    def test_patch_dry_run_flag_preserved_in_history(self):
+        """dry_run flag set at trigger time should be preserved in history."""
+        r = requests.post(url("/api/patch/trigger"),
+                          json={"advisory_id": "CI-TEST-DRYRUN-FLAG",
+                                "hosts": ["192.0.2.1"], "packages": ["bash"],
+                                "dry_run": True},
+                          timeout=10)
+        assert r.status_code == 200
+        job_id = r.json()["job_id"]
+
+        history = requests.get(url("/api/patch/history"), timeout=10).json()
+        job = next((j for j in history if j["job_id"] == job_id), None)
+        assert job is not None,        f"Job {job_id} not found in history"
+        assert job["dry_run"] is True, "dry_run should be True in history record"

@@ -338,3 +338,196 @@ def run_windows_patch_scan() -> dict:
             }
 
     return output
+
+
+
+# ── Security patch applicator ─────────────────────────────────────────────────
+
+def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
+                  advisory_id: str = '') -> dict:
+    """
+    Runs patch_apply.yml against specified hosts.
+    dry_run=True  → simulate with --assumeno / --dry-run
+    dry_run=False → actually applies the patches
+    """
+    creds = get_active_inventory_credentials()
+    if not creds:
+        raise RuntimeError("No credentials found for active inventory.")
+
+    for stale in ["/app/env/extravars", "/app/env/envvars"]:
+        if os.path.exists(stale):
+            os.remove(stale)
+
+    # Write a temporary inventory for just the target hosts
+    import tempfile
+    inv_content = "[patch_targets]\n" + "\n".join(hosts) + "\n"
+    tmp_inv = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.ini', dir='/app/inventory',
+        delete=False, prefix='patch_'
+    )
+    tmp_inv.write(inv_content)
+    tmp_inv.close()
+
+    import re as _re
+    # Use advisory ID for RHEL advisories (RHSA/ALSA/RLSA etc.)
+    # For everything else (CVE IDs, package names) use the packages list
+    _is_rhel_advisory = bool(_re.match(r'^(RHSA|ALSA|RLSA|RHBA|RHEA)-', advisory_id or ''))
+    pkg_str = advisory_id if _is_rhel_advisory else ' '.join(packages)
+
+    extravars = {
+        'ansible_connection':      'ssh',
+        'ansible_shell_type':      'sh',
+        'ansible_user':            creds['username'],
+        'ansible_password':        creds['password'],
+        'ansible_become':          True,
+        'ansible_become_method':   'sudo',
+        'ansible_become_pass':     creds['password'],
+        'ansible_ssh_common_args': '-o StrictHostKeyChecking=no',
+        'target_hosts':            'patch_targets',
+        'packages':                pkg_str,
+        'advisory_id':             advisory_id or '',
+        'dry_run':                 'true' if dry_run else 'false',
+    }
+
+    result = ansible_runner.run(
+        private_data_dir='/app',
+        playbook='patch_apply.yml',
+        quiet=False,
+        cmdline=f'-i {tmp_inv.name} --forks 20 --timeout 120',
+        extravars=extravars,
+    )
+
+    # Clean up temp inventory
+    try:
+        os.remove(tmp_inv.name)
+    except Exception:
+        pass
+
+    output = {
+        'status':   result.status,
+        'rc':       result.rc,
+        'dry_run':  dry_run,
+        'hosts':    {},
+        'failures': {},
+    }
+
+    try:
+        output['ansible_log'] = ''.join(list(result.stdout))
+    except Exception:
+        output['ansible_log'] = ''
+
+    def parse_yum_stdout(stdout: str) -> dict:
+        """
+        Parse yum/dnf stdout to extract package upgrade info.
+        Returns dict: { pkg_name: { 'from': old_ver, 'to': new_ver } }
+
+        Yum output sections we care about:
+          Upgrading:
+            kernel   x86_64  5.14.0-511  baseos  89M
+          ...
+        """
+        import re
+        packages = {}
+        lines    = stdout.splitlines()
+        in_section = False
+        current_section = None
+
+        for line in lines:
+            stripped = line.strip()
+            # Detect section headers
+            if stripped in ('Upgrading:', 'Installing:', 'Updating:'):
+                in_section   = True
+                current_section = stripped.rstrip(':').lower()
+                continue
+            if stripped in ('Transaction Summary', 'Skipped (dependency problems):', ''):
+                in_section = False
+                continue
+            if in_section and stripped and not stripped.startswith('('):
+                # "kernel   x86_64   5.14.0-611.36.1.el9_7   baseos   89 M"
+                parts = stripped.split()
+                if len(parts) >= 3:
+                    pkg_name = parts[0]
+                    new_ver  = parts[2]
+                    packages[pkg_name] = {'action': current_section, 'to': new_ver, 'from': ''}
+
+        # Also look for "Upgrading  : pkg-old -> pkg-new" style (older yum)
+        for line in lines:
+            m = re.match(r'\s+(?:Upgrading|Updating)\s+:\s+(\S+)\s+(\S+)\s*->\s*(\S+)', line)
+            if m:
+                pkg_name = m.group(1)
+                packages[pkg_name] = {'action': 'upgrading', 'from': m.group(2), 'to': m.group(3)}
+
+        return packages
+
+    def parse_apt_stdout(stdout: str) -> dict:
+        """
+        Parse apt-get upgrade stdout for upgrade info.
+        Handles both --dry-run and actual upgrade output.
+
+        Dry-run lines:
+          Inst coreutils [8.30-3] (8.32-4 Ubuntu)
+          Inst openssl [1.1.1f-1] (1.1.1f-1ubuntu2.22 Ubuntu)
+
+        Actual upgrade lines:
+          Unpacking coreutils (8.32-4) over (8.30-3) ...
+        """
+        import re
+        packages = {}
+        for line in stdout.splitlines():
+            # Dry-run: Inst pkg [old_ver] (new_ver distro)
+            m = re.match(r'Inst (\S+)(?:\s+\[([^\]]+)\])?\s+\((\S+)', line)
+            if m:
+                pkg_name = m.group(1)
+                old_ver  = m.group(2) or ''
+                new_ver  = m.group(3) or ''
+                packages[pkg_name] = {'action': 'upgrading', 'from': old_ver, 'to': new_ver}
+                continue
+            # Actual: Unpacking pkg (new) over (old)
+            m2 = re.match(r'Unpacking (\S+) \(([^)]+)\) over \(([^)]+)\)', line)
+            if m2:
+                pkg_name = m2.group(1)
+                new_ver  = m2.group(2)
+                old_ver  = m2.group(3)
+                packages[pkg_name] = {'action': 'upgraded', 'from': old_ver, 'to': new_ver}
+        return packages
+
+    for event in result.events:
+        event_type = event.get('event', '')
+        ed   = event.get('event_data', {})
+        host = ed.get('remote_addr') or ed.get('host')
+        task = ed.get('task', '')
+        res  = ed.get('res', {})
+
+        if event_type == 'runner_on_ok' and task == 'Print patch results' and host:
+            msg = res.get('msg', {})
+            if isinstance(msg, dict):
+                stdout    = str(msg.get('stdout', ''))
+                os_family = msg.get('os_family', 'redhat')
+                pkg_info  = parse_yum_stdout(stdout) if os_family == 'redhat' else parse_apt_stdout(stdout)
+
+                output['hosts'][host] = {
+                    'hostname':    msg.get('hostname', host),
+                    'advisory_id': msg.get('advisory_id', advisory_id),
+                    'changed':     msg.get('changed', False),
+                    'failed':      msg.get('failed', False),
+                    'dry_run':     msg.get('dry_run', dry_run),
+                    'packages':    pkg_info,
+                    'stdout':      stdout,
+                    'rc':          msg.get('rc', 0),
+                }
+
+        elif event_type == 'runner_on_failed' and host:
+            if host not in output['failures']:
+                output['failures'][host] = {
+                    'reason': 'task_failed',
+                    'task':   task,
+                    'msg':    res.get('msg', 'Unknown error'),
+                }
+
+        elif event_type == 'runner_on_unreachable' and host:
+            output['failures'][host] = {
+                'reason': 'unreachable',
+                'msg':    res.get('msg', 'Host unreachable'),
+            }
+
+    return output
