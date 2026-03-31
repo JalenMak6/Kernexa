@@ -1,4 +1,5 @@
 # ── Patch endpoints ───────────────────────────────────────────────────────────
+import requests
 
 class TestPatch:
     """
