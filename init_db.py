@@ -123,7 +123,6 @@ def init():
         ''')
         cursor.execute("ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS scan_interval INTEGER NOT NULL DEFAULT 180")
 
-        # ── Windows WinRM credentials ──────────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS windows_credentials (
                 id         INTEGER PRIMARY KEY DEFAULT 1,
@@ -140,7 +139,6 @@ def init():
         cursor.execute("ALTER TABLE windows_credentials ADD COLUMN IF NOT EXISTS port      INTEGER NOT NULL DEFAULT 5986")
         cursor.execute("ALTER TABLE windows_credentials ADD COLUMN IF NOT EXISTS transport TEXT    NOT NULL DEFAULT 'ntlm'")
 
-        # ── Windows patch scan results ─────────────────────────────────────────
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS windows_scan_results (
                 id                      SERIAL PRIMARY KEY,
@@ -179,6 +177,25 @@ def init():
         ''')
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_ports_scan_id ON host_ports(scan_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_host_ports_host    ON host_ports(host)")
+
+        # ── Patch jobs ─────────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS patch_jobs (
+                id           SERIAL PRIMARY KEY,
+                job_id       TEXT        NOT NULL UNIQUE,
+                advisory_id  TEXT,
+                packages     TEXT[]      NOT NULL DEFAULT '{}',
+                hosts        TEXT[]      NOT NULL DEFAULT '{}',
+                dry_run      BOOLEAN     NOT NULL DEFAULT TRUE,
+                status       TEXT        NOT NULL DEFAULT 'running',
+                results      JSONB       DEFAULT '{}'::jsonb,
+                triggered_by TEXT        NOT NULL DEFAULT 'user',
+                created_at   TIMESTAMP   DEFAULT NOW(),
+                completed_at TIMESTAMP
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_patch_jobs_advisory ON patch_jobs(advisory_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_patch_jobs_status   ON patch_jobs(status)")
 
         conn.commit()
         print("Database tables created/migrated successfully")

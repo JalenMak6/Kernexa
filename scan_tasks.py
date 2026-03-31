@@ -116,3 +116,38 @@ def run_windows_and_save(scan_id: str, scanned_at: datetime):
     except Exception as e:
         running_scans[scan_id] = f"failed: {str(e)}"
         print(f"run_windows_and_save error: {e}")
+
+
+def run_patch_and_save(job_id: str, advisory_id: str, hosts: list,
+                       packages: list, dry_run: bool):
+    """Run patch playbook and save results to DB."""
+    from scanner import run_patch_job
+    from database import update_patch_job
+    try:
+        running_scans[job_id] = "running"
+        output = run_patch_job(hosts=hosts, packages=packages,
+                               dry_run=dry_run, advisory_id=advisory_id)
+
+        status = "complete" if output['status'] in ('successful', 'failed') else output['status']
+        if output['failures']:
+            status = "complete_with_errors"
+
+        update_patch_job(job_id, status, {
+            'hosts':    output['hosts'],
+            'failures': output['failures'],
+            'rc':       output['rc'],
+            'dry_run':  dry_run,
+        })
+        running_scans[job_id] = status
+
+        mode = "DRY RUN" if dry_run else "APPLIED"
+        print(f"Patch job {job_id} [{mode}] complete — "
+              f"{len(output['hosts'])} hosts, {len(output['failures'])} failures")
+
+    except Exception as e:
+        running_scans[job_id] = f"failed: {str(e)}"
+        try:
+            update_patch_job(job_id, f"failed: {str(e)}", {})
+        except Exception:
+            pass
+        print(f"run_patch_and_save error: {e}")

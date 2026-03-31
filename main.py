@@ -12,7 +12,7 @@ Business logic lives in:
   enricher.py          CVE enrichment
 """
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -40,6 +40,7 @@ from database import (
     get_notification_settings, save_notification_settings,
     get_scan_interval, save_scan_interval,
     get_host_ports,
+    save_patch_job, get_patch_job, get_patch_history,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
@@ -450,6 +451,60 @@ async def test_notification(background_tasks: BackgroundTasks):
         return {"message": f"Test email sent to {', '.join(settings['recipients'])}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ── Patch endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/api/patch/trigger")
+async def trigger_patch(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    advisory_id = body.get("advisory_id", "")
+    hosts       = body.get("hosts", [])
+    packages    = body.get("packages", [])
+    dry_run     = body.get("dry_run", True)
+
+    if not hosts:
+        raise HTTPException(status_code=400, detail="No hosts specified")
+    if not packages:
+        raise HTTPException(status_code=400, detail="No packages specified")
+
+    job_id = str(uuid.uuid4())
+    save_patch_job(
+        job_id      = job_id,
+        advisory_id = advisory_id,
+        packages    = packages,
+        hosts       = hosts,
+        dry_run     = dry_run,
+    )
+
+    from scan_tasks import run_patch_and_save
+    background_tasks.add_task(
+        run_patch_and_save, job_id, advisory_id, hosts, packages, dry_run
+    )
+    running_scans[job_id] = "running"
+
+    mode = "dry_run" if dry_run else "apply"
+    return {
+        "job_id":  job_id,
+        "status":  "started",
+        "mode":    mode,
+        "hosts":   hosts,
+        "packages": packages,
+    }
+
+@app.get("/api/patch/{job_id}/status")
+async def patch_job_status(job_id: str):
+    # Check in-memory first for live status
+    mem_status = running_scans.get(job_id)
+    job = get_patch_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Patch job not found")
+    if mem_status:
+        job['status'] = mem_status
+    return job
+
+@app.get("/api/patch/history")
+async def patch_history():
+    return get_patch_history(limit=50)
 
 # ── Host ports endpoint ───────────────────────────────────────────────────────
 
