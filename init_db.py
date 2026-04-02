@@ -258,8 +258,11 @@ def _seed_users():
         CI_TEST_USER / CI_TEST_PASS / CI_TEST_ROLE (default: reader)
     """
     import os
-    from auth import hash_password
+    import bcrypt
     from database.users import user_exists, create_user
+
+    def _hash(password: str) -> str:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     def _seed(username, password, role, label=""):
         if not username or not password:
@@ -269,7 +272,7 @@ def _seed_users():
             return
         create_user(
             username=username,
-            hashed_password=hash_password(password),
+            hashed_password=_hash(password),
             role=role,
             created_by="system",
         )

@@ -24,9 +24,13 @@ ACCESS_EXPIRE   = int(os.environ.get("JWT_ACCESS_EXPIRE_MINUTES", 15))
 REFRESH_EXPIRE  = int(os.environ.get("JWT_REFRESH_EXPIRE_DAYS",   7))
 
 if not JWT_SECRET:
-    raise RuntimeError(
+    import warnings
+    warnings.warn(
         "JWT_SECRET environment variable is not set. "
-        "Generate one with: openssl rand -hex 32"
+        "Token creation and validation will fail. "
+        "Generate one with: openssl rand -hex 32",
+        RuntimeWarning,
+        stacklevel=2,
     )
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
@@ -58,6 +62,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: int, username: str, role: str) -> str:
     """Create a short-lived JWT access token."""
+    if not JWT_SECRET:
+        raise RuntimeError("JWT_SECRET is not set — cannot create tokens")
     now     = datetime.now(timezone.utc)
     expires = now + timedelta(minutes=ACCESS_EXPIRE)
     payload = {
