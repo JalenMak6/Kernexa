@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 
-import { apiFetch, apiPost } from "./utils/api";
-import { kernelOutdated, fmtDate, badge } from "./utils/helpers.jsx";
-import { osFamily, FilterChip } from "./utils/filters.jsx";
+import { apiFetch, apiPost, setLogoutCallback, clearToken, tryRefreshOnLoad, logout as apiLogout } from "./utils/api";
+import { kernelOutdated, fmtDate } from "./utils/helpers.jsx";
+import { osFamily } from "./utils/filters.jsx";
 import { Icon, Icons } from "./utils/icons.jsx";
 import { exportToCSV } from "./utils/csv.js";
 
+import { LoginPage }              from "./components/LoginPage.jsx";
+import { RegisterPage }           from "./components/RegisterPage.jsx";
 import { StatCard }               from "./components/StatCard.jsx";
 import { HostRow }                from "./components/HostRow.jsx";
 import { HostsManager }           from "./components/HostsManager.jsx";
@@ -19,8 +21,7 @@ import { DashboardTab }           from "./components/DashboardTab.jsx";
 import { HostsTab }               from "./components/HostsTab.jsx";
 import { ScanHistoryTab }         from "./components/ScanHistoryTab.jsx";
 import { ChatWidget }             from "./components/ChatWidget.jsx";
-
-// ── Tab ↔ URL mapping ─────────────────────────────────────────────────────────
+import { UsersTab }               from "./components/UsersTab.jsx";
 
 const TAB_TO_PATH = {
   dashboard: "/",
@@ -29,32 +30,24 @@ const TAB_TO_PATH = {
   history:   "/scan-history",
   cves:      "/cve-advisories",
   settings:  "/settings",
+  users:     "/users",
 };
 const PATH_TO_TAB = Object.fromEntries(Object.entries(TAB_TO_PATH).map(([k, v]) => [v, k]));
-
-function tabFromUrl() {
-  return PATH_TO_TAB[window.location.pathname] || "dashboard";
-}
-
-// ── App ───────────────────────────────────────────────────────────────────────
+function tabFromUrl() { return PATH_TO_TAB[window.location.pathname] || "dashboard"; }
 
 export default function App() {
+
+  // ── ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS ────────────────────────────
+
+  // Auth state
+  const [user,        setUser]        = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showRegister, setShowRegister] = useState(false);
+
+  // Tab state
   const [tab, setTab] = useState(() => tabFromUrl());
 
-  const changeTab = (t) => {
-    setTab(t);
-    localStorage.setItem("kernexa_tab", t);
-    window.history.pushState({ tab: t }, "", TAB_TO_PATH[t] || "/");
-  };
-
-  // Handle browser back/forward
-  useEffect(() => {
-    const onPop = () => setTab(tabFromUrl());
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-
-  // ── Data state ──────────────────────────────────────────────────────────────
+  // Data state
   const [latestScan,  setLatestScan]  = useState(null);
   const [history,     setHistory]     = useState([]);
   const [cves,        setCves]        = useState([]);
@@ -62,7 +55,7 @@ export default function App() {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
 
-  // ── Scan state ───────────────────────────────────────────────────────────────
+  // Scan state
   const [scanning,    setScanning]    = useState(false);
   const [scanId,      setScanId]      = useState(null);
   const [scanStatus,  setScanStatus]  = useState(null);
@@ -70,7 +63,7 @@ export default function App() {
   const [winScanId,   setWinScanId]   = useState(null);
   const [winRecords,  setWinRecords]  = useState([]);
 
-  // ── Inventory state ──────────────────────────────────────────────────────────
+  // Inventory state
   const [inventoryCount,       setInventoryCount]       = useState(0);
   const [activeInventoryName,  setActiveInventoryName]  = useState(null);
   const [activeInventoryId,    setActiveInventoryId]    = useState(null);
@@ -78,7 +71,8 @@ export default function App() {
   const [activeWindowsInv,     setActiveWindowsInv]     = useState(null);
   const [winCredsReady,        setWinCredsReady]        = useState(false);
 
-  // ── UI state ─────────────────────────────────────────────────────────────────
+  // UI state
+  const [isCollapsed,          setIsCollapsed]          = useState(false); // Sidebar toggle state
   const [winCredsVersion,      setWinCredsVersion]      = useState(0);
   const [showWinCredsModal,    setShowWinCredsModal]    = useState(false);
   const [showHostsManager,     setShowHostsManager]     = useState(false);
@@ -87,7 +81,7 @@ export default function App() {
   const [refreshing,           setRefreshing]           = useState(false);
   const [refreshedAt,          setRefreshedAt]          = useState(null);
 
-  // ── Filter state ──────────────────────────────────────────────────────────────
+  // Filter state
   const [search,             setSearch]             = useState("");
   const [sortCol,            setSortCol]            = useState("host");
   const [sortDir,            setSortDir]            = useState("asc");
@@ -96,29 +90,49 @@ export default function App() {
   const [filterPatchStatus,  setFilterPatchStatus]  = useState("all");
   const [filterTag,          setFilterTag]          = useState("all");
 
-  // ── Auto-scan interval state ─────────────────────────────────────────────────
+  // Interval state
   const [intervalMinutes, setIntervalMinutes] = useState(180);
   const [intervalValue,   setIntervalValue]   = useState(3);
-  const [intervalUnit,    setIntervalUnit]     = useState("hours");
-  const [intervalSaving,  setIntervalSaving]   = useState(false);
-  const [intervalSaved,   setIntervalSaved]    = useState(false);
+  const [intervalUnit,    setIntervalUnit]    = useState("hours");
+  const [intervalSaving,  setIntervalSaving]  = useState(false);
+  const [intervalSaved,   setIntervalSaved]   = useState(false);
 
-  const minutesToUnitValue = (mins) => {
-    if (mins % 1440 === 0) return { value: mins / 1440, unit: "days" };
-    if (mins % 60   === 0) return { value: mins / 60,   unit: "hours" };
-    return { value: mins, unit: "minutes" };
-  };
-  const unitValueToMinutes = (value, unit) => {
-    if (unit === "days")  return value * 1440;
-    if (unit === "hours") return value * 60;
-    return value;
-  };
+  // Pending registration count — admin only, polled every 30s
+  const [pendingCount, setPendingCount] = useState(0);
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+    const fetch = () => apiFetch("/api/users/pending").then(p => setPendingCount(p.length)).catch(() => {});
+    fetch();
+    const iv = setInterval(fetch, 30000);
+    return () => clearInterval(iv);
+  }, [user]);
 
-  // ── Data fetching ─────────────────────────────────────────────────────────────
+  // ── Auth bootstrap ────────────────────────────────────────────────────────
+  useEffect(() => {
+    setLogoutCallback(() => { setUser(null); clearToken(); });
+    tryRefreshOnLoad().then(ok => {
+      if (ok) {
+        apiFetch("/api/auth/me")
+          .then(me => setUser(me))
+          .catch(() => setUser(null))
+          .finally(() => setAuthLoading(false));
+      } else {
+        setAuthLoading(false);
+      }
+    });
+  }, []);
 
+  // ── Browser back/forward ──────────────────────────────────────────────────
+  useEffect(() => {
+    const onPop = () => setTab(tabFromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // ── Data fetching ─────────────────────────────────────────────────────────
   const fetchLatest = useCallback(async () => {
     try { const data = await apiFetch("/api/scans/latest"); setLatestScan(data); setError(null); }
-    catch (e) { if (!e.message.includes("404")) setError(e.message); }
+    catch (e) { if (!e.message?.includes("404")) setError(e.message); }
     finally { setLoading(false); }
   }, []);
 
@@ -155,33 +169,32 @@ export default function App() {
     catch { setWinRecords([]); }
   }, []);
 
-  // ── Initial load ──────────────────────────────────────────────────────────────
+  // ── Initial load — only after auth ───────────────────────────────────────
   useEffect(() => {
+    if (!user) return;
     fetchLatest(); fetchHistory(); fetchInventoryInfo();
     fetchCves(); fetchWinCredsStatus(); fetchWinLatest();
-    try {
-      const s = apiFetch("/api/scans/current");
-      s.then(d => { if (d.scanning) { setScanning(true); setScanId(d.scan_id); } }).catch(() => {});
-    } catch {}
+    apiFetch("/api/scans/current")
+      .then(d => { if (d.scanning) { setScanning(true); setScanId(d.scan_id); } })
+      .catch(() => {});
     apiFetch("/api/scheduler/interval").then(d => {
       const mins = d.interval_minutes || 180;
       const { value, unit } = minutesToUnitValue(mins);
       setIntervalMinutes(mins); setIntervalValue(value); setIntervalUnit(unit);
     }).catch(() => {});
-  }, []);
+  }, [user]);
 
-  useEffect(() => { if (tab === "cves") fetchCves(); }, [tab]);
+  useEffect(() => { if (user && tab === "cves") fetchCves(); }, [tab, user]);
 
-  // ── Poll Linux scan ───────────────────────────────────────────────────────────
+  // ── Poll Linux scan ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!scanning || !scanId) return;
     const iv = setInterval(async () => {
       try {
         const s = await apiFetch(`/api/scans/${scanId}/status`);
         setScanStatus(s.status);
-        if (s.status === "enriching") {
-          await fetchLatest(); await fetchHistory();
-        } else if (s.status === "complete") {
+        if (s.status === "enriching") { await fetchLatest(); await fetchHistory(); }
+        else if (s.status === "complete") {
           setScanning(false); setScanId(null); setScanStatus(null);
           await fetchLatest(); await fetchHistory(); await fetchCves();
         } else if (s.status?.startsWith("failed")) {
@@ -193,7 +206,7 @@ export default function App() {
     return () => clearInterval(iv);
   }, [scanning, scanId]);
 
-  // ── Poll Windows scan ─────────────────────────────────────────────────────────
+  // ── Poll Windows scan ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!winScanning || !winScanId) return;
     const iv = setInterval(async () => {
@@ -206,7 +219,26 @@ export default function App() {
     return () => clearInterval(iv);
   }, [winScanning, winScanId]);
 
-  // ── Actions ───────────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const minutesToUnitValue = (mins) => {
+    if (mins % 1440 === 0) return { value: mins / 1440, unit: "days" };
+    if (mins % 60   === 0) return { value: mins / 60,   unit: "hours" };
+    return { value: mins, unit: "minutes" };
+  };
+  const unitValueToMinutes = (value, unit) => {
+    if (unit === "days")  return value * 1440;
+    if (unit === "hours") return value * 60;
+    return value;
+  };
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const changeTab = (t) => {
+    setTab(t);
+    window.history.pushState({ tab: t }, "", TAB_TO_PATH[t] || "/");
+  };
+
+  const handleLogin  = (userData) => setUser(userData);
+  const handleLogout = async () => { await apiLogout(); setUser(null); };
 
   const saveInterval = async () => {
     const mins = unitValueToMinutes(intervalValue, intervalUnit);
@@ -227,27 +259,39 @@ export default function App() {
   };
 
   const triggerScan = async () => {
-    if (inventoryCount === 0) { setError("No hosts in inventory. Upload or add hosts first."); return; }
-    if (!activeHasCredentials) { setError("No SSH credentials set. Open Inventories and click 'Set Creds'."); return; }
-    try {
-      setScanning(true); setError(null);
-      const res = await apiPost("/api/scans/trigger");
-      setScanId(res.scan_id);
-    } catch (e) { setScanning(false); setError(e.message); }
+    if (inventoryCount === 0) { setError("No hosts in inventory."); return; }
+    if (!activeHasCredentials) { setError("No SSH credentials set."); return; }
+    try { setScanning(true); setError(null); const res = await apiPost("/api/scans/trigger"); setScanId(res.scan_id); }
+    catch (e) { setScanning(false); setError(e.message); }
   };
 
   const triggerWindowsScan = async () => {
-    if (!winCredsReady) { setError("No Windows credentials set. Go to Settings → Windows WinRM Credentials."); return; }
+    if (!winCredsReady) { setError("No Windows credentials set."); return; }
     try {
       setWinScanning(true); setError(null);
       const res = await apiPost("/api/scans/trigger-windows");
-      if (!res?.scan_id) throw new Error(res?.detail || "No scan_id returned");
+      if (!res?.scan_id) throw new Error("No scan_id returned");
       setWinScanId(res.scan_id);
-    } catch (e) { setWinScanning(false); setError("Windows scan failed to start: " + (e.message || "Unknown error")); }
+    } catch (e) { setWinScanning(false); setError("Windows scan failed: " + e.message); }
   };
 
-  // ── Derived data ──────────────────────────────────────────────────────────────
+  // ── CONDITIONAL RENDERS (after all hooks) ─────────────────────────────────
 
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f172a" }}>
+        <div style={{ width: 36, height: 36, border: "3px solid #334155", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (!user) {
+    if (showRegister) return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
+    return <LoginPage onLogin={handleLogin} onRegister={() => setShowRegister(true)} />;
+  }
+
+  // ── Derived data ──────────────────────────────────────────────────────────
   const hosts          = latestScan?.hosts || [];
   const totalHosts     = hosts.length;
   const outdatedHosts  = hosts.filter(h => kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version)).length;
@@ -265,25 +309,23 @@ export default function App() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
   })();
 
-  const filteredHosts = hosts
-    .filter(h => {
-      const matchSearch = h.host.toLowerCase().includes(search.toLowerCase()) ||
-        (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()) ||
-        (h.os_version || "").toLowerCase().includes(search.toLowerCase());
-      const matchOS     = filterOS === "all" || osFamily(h.os_version) === filterOS;
-      const isOutdated  = kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version);
-      const matchKernel = filterKernelStatus === "all" || (filterKernelStatus === "outdated" && isOutdated) || (filterKernelStatus === "uptodate" && !isOutdated);
-      const pkgCount    = h.pending_security_packages?.length || 0;
-      const matchPatch  = filterPatchStatus === "all" || (filterPatchStatus === "dirty" && pkgCount > 0) || (filterPatchStatus === "clean" && pkgCount === 0);
-      const matchTag    = filterTag === "all" || (h.tags || []).includes(filterTag);
-      return matchSearch && matchOS && matchKernel && matchPatch && matchTag;
-    })
-    .sort((a, b) => {
-      let av = a[sortCol] || "", bv = b[sortCol] || "";
-      if (sortCol === "package_count") { av = a.pending_security_packages?.length || 0; bv = b.pending_security_packages?.length || 0; }
-      if (typeof av === "number") return sortDir === "asc" ? av - bv : bv - av;
-      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
-    });
+  const filteredHosts = hosts.filter(h => {
+    const matchSearch = h.host.toLowerCase().includes(search.toLowerCase()) ||
+      (h.current_kernel_version || "").toLowerCase().includes(search.toLowerCase()) ||
+      (h.os_version || "").toLowerCase().includes(search.toLowerCase());
+    const matchOS     = filterOS === "all" || osFamily(h.os_version) === filterOS;
+    const isOutdated  = kernelOutdated(h.current_kernel_version, h.latest_available_kernel_version);
+    const matchKernel = filterKernelStatus === "all" || (filterKernelStatus === "outdated" && isOutdated) || (filterKernelStatus === "uptodate" && !isOutdated);
+    const pkgCount    = h.pending_security_packages?.length || 0;
+    const matchPatch  = filterPatchStatus === "all" || (filterPatchStatus === "dirty" && pkgCount > 0) || (filterPatchStatus === "clean" && pkgCount === 0);
+    const matchTag    = filterTag === "all" || (h.tags || []).includes(filterTag);
+    return matchSearch && matchOS && matchKernel && matchPatch && matchTag;
+  }).sort((a, b) => {
+    let av = a[sortCol] || "", bv = b[sortCol] || "";
+    if (sortCol === "package_count") { av = a.pending_security_packages?.length || 0; bv = b.pending_security_packages?.length || 0; }
+    if (typeof av === "number") return sortDir === "asc" ? av - bv : bv - av;
+    return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
 
   const activeFilterCount = [filterOS !== "all", filterKernelStatus !== "all", filterPatchStatus !== "all", filterTag !== "all"].filter(Boolean).length;
   const clearFilters = () => { setFilterOS("all"); setFilterKernelStatus("all"); setFilterPatchStatus("all"); setFilterTag("all"); setSearch(""); };
@@ -296,17 +338,11 @@ export default function App() {
   const scanDisabled    = scanning || winScanning || inventoryCount === 0 || !activeHasCredentials;
   const winScanDisabled = scanning || winScanning || !winCredsReady;
   const scanTooltip     = inventoryCount === 0 ? "No hosts — upload an inventory first" : !activeHasCredentials ? "Set SSH credentials before scanning" : "";
-  const winScanTooltip  = !winCredsReady ? "Set Windows credentials in Settings first" : (scanning || winScanning) ? "A scan is already in progress" : "";
+  const winScanTooltip  = !winCredsReady ? "Set Windows credentials in Settings first" : scanning || winScanning ? "A scan is already in progress" : "";
   const criticalCount   = cves.filter(c => c.severity === "Critical").length;
   const importantCount  = cves.filter(c => c.severity === "Important").length;
-  const tabTitle = {
-    dashboard: "Overview",
-    hosts:     "Linux Inventory",
-    windows:   "Windows Hosts",
-    history:   "Scan History",
-    cves:      "CVE Advisories",
-    settings:  "Settings",
-  }[tab] || "Overview";
+
+  const tabTitle = { dashboard: "Overview", hosts: "Linux Inventory", windows: "Windows Hosts", history: "Scan History", cves: "CVE Advisories", settings: "Settings", users: "User Management" }[tab] || "Overview";
 
   const filterProps = {
     hosts, filteredHosts, totalHosts, activeFilterCount, clearFilters,
@@ -315,79 +351,105 @@ export default function App() {
     search, setSearch, sortCol, sortDir, sortBy,
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // Sidebar dynamic width variable
+  const currentSidebarWidth = isCollapsed ? 76 : 250;
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-page)", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
-      {/* styles are in index.css → styles/theme.css */}
+    <div style={{ minHeight: "100vh", background: "var(--bg-page)", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", overflowX: "hidden" }}>
 
       {/* ── SIDEBAR ── */}
-      <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 220, background: "#0f172a", display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", zIndex: 50 }}>
-        <div style={{ padding: "20px 16px", borderBottom: "1px solid #1e293b" }}>
-          <div style={{ background: "#fff", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <img src="/kernexa.png" alt="Kernexa" style={{ width: "100%", maxHeight: 40, objectFit: "contain" }} />
+      <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: currentSidebarWidth, background: "#0f172a", display: "flex", flexDirection: "column", borderRight: "1px solid #1e293b", zIndex: 50, transition: "width 0.2s ease-in-out" }}>
+        
+        {/* Header & Logo */}
+        <div style={{ padding: "20px 16px", borderBottom: "1px solid #1e293b", position: "relative" }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: isCollapsed ? "8px" : "8px 12px", display: "flex", alignItems: "center", justifyContent: "center", height: 44, transition: "padding 0.2s" }}>
+            {isCollapsed ? (
+              <span style={{ fontWeight: 800, fontSize: 20, color: "#1e3a8a" }}>K</span>
+            ) : (
+              <img src="/kernexa.png" alt="Kernexa" style={{ width: "100%", maxHeight: 40, objectFit: "contain" }} />
+            )}
           </div>
-          <div style={{ textAlign: "center", color: "#475569", fontSize: 10, letterSpacing: "0.05em", marginTop: 8 }}>Security Compliance Platform</div>
+          {!isCollapsed && (
+            <div style={{ textAlign: "center", color: "#475569", fontSize: 10, letterSpacing: "0.05em", marginTop: 8, whiteSpace: "nowrap" }}>Security Compliance Platform</div>
+          )}
+          
+          {/* Toggle Button */}
+          <button 
+            onClick={() => setIsCollapsed(!isCollapsed)} 
+            style={{ position: "absolute", top: 32, right: -12, background: "#3b82f6", border: "none", color: "#fff", borderRadius: "50%", width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.2)", zIndex: 60 }}
+          >
+            {isCollapsed ? "›" : "‹"}
+          </button>
         </div>
 
-        <nav style={{ padding: "16px 12px", flex: 1, overflowY: "auto" }}>
-          {/* Main nav tabs */}
+        {/* Navigation */}
+        <nav style={{ padding: "16px 12px", flex: 1, overflowY: "auto", overflowX: "hidden" }}>
           {[
-            { id: "dashboard", label: "Dashboard",        icon: "host"    },
-            { id: "hosts",     label: "Linux Inventory",  icon: "kernel"  },
-            { id: "windows",   label: "Windows Hosts",    icon: "servers" },
-            { id: "history",   label: "Scan History",     icon: "history" },
+            { id: "dashboard", label: "Dashboard",       icon: "host"    },
+            { id: "hosts",     label: "Linux Inventory", icon: "kernel"  },
+            { id: "windows",   label: "Windows Hosts",   icon: "servers" },
+            { id: "history",   label: "Scan History",    icon: "history" },
           ].map(item => (
-            <button key={item.id} onClick={() => changeTab(item.id)} style={{
-              width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
-              display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
-              marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500,
-              background: tab === item.id ? "#1e293b" : "transparent",
-              color: tab === item.id ? "#f8fafc" : "#64748b", transition: "all 0.15s",
-            }}>
-              <Icon d={Icons[item.icon]} size={15} color={tab === item.id ? "#3b82f6" : "#475569"} />
-              {item.label}
+            <button key={item.id} title={isCollapsed ? item.label : ""} onClick={() => changeTab(item.id)} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "flex-start", gap: 10, cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === item.id ? "#1e293b" : "transparent", color: tab === item.id ? "#f8fafc" : "#64748b", transition: "all 0.15s" }}>
+              <Icon d={Icons[item.icon]} size={16} color={tab === item.id ? "#3b82f6" : "#475569"} />
+              {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
             </button>
           ))}
 
-          {/* CVE Advisories — with badge */}
-          <button onClick={() => changeTab("cves")} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === "cves" ? "#1e293b" : "transparent", color: tab === "cves" ? "#f8fafc" : "#64748b", transition: "all 0.15s" }}>
+          <button title={isCollapsed ? "CVE Advisories" : ""} onClick={() => changeTab("cves")} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "space-between", cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === "cves" ? "#1e293b" : "transparent", color: tab === "cves" ? "#f8fafc" : "#64748b", transition: "all 0.15s", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon d={Icons.warning} size={15} color={tab === "cves" ? "#3b82f6" : "#475569"} />
-              CVE Advisories
+              <Icon d={Icons.warning} size={16} color={tab === "cves" ? "#3b82f6" : "#475569"} />
+              {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>CVE Advisories</span>}
             </div>
             {(criticalCount + importantCount) > 0 && (
-              <span style={{ background: "#dc2626", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{criticalCount + importantCount}</span>
+              isCollapsed 
+                ? <span style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, background: "#dc2626", borderRadius: "50%" }} />
+                : <span style={{ background: "#dc2626", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{criticalCount + importantCount}</span>
             )}
           </button>
 
-          {/* Settings — below CVE */}
-          <button onClick={() => changeTab("settings")} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === "settings" ? "#1e293b" : "transparent", color: tab === "settings" ? "#f8fafc" : "#64748b", transition: "all 0.15s" }}>
-            <Icon d={Icons.key} size={15} color={tab === "settings" ? "#3b82f6" : "#475569"} />
-            Settings
+          <button title={isCollapsed ? "Settings" : ""} onClick={() => changeTab("settings")} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "flex-start", gap: 10, cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === "settings" ? "#1e293b" : "transparent", color: tab === "settings" ? "#f8fafc" : "#64748b", transition: "all 0.15s" }}>
+            <Icon d={Icons.key} size={16} color={tab === "settings" ? "#3b82f6" : "#475569"} />
+            {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>Settings</span>}
           </button>
+
+          {/* User Management — admin only */}
+          {user?.role === "admin" && (
+            <button title={isCollapsed ? "User Management" : ""} onClick={() => changeTab("users")} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "space-between", cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: tab === "users" ? "#1e293b" : "transparent", color: tab === "users" ? "#f8fafc" : "#64748b", transition: "all 0.15s", position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={tab === "users" ? "#3b82f6" : "#475569"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>User Management</span>}
+              </div>
+              {pendingCount > 0 && (
+                isCollapsed 
+                  ? <span style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, background: "#f59e0b", borderRadius: "50%" }} />
+                  : <span style={{ background: "#f59e0b", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{pendingCount}</span>
+              )}
+            </button>
+          )}
 
           <div style={{ borderTop: "1px solid #1e293b", margin: "12px 0" }} />
 
-          {/* Utility buttons */}
           {[
-            { label: "Inventories",    icon: "file",    badge: (activeInventoryName || activeWindowsInv) ? "active" : null, onClick: () => setShowInventoryManager(true) },
-            { label: "Manage Hosts",   icon: "servers", badge: inventoryCount > 0 ? String(inventoryCount) : null,          onClick: () => setShowHostsManager(true) },
+            { label: "Inventories",  icon: "file",    badge: (activeInventoryName || activeWindowsInv) ? "active" : null, onClick: () => setShowInventoryManager(true) },
+            { label: "Manage Hosts", icon: "servers", badge: inventoryCount > 0 ? String(inventoryCount) : null,          onClick: () => setShowHostsManager(true) },
           ].map(item => (
-            <button key={item.label} onClick={item.onClick} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: "transparent", color: "#64748b", transition: "all 0.15s" }}
+            <button key={item.label} title={isCollapsed ? item.label : ""} onClick={item.onClick} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "none", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "space-between", cursor: "pointer", marginBottom: 4, fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: "transparent", color: "#64748b", transition: "all 0.15s", position: "relative" }}
               onMouseEnter={e => e.currentTarget.style.background = "#1e293b"}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-            >
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Icon d={Icons[item.icon]} size={15} color="#475569" />
-                {item.label}
+                <Icon d={Icons[item.icon]} size={16} color="#475569" />
+                {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>{item.label}</span>}
               </div>
-              {item.badge && <span style={{ background: "#1e3a5f", color: "#93c5fd", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{item.badge}</span>}
+              {item.badge && !isCollapsed && <span style={{ background: "#1e3a5f", color: "#93c5fd", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>{item.badge}</span>}
+              {item.badge && isCollapsed && <span style={{ position: "absolute", top: 8, right: 8, width: 6, height: 6, background: "#3b82f6", borderRadius: "50%" }} />}
             </button>
           ))}
 
-          {/* Active inventory boxes */}
-          {(activeInventoryName || activeWindowsInv) && (
+          {!isCollapsed && (activeInventoryName || activeWindowsInv) && (
             <div style={{ margin: "8px 4px 0", display: "flex", flexDirection: "column", gap: 6 }}>
               {activeInventoryName && (
                 <div style={{ padding: "10px 12px", background: "#0f2d1f", borderRadius: 8, border: "1px solid #166534" }}>
@@ -400,8 +462,7 @@ export default function App() {
                   <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 4 }}>
                     {activeHasCredentials
                       ? <><Icon d={Icons.check} size={11} color="#4ade80" /><span style={{ fontSize: 10, color: "#4ade80" }}>SSH credentials set</span></>
-                      : <><Icon d={Icons.warning} size={11} color="#fb923c" /><button onClick={() => setShowInventoryManager(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fb923c", textDecoration: "underline", padding: 0, fontFamily: "inherit" }}>Set SSH credentials</button></>
-                    }
+                      : <><Icon d={Icons.warning} size={11} color="#fb923c" /><button onClick={() => setShowInventoryManager(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fb923c", textDecoration: "underline", padding: 0, fontFamily: "inherit", whiteSpace: "nowrap" }}>Set SSH credentials</button></>}
                   </div>
                 </div>
               )}
@@ -416,18 +477,49 @@ export default function App() {
                   <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 4 }}>
                     {winCredsReady
                       ? <><Icon d={Icons.check} size={11} color="#4ade80" /><span style={{ fontSize: 10, color: "#4ade80" }}>WinRM credentials set</span></>
-                      : <><Icon d={Icons.warning} size={11} color="#fbbf24" /><button onClick={() => changeTab("settings")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fbbf24", textDecoration: "underline", padding: 0, fontFamily: "inherit" }}>Set WinRM credentials</button></>
-                    }
+                      : <><Icon d={Icons.warning} size={11} color="#fbbf24" /><button onClick={() => changeTab("settings")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#fbbf24", textDecoration: "underline", padding: 0, fontFamily: "inherit", whiteSpace: "nowrap" }}>Set WinRM credentials</button></>}
                   </div>
                 </div>
               )}
             </div>
           )}
+
+          {/* Sign out — pinned to bottom of sidebar */}
+          <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 12 }}>
+            {isCollapsed ? (
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff" }} title={user?.username}>
+                  {user?.username?.[0]?.toUpperCase() || "?"}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", marginBottom: 4 }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
+                  {user?.username?.[0]?.toUpperCase() || "?"}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#f1f5f9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.username}</div>
+                  <div style={{ fontSize: 10, color: "#475569", textTransform: "capitalize" }}>{user?.role}</div>
+                </div>
+              </div>
+            )}
+            
+            <button title={isCollapsed ? "Sign out" : ""} onClick={handleLogout}
+              style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #1e293b", background: "transparent", cursor: "pointer", fontSize: 12, color: "#64748b", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "flex-start", gap: 8, transition: "all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#f87171"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>Sign out</span>}
+            </button>
+          </div>
+
         </nav>
       </div>
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{ marginLeft: 220, padding: "32px", minHeight: "100vh", width: "calc(100vw - 220px)", overflowX: "hidden" }}>
+      <div style={{ marginLeft: currentSidebarWidth, padding: "32px", minHeight: "100vh", width: `calc(100vw - ${currentSidebarWidth}px)`, transition: "margin-left 0.2s ease-in-out, width 0.2s ease-in-out" }}>
 
         {/* Topbar */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
@@ -436,8 +528,7 @@ export default function App() {
             {latestScan && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Last scan: {fmtDate(latestScan.scanned_at)}</div>}
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10 }}>
               <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>Auto-scan every</span>
-              <input type="number" min={1} max={999} value={intervalValue}
-                onChange={e => setIntervalValue(Math.max(1, parseInt(e.target.value) || 1))}
+              <input type="number" min={1} max={999} value={intervalValue} onChange={e => setIntervalValue(Math.max(1, parseInt(e.target.value) || 1))}
                 style={{ width: 52, padding: "5px 0", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#0f172a", fontFamily: "inherit", textAlign: "center", background: "#fff", outline: "none" }} />
               <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 2 }}>
                 {["minutes", "hours", "days"].map(u => (
@@ -451,22 +542,32 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* Greeting */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a" }}>
+              <span>👋</span>
+              <span>Hi, <strong style={{ textTransform: "capitalize" }}>{user?.username}</strong></span>
+              <span style={{ fontSize: 10, color: "#94a3b8", background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "1px 7px", borderRadius: 999, textTransform: "capitalize", marginLeft: 2 }}>{user?.role}</span>
+            </div>
+
             <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "8px 14px", border: "1px solid #e2e8f0", borderRadius: 8, background: refreshing ? "#f8fafc" : "#fff", cursor: refreshing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: refreshing ? "#94a3b8" : "#475569", fontFamily: "inherit" }}>
               <div style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none", display: "flex" }}>
                 <Icon d={Icons.refresh} size={13} color={refreshing ? "#94a3b8" : "#475569"} />
               </div>
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
+
             {latestScan && (
               <button onClick={() => exportToCSV(latestScan)} style={{ padding: "8px 14px", border: "1px solid #3b82f6", borderRadius: 8, background: "#eff6ff", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#2563eb", fontWeight: 600, fontFamily: "inherit" }}>
                 <Icon d={Icons.export} size={13} color="#2563eb" /> Export CSV
               </button>
             )}
+
             <button onClick={triggerWindowsScan} disabled={winScanDisabled} title={winScanTooltip}
               style={{ padding: "8px 0", borderRadius: 8, border: "none", background: winScanDisabled ? "#e2e8f0" : "linear-gradient(135deg,#0ea5e9,#6366f1)", color: winScanDisabled ? "#94a3b8" : "#fff", fontWeight: 700, fontSize: 12, cursor: winScanDisabled ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: 130, boxShadow: winScanDisabled ? "none" : "0 2px 8px rgba(14,165,233,0.35)" }}>
               {winScanning ? <><div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Scanning...</> : <>🪟 Win Scan</>}
             </button>
+
             <button onClick={triggerScan} disabled={scanDisabled} title={scanTooltip}
               style={{ padding: "8px 0", borderRadius: 8, border: "none", background: scanDisabled ? "#e2e8f0" : "linear-gradient(135deg,#3b82f6,#6366f1)", color: scanDisabled ? "#94a3b8" : "#fff", fontWeight: 700, fontSize: 12, cursor: scanDisabled ? "not-allowed" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: 130, boxShadow: scanDisabled ? "none" : "0 2px 8px rgba(59,130,246,0.35)" }}>
               {scanning ? <><div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Scanning...</> : <><Icon d={Icons.scan} size={13} color={scanDisabled ? "#94a3b8" : "#fff"} />Linux Scan</>}
@@ -474,21 +575,15 @@ export default function App() {
           </div>
         </div>
 
-        {/* Scan status hints */}
+        {/* Status hints */}
         {scanning    && <div style={{ fontSize: 11, color: "#64748b", textAlign: "right", marginTop: -20, marginBottom: 16, animation: "pulse 2s infinite" }}>{scanStatus === "enriching" ? "⚡ Enriching CVE data..." : "🐧 Linux Ansible playbook running..."}</div>}
         {winScanning && <div style={{ fontSize: 11, color: "#0ea5e9", textAlign: "right", marginTop: -20, marginBottom: 16, animation: "pulse 2s infinite" }}>🪟 Windows Ansible playbook running...</div>}
 
         {/* Banners */}
         {activeInventoryName && !activeHasCredentials && !error && (
           <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#c2410c", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={16} color="#c2410c" /><span>SSH credentials are not set for <strong>{activeInventoryName}</strong>.</span></div>
-            <button onClick={() => setShowInventoryManager(true)} style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", marginLeft: 12 }}>Set Credentials</button>
-          </div>
-        )}
-        {!winCredsReady && !error && (
-          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#1d4ed8", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>🪟</span><span>Windows WinRM credentials are not set.</span></div>
-            <button onClick={() => changeTab("settings")} style={{ background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", marginLeft: 12 }}>Go to Settings</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={16} color="#c2410c" /><span>SSH credentials not set for <strong>{activeInventoryName}</strong>.</span></div>
+            <button onClick={() => setShowInventoryManager(true)} style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", marginLeft: 12, whiteSpace: "nowrap" }}>Set Credentials</button>
           </div>
         )}
         {error && (
@@ -498,16 +593,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Tab content ── */}
+        {/* Tab content */}
         {tab === "cves"     && <CveTab cves={cves} loading={cvesLoading} />}
         {tab === "windows"  && <div style={{ animation: "fadeIn 0.3s ease" }}><WindowsTab /></div>}
-        {tab === "settings" && (
-          <div style={{ animation: "fadeIn 0.3s ease" }}>
-            <SettingsTab key={winCredsVersion} onWinCredsSaved={fetchWinCredsStatus} onShowWinCreds={() => setShowWinCredsModal(true)} />
-          </div>
-        )}
+        {tab === "settings" && <div style={{ animation: "fadeIn 0.3s ease" }}><SettingsTab key={winCredsVersion} onWinCredsSaved={fetchWinCredsStatus} onShowWinCreds={() => setShowWinCredsModal(true)} /></div>}
+        {tab === "users"    && user?.role === "admin" && <UsersTab currentUser={user} />}
 
-        {tab !== "cves" && tab !== "settings" && tab !== "windows" && (
+        {tab !== "cves" && tab !== "settings" && tab !== "windows" && tab !== "users" && (
           loading ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
               <div style={{ width: 32, height: 32, border: "3px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -517,43 +609,32 @@ export default function App() {
               <Icon d={Icons.scan} size={48} color="#cbd5e1" />
               <div style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "#334155" }}>No scan data yet</div>
               <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6, marginBottom: 20 }}>
-                {inventoryCount === 0 ? "Start by uploading an inventory file, then set credentials and run a scan"
-                  : !activeHasCredentials ? `${inventoryCount} hosts ready — set SSH credentials, then click Linux Scan`
+                {inventoryCount === 0 ? "Upload an inventory file, set credentials and run a scan"
+                  : !activeHasCredentials ? `${inventoryCount} hosts ready — set SSH credentials first`
                   : `${inventoryCount} hosts ready — click Linux Scan to start`}
               </div>
               {inventoryCount === 0
                 ? <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}><Icon d={Icons.upload} size={14} color="#fff" /> Upload Inventory</button>
-                : !activeHasCredentials
-                  ? <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#c2410c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={14} color="#fff" /> Set SSH Credentials</button>
-                  : null}
+                : !activeHasCredentials ? <button onClick={() => setShowInventoryManager(true)} style={{ padding: "10px 20px", background: "#c2410c", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={14} color="#fff" /> Set SSH Credentials</button>
+                : null}
             </div>
           ) : (
             <div style={{ animation: "fadeIn 0.3s ease" }}>
-              {tab === "dashboard" && (
-                <DashboardTab
-                  {...filterProps}
-                  compliantHosts={compliantHosts} outdatedHosts={outdatedHosts}
-                  compliancePct={compliancePct} complianceData={complianceData}
-                  topPackages={topPackages} winRecords={winRecords}
-                  cves={cves} changeTab={changeTab}
-                  showInventoryManager={showInventoryManager}
-                  setShowInventoryManager={setShowInventoryManager}
-                />
-              )}
-              {tab === "hosts" && <HostsTab {...filterProps} />}
-              {tab === "history" && <ScanHistoryTab history={history} onSelectScan={setSelectedScanId} />}
+              {tab === "dashboard" && <DashboardTab {...filterProps} compliantHosts={compliantHosts} outdatedHosts={outdatedHosts} compliancePct={compliancePct} complianceData={complianceData} topPackages={topPackages} winRecords={winRecords} cves={cves} changeTab={changeTab} showInventoryManager={showInventoryManager} setShowInventoryManager={setShowInventoryManager} />}
+              {tab === "hosts"     && <HostsTab {...filterProps} />}
+              {tab === "history"   && <ScanHistoryTab history={history} onSelectScan={setSelectedScanId} />}
             </div>
           )
         )}
       </div>
 
-      {/* ── Modals ── */}
+      {/* Modals */}
       {showHostsManager     && <HostsManager     onClose={() => setShowHostsManager(false)} onSaved={fetchInventoryInfo} />}
       {showInventoryManager && <InventoryManager onClose={() => { setShowInventoryManager(false); fetchInventoryInfo(); }} onActivated={fetchInventoryInfo} />}
       {selectedScanId       && <ScanFailuresModal scanId={selectedScanId} onClose={() => setSelectedScanId(null)} />}
       {showWinCredsModal    && <WindowsCredentialsForm onClose={() => { setShowWinCredsModal(false); fetchWinCredsStatus(); setWinCredsVersion(v => v + 1); }} />}
 
-      {/* ── Refresh toast ── */}
+      {/* Refresh toast */}
       {refreshedAt && (
         <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 999, background: "#0f172a", color: "#4ade80", padding: "10px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", animation: "fadeIn 0.2s ease" }}>
           <Icon d={Icons.check} size={13} color="#4ade80" />
@@ -561,7 +642,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── AI Chat Widget ── */}
       <ChatWidget />
     </div>
   );

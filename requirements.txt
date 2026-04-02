@@ -15,3 +15,7 @@ jaraco.context>=6.1.0
 pywinrm[kerberos]
 requests-ntlm
 openai>=1.0.0
+
+#Auth
+bcrypt
+python-jose[cryptography]

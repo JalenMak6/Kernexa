@@ -12,12 +12,12 @@ Business logic lives in:
   enricher.py          CVE enrichment
 """
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
@@ -28,6 +28,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 
+from auth import (
+    hash_password, verify_password,
+    create_access_token, create_refresh_token, decode_token,
+    get_current_user, require_role,
+    any_role, operator_up, admin_only,
+    REFRESH_EXPIRE,
+)
 from database import (
     get_latest_scan, get_latest_windows_scan,
     get_scan_history,
@@ -41,6 +48,10 @@ from database import (
     get_scan_interval, save_scan_interval,
     get_host_ports,
     save_patch_job, get_patch_job, get_patch_history,
+    get_user_by_username, get_user_by_id, list_users,
+    create_user, update_user, delete_user, update_last_login,
+    user_exists, save_refresh_token, get_refresh_token,
+    revoke_refresh_token, revoke_all_user_tokens,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
@@ -83,6 +94,20 @@ class NotificationSettings(BaseModel):
 
 class IntervalPayload(BaseModel):
     interval_minutes: int
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role:     str = "reader"
+
+class UpdateUserRequest(BaseModel):
+    role:        Optional[str]  = None
+    is_active:   Optional[bool] = None
+    password:    Optional[str]  = None
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -152,13 +177,220 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── auth endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+async def login(body: LoginRequest, response: Response):
+    user = get_user_by_username(body.username)
+    if not user or not verify_password(body.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    if not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    access_token  = create_access_token(user["id"], user["username"], user["role"])
+    refresh_token = create_refresh_token(user["id"], user["username"], user["role"])
+
+    # Store refresh token in DB
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_EXPIRE)
+    save_refresh_token(user["id"], refresh_token, expires_at)
+    update_last_login(user["id"])
+
+    # Set refresh token as httpOnly cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=REFRESH_EXPIRE * 86400,
+        path="/",
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+        "user": {
+            "id":       user["id"],
+            "username": user["username"],
+            "role":     user["role"],
+        },
+    }
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No refresh token provided")
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    stored = get_refresh_token(token)
+    if not stored:
+        raise HTTPException(status_code=401, detail="Refresh token revoked or expired")
+    user = get_user_by_id(stored["user_id"])
+    if not user or not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+    access_token = create_access_token(user["id"], user["username"], user["role"])
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+    }
+
+
+@app.post("/api/auth/register")
+async def register(body: LoginRequest):
+    """
+    Public endpoint — no token required.
+    Creates a user with is_active=False pending admin approval.
+    """
+    if not body.username or not body.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if len(body.username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if user_exists(body.username):
+        raise HTTPException(status_code=409, detail="Username already taken — please choose another")
+    try:
+        create_user(
+            username=body.username,
+            hashed_password=hash_password(body.password),
+            role="reader",
+            created_by="self-registration",
+            is_active=False,        # requires admin approval before login
+        )
+        return {"message": "Registration submitted — awaiting admin approval"}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+async def refresh_token(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No refresh token provided")
+
+    # Validate token signature and expiry
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+
+    # Check DB — ensures token hasn't been revoked
+    stored = get_refresh_token(token)
+    if not stored:
+        raise HTTPException(status_code=401, detail="Refresh token revoked or expired")
+
+    user = get_user_by_id(stored["user_id"])
+    if not user or not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    # Issue new access token
+    access_token = create_access_token(user["id"], user["username"], user["role"])
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if token:
+        revoke_refresh_token(token)
+    response.delete_cookie("refresh_token", path="/")
+    return {"message": "Logged out"}
+
+
+@app.get("/api/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    full = get_user_by_id(user["id"])
+    if not full:
+        raise HTTPException(status_code=404, detail="User not found")
+    return full
+
+
+# ── user management endpoints (admin only) ────────────────────────────────────
+
+@app.get("/api/users", dependencies=[Depends(admin_only)])
+async def get_users():
+    return list_users()
+
+
+@app.get("/api/users/pending", dependencies=[Depends(admin_only)])
+async def get_pending_users():
+    """Returns users awaiting approval (is_active=False, created_by=self-registration)."""
+    all_users = list_users()
+    return [u for u in all_users if not u["is_active"]]
+
+
+@app.post("/api/users", dependencies=[Depends(admin_only)])
+async def create_new_user(body: CreateUserRequest,
+                          current: dict = Depends(get_current_user)):
+    if body.role not in ("admin", "operator", "reader"):
+        raise HTTPException(status_code=400,
+                            detail="Invalid role — must be admin, operator, or reader")
+    if not body.username or not body.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        user = create_user(
+            username=body.username,
+            hashed_password=hash_password(body.password),
+            role=body.role,
+            created_by=current["username"],
+        )
+        return user
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.put("/api/users/{user_id}", dependencies=[Depends(admin_only)])
+async def update_existing_user(user_id: int, body: UpdateUserRequest,
+                               current: dict = Depends(get_current_user)):
+    # Prevent admin from deactivating or demoting themselves
+    if user_id == current["id"]:
+        if body.is_active is False:
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+        if body.role and body.role != "admin":
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    updates = {}
+    if body.role is not None:
+        if body.role not in ("admin", "operator", "reader"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        updates["role"] = body.role
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+    if body.password is not None:
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        updates["hashed_password"] = hash_password(body.password)
+
+    user = update_user(user_id, updates)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.delete("/api/users/{user_id}", dependencies=[Depends(admin_only)])
+async def remove_user(user_id: int, current: dict = Depends(get_current_user)):
+    if user_id == current["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    deleted = delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deleted"}
+
+
 # ── inventory endpoints ───────────────────────────────────────────────────────
 
-@app.get("/api/inventories")
+@app.get("/api/inventories", dependencies=[Depends(any_role)])
 async def list_inventories():
     return get_inventories()
 
-@app.post("/api/inventories/upload")
+@app.post("/api/inventories/upload", dependencies=[Depends(operator_up)])
 async def upload_inventory(
     file: UploadFile = File(...),
     name: str = Form(...),
@@ -173,7 +405,7 @@ async def upload_inventory(
     return {"id": inv_id, "name": name, "host_count": len(hosts),
             "inventory_type": inv_type, "message": f"Uploaded {len(hosts)} hosts"}
 
-@app.post("/api/inventories/{inv_id}/activate")
+@app.post("/api/inventories/{inv_id}/activate", dependencies=[Depends(operator_up)])
 async def set_active_inventory(inv_id: int):
     content  = activate_inventory(inv_id)
     hosts    = parse_hosts_from_content(content)
@@ -192,28 +424,28 @@ async def set_active_inventory(inv_id: int):
 
     return {"message": f"Activated {inv_type} inventory with {len(hosts)} hosts"}
 
-@app.delete("/api/inventories/{inv_id}")
+@app.delete("/api/inventories/{inv_id}", dependencies=[Depends(operator_up)])
 async def remove_inventory(inv_id: int):
     delete_inventory(inv_id)
     return {"message": "Deleted"}
 
 # ── credential endpoints ──────────────────────────────────────────────────────
 
-@app.post("/api/credentials")
+@app.post("/api/credentials", dependencies=[Depends(operator_up)])
 async def set_credentials(body: CredentialsUpdate):
     if not body.username or not body.password:
         raise HTTPException(status_code=400, detail="Username and password are required")
     save_credentials(body.inventory_id, body.username, body.password)
     return {"message": "Credentials saved"}
 
-@app.get("/api/credentials/{inventory_id}")
+@app.get("/api/credentials/{inventory_id}", dependencies=[Depends(any_role)])
 async def fetch_credentials(inventory_id: int):
     creds = get_credentials(inventory_id)
     if not creds:
         return {"username": "", "has_credentials": False}
     return {"username": creds["username"], "has_credentials": True, "updated_at": creds["updated_at"]}
 
-@app.get("/api/windows/credentials")
+@app.get("/api/windows/credentials", dependencies=[Depends(any_role)])
 async def get_windows_creds():
     creds = get_windows_credentials()
     if not creds:
@@ -227,7 +459,7 @@ async def get_windows_creds():
         "updated_at": creds["updated_at"],
     }
 
-@app.post("/api/windows/credentials")
+@app.post("/api/windows/credentials", dependencies=[Depends(operator_up)])
 async def set_windows_creds(body: WindowsCredentialsUpdate):
     if not body.username or not body.password:
         raise HTTPException(status_code=400, detail="Username and password are required")
@@ -241,7 +473,7 @@ async def set_windows_creds(body: WindowsCredentialsUpdate):
 
 # ── host endpoints ────────────────────────────────────────────────────────────
 
-@app.get("/api/hosts")
+@app.get("/api/hosts", dependencies=[Depends(any_role)])
 async def get_hosts_endpoint():
     if not os.path.exists(INVENTORY_PATH):
         return {"hosts": []}
@@ -250,7 +482,7 @@ async def get_hosts_endpoint():
     hosts = [l.strip() for l in lines if l.strip() and not l.startswith("[")]
     return {"hosts": hosts}
 
-@app.post("/api/hosts")
+@app.post("/api/hosts", dependencies=[Depends(operator_up)])
 async def update_hosts(body: HostsUpdate):
     if not body.hosts:
         raise HTTPException(status_code=400, detail="Host list cannot be empty")
@@ -260,23 +492,23 @@ async def update_hosts(body: HostsUpdate):
         f.write(content)
     return {"message": f"Inventory updated with {len(body.hosts)} hosts", "hosts": body.hosts}
 
-@app.get("/api/hosts/{hostname}/history")
+@app.get("/api/hosts/{hostname}/history", dependencies=[Depends(any_role)])
 async def get_host_history_endpoint(hostname: str):
     return get_host_history(hostname)
 
-@app.get("/api/hosts/{hostname}/cves")
+@app.get("/api/hosts/{hostname}/cves", dependencies=[Depends(any_role)])
 async def get_host_cves_endpoint(hostname: str):
     return get_host_cves(hostname)
 
-@app.get("/api/tags")
+@app.get("/api/tags", dependencies=[Depends(any_role)])
 async def list_all_tags():
     return {"tags": get_all_tags()}
 
-@app.get("/api/hosts/{hostname}/tags")
+@app.get("/api/hosts/{hostname}/tags", dependencies=[Depends(any_role)])
 async def get_host_tags(hostname: str):
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
-@app.post("/api/hosts/{hostname}/tags")
+@app.post("/api/hosts/{hostname}/tags", dependencies=[Depends(operator_up)])
 async def add_host_tag(hostname: str, body: TagAdd):
     tag = body.tag.strip().lower()
     if not tag:
@@ -286,14 +518,14 @@ async def add_host_tag(hostname: str, body: TagAdd):
     add_tag(hostname, tag)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
-@app.delete("/api/hosts/{hostname}/tags/{tag}")
+@app.delete("/api/hosts/{hostname}/tags/{tag}", dependencies=[Depends(operator_up)])
 async def remove_host_tag(hostname: str, tag: str):
     remove_tag(hostname, tag)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
 # ── Linux scan endpoints ──────────────────────────────────────────────────────
 
-@app.post("/api/scans/trigger")
+@app.post("/api/scans/trigger", dependencies=[Depends(operator_up)])
 async def trigger_scan(background_tasks: BackgroundTasks):
     creds = get_active_inventory_credentials()
     if not creds:
@@ -310,7 +542,7 @@ async def trigger_scan(background_tasks: BackgroundTasks):
 
 # ── Windows scan endpoints ────────────────────────────────────────────────────
 
-@app.post("/api/scans/trigger-windows")
+@app.post("/api/scans/trigger-windows", dependencies=[Depends(operator_up)])
 async def trigger_windows_scan(background_tasks: BackgroundTasks):
     already_running = any(v in ("running", "pending") for v in running_scans.values())
     if already_running:
@@ -321,7 +553,7 @@ async def trigger_windows_scan(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_windows_and_save, scan_id, scanned_at)
     return {"scan_id": scan_id, "status": "started", "scanned_at": scanned_at.isoformat()}
 
-@app.get("/api/scans/windows/latest")
+@app.get("/api/scans/windows/latest", dependencies=[Depends(any_role)])
 async def latest_windows_scan():
     data = get_latest_windows_scan()
     if not data:
@@ -330,29 +562,29 @@ async def latest_windows_scan():
 
 # ── shared scan endpoints ─────────────────────────────────────────────────────
 
-@app.get("/api/scans/current")
+@app.get("/api/scans/current", dependencies=[Depends(any_role)])
 async def current_scan():
     for scan_id, status in reversed(list(running_scans.items())):
         if status in ("running", "pending"):
             return {"scanning": True, "scan_id": scan_id, "status": status}
     return {"scanning": False}
 
-@app.get("/api/scans/latest")
+@app.get("/api/scans/latest", dependencies=[Depends(any_role)])
 async def latest_scan():
     data = get_latest_scan()
     if not data:
         raise HTTPException(status_code=404, detail="No scans found")
     return data
 
-@app.get("/api/scans/history")
+@app.get("/api/scans/history", dependencies=[Depends(any_role)])
 async def scan_history():
     return get_scan_history()
 
-@app.get("/api/scans/{scan_id}/status")
+@app.get("/api/scans/{scan_id}/status", dependencies=[Depends(any_role)])
 async def get_scan_status(scan_id: str):
     return {"scan_id": scan_id, "status": running_scans.get(scan_id, "unknown")}
 
-@app.get("/api/scans/{scan_id}/failures")
+@app.get("/api/scans/{scan_id}/failures", dependencies=[Depends(any_role)])
 async def get_scan_failures_endpoint(scan_id: str):
     data = get_scan_failures(scan_id)
     if not data:
@@ -361,13 +593,13 @@ async def get_scan_failures_endpoint(scan_id: str):
 
 # ── CVE advisories ────────────────────────────────────────────────────────────
 
-@app.get("/api/cves")
+@app.get("/api/cves", dependencies=[Depends(any_role)])
 async def get_cves():
     return get_cve_details()
 
 # ── scheduler endpoints ───────────────────────────────────────────────────────
 
-@app.get("/api/scheduler/status")
+@app.get("/api/scheduler/status", dependencies=[Depends(any_role)])
 async def scheduler_status():
     job = scheduler.get_job("auto_scan")
     if not job:
@@ -378,11 +610,11 @@ async def scheduler_status():
         "interval_minutes": get_scan_interval(),
     }
 
-@app.get("/api/scheduler/interval")
+@app.get("/api/scheduler/interval", dependencies=[Depends(any_role)])
 async def get_interval():
     return {"interval_minutes": get_scan_interval()}
 
-@app.post("/api/scheduler/interval")
+@app.post("/api/scheduler/interval", dependencies=[Depends(operator_up)])
 async def set_interval(body: IntervalPayload):
     minutes = body.interval_minutes
     if minutes < 1:
@@ -395,14 +627,14 @@ async def set_interval(body: IntervalPayload):
 
 # ── notification endpoints ────────────────────────────────────────────────────
 
-@app.get("/api/notifications/settings")
+@app.get("/api/notifications/settings", dependencies=[Depends(operator_up)])
 async def get_notification_settings_endpoint():
     s = get_notification_settings()
     if s.get("smtp_password"):
         s["smtp_password"] = "••••••••"
     return s
 
-@app.post("/api/notifications/settings")
+@app.post("/api/notifications/settings", dependencies=[Depends(operator_up)])
 async def save_notification_settings_endpoint(body: NotificationSettings):
     existing = get_notification_settings()
     password = body.smtp_password
@@ -416,7 +648,7 @@ async def save_notification_settings_endpoint(body: NotificationSettings):
     )
     return {"message": "Settings saved"}
 
-@app.post("/api/notifications/test")
+@app.post("/api/notifications/test", dependencies=[Depends(operator_up)])
 async def test_notification(background_tasks: BackgroundTasks):
     settings = get_notification_settings()
     if not settings["smtp_host"]:
@@ -454,7 +686,7 @@ async def test_notification(background_tasks: BackgroundTasks):
 
 # ── Patch endpoints ───────────────────────────────────────────────────────────
 
-@app.post("/api/patch/trigger")
+@app.post("/api/patch/trigger", dependencies=[Depends(operator_up)])
 async def trigger_patch(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
     advisory_id = body.get("advisory_id", "")
@@ -491,7 +723,7 @@ async def trigger_patch(request: Request, background_tasks: BackgroundTasks):
         "packages": packages,
     }
 
-@app.get("/api/patch/{job_id}/status")
+@app.get("/api/patch/{job_id}/status", dependencies=[Depends(any_role)])
 async def patch_job_status(job_id: str):
     # Check in-memory first for live status
     mem_status = running_scans.get(job_id)
@@ -502,13 +734,13 @@ async def patch_job_status(job_id: str):
         job['status'] = mem_status
     return job
 
-@app.get("/api/patch/history")
+@app.get("/api/patch/history", dependencies=[Depends(any_role)])
 async def patch_history():
     return get_patch_history(limit=50)
 
 # ── Host ports endpoint ───────────────────────────────────────────────────────
 
-@app.get("/api/hosts/{hostname}/ports")
+@app.get("/api/hosts/{hostname}/ports", dependencies=[Depends(any_role)])
 async def get_ports(hostname: str):
     ports = get_host_ports(hostname)
     return {"hostname": hostname, "ports": ports}
@@ -573,7 +805,7 @@ def _get_openai_client():
 
 # ── AI chat endpoint ──────────────────────────────────────────────────────────
 
-@app.post("/api/chat")
+@app.post("/api/chat", dependencies=[Depends(any_role)])
 async def chat(body: ChatMessage):
     client, model = _get_openai_client()
 

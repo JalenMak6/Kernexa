@@ -63,6 +63,22 @@ from database.patches import (
     get_patch_history,
 )
 
+from database.users import (
+    create_user,
+    get_user_by_username,
+    get_user_by_id,
+    list_users,
+    update_user,
+    delete_user,
+    update_last_login,
+    user_exists,
+    save_refresh_token,
+    get_refresh_token,
+    revoke_refresh_token,
+    revoke_all_user_tokens,
+    cleanup_expired_tokens,
+)
+
 __all__ = [
     # connection
     "get_conn", "DB_CONFIG",
@@ -87,4 +103,9 @@ __all__ = [
     "get_scan_interval", "save_scan_interval",
     # patches
     "save_patch_job", "update_patch_job", "get_patch_job", "get_patch_history",
+    # users
+    "create_user", "get_user_by_username", "get_user_by_id",
+    "list_users", "update_user", "delete_user", "update_last_login",
+    "user_exists", "save_refresh_token", "get_refresh_token",
+    "revoke_refresh_token", "revoke_all_user_tokens", "cleanup_expired_tokens",
 ]
