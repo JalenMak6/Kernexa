@@ -307,7 +307,7 @@ class TestInventories:
                           headers=auth_headers, timeout=10)
         assert r.status_code == 403, f"Expected 403 for reader upload, got {r.status_code}"
 
-    def test_linux_and_windows_can_both_be_active(self, admin_headers):
+    def test_linux_and_windows_can_both_be_active(self, admin_headers, auth_headers):
         """Activating a Windows inventory should not deactivate the Linux inventory."""
         r_l = requests.post(url("/api/inventories/upload"),
                             files={"file": ("dl.ini", "[all]\n10.0.0.1\n", "text/plain")},
