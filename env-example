@@ -10,9 +10,27 @@ DB_PORT=5432
 ADMINER_PORT=8080
 ENABLE_DOCS=false
 OPENAI_API_KEY=sk-xxxxxxx
-# For Azure OpenAI, use the following variables instead of OPENAI_API_KEY
 
-AZURE_OPENAI_API_KEY=C3ixxxxxbxxxxxxx
-AZURE_OPENAI_ENDPOINT=https://xxxxxx.cognitiveservices.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
+#AZURE_OPENAI_ENDPOINT=https://xxxxxx.cognitiveservices.azure.com/
+#AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+#AZURE_OPENAI_API_VERSION=2024-12-01-preview
+
+# Required — seeds the first admin on startup
+KERNEXA_ADMIN_USER=admin
+KERNEXA_ADMIN_PASS=password
+
+# JWT signing key — generate with: openssl rand -hex 32
+JWT_SECRET=833bf6342e875069e7db474e0b7cd29bd639bfce3fdd482227840e3029c6b
+
+
+# Optional demo accounts (remove in production)
+KERNEXA_OPERATOR_USER: operator
+KERNEXA_OPERATOR_PASS: password
+
+KERNEXA_READER_USER: reader
+KERNEXA_READER_PASS: password
+
+
+# CI test user — created automatically if set
+CI_TEST_USER=ci_runner
+CI_TEST_PASS=ci_password
