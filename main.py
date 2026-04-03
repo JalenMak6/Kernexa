@@ -36,6 +36,7 @@ from auth import (
     REFRESH_EXPIRE,
 )
 from ldap_auth import ldap_authenticate, is_ldap_enabled, test_ldap_connection
+from database.ldap_settings import get_ldap_settings, save_ldap_settings
 from database import (
     get_latest_scan, get_latest_windows_scan,
     get_scan_history,
@@ -279,9 +280,73 @@ async def refresh_token(request: Request, response: Response):
     }
 
 
+class LdapSettingsUpdate(BaseModel):
+    enabled:        bool   = False
+    host:           str    = ""
+    port:           int    = 389
+    use_ssl:        bool   = False
+    use_starttls:   bool   = False
+    tls_verify:     bool   = True
+    bind_dn:        str    = ""
+    bind_password:  str    = ""   # blank = keep existing
+    base_dn:        str    = ""
+    user_attr:      str    = "sAMAccountName"
+    admin_group:    str    = ""
+    operator_group: str    = ""
+    reader_group:   str    = ""
+    ca_cert:        str    = ""   # PEM string or base64
+
+
+@app.get("/api/ldap/settings", dependencies=[Depends(admin_only)])
+async def get_ldap_config():
+    """GET current LDAP settings — password is masked."""
+    return get_ldap_settings()
+
+
+@app.post("/api/ldap/settings", dependencies=[Depends(admin_only)])
+async def save_ldap_config(body: LdapSettingsUpdate):
+    """Save LDAP settings to DB. Blank password = keep existing."""
+    keep_password = not body.bind_password or body.bind_password == "••••••••"
+    saved = save_ldap_settings(body.dict(), keep_password=keep_password)
+    return saved
+
+
+@app.post("/api/ldap/test", dependencies=[Depends(admin_only)])
+async def test_ldap_config(body: LdapSettingsUpdate):
+    """
+    Test LDAP connectivity with the provided settings (not necessarily saved).
+    Useful for validating config before saving.
+    """
+    # Fetch existing password from DB if the form left it blank
+    if not body.bind_password or body.bind_password == "••••••••":
+        from database.ldap_settings import get_ldap_settings_for_auth
+        existing = get_ldap_settings_for_auth()
+        bind_pw  = existing["bind_password"] if existing else ""
+    else:
+        bind_pw = body.bind_password
+
+    cfg = {
+        "enabled":        body.enabled,
+        "host":           body.host,
+        "port":           body.port,
+        "use_ssl":        body.use_ssl,
+        "use_starttls":   body.use_starttls,
+        "tls_verify":     body.tls_verify,
+        "bind_dn":        body.bind_dn,
+        "bind_password":  bind_pw,
+        "base_dn":        body.base_dn,
+        "user_attr":      body.user_attr or "sAMAccountName",
+        "admin_group":    body.admin_group,
+        "operator_group": body.operator_group,
+        "reader_group":   body.reader_group,
+        "ca_cert":        body.ca_cert,
+    }
+    return test_ldap_connection(cfg)
+
+
 @app.get("/api/auth/ldap/status", dependencies=[Depends(admin_only)])
 async def ldap_status():
-    """GET LDAP configuration and connectivity status — admin only."""
+    """GET LDAP connectivity status using current effective config."""
     return test_ldap_connection()
 async def register(body: LoginRequest):
     """

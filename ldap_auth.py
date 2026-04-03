@@ -166,37 +166,152 @@ def _map_groups_to_role(group_dns: list[str]) -> Optional[str]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def _get_connection_with_cfg(cfg: dict, bind_dn: str, bind_password: str):
+    """Create a connection using settings from a config dict."""
+    from ldap3 import Server, Connection, ALL, Tls
+    import ssl
+
+    use_ssl      = cfg.get("use_ssl",      False)
+    use_starttls = cfg.get("use_starttls", False)
+    tls_verify   = cfg.get("tls_verify",   True)
+    ca_cert      = cfg.get("ca_cert",      "")
+    host         = cfg.get("host",         "")
+    port         = cfg.get("port",         389)
+
+    tls = None
+    if use_ssl or use_starttls:
+        if not tls_verify:
+            tls = Tls(validate=ssl.CERT_NONE)
+        elif ca_cert:
+            # Write CA cert to temp file
+            import tempfile, os
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="w")
+            # ca_cert may be base64-encoded PEM or raw PEM
+            if "BEGIN CERTIFICATE" not in ca_cert:
+                import base64
+                tmp.write(base64.b64decode(ca_cert).decode())
+            else:
+                tmp.write(ca_cert)
+            tmp.close()
+            tls = Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=tmp.name)
+            os.unlink(tmp.name)
+        else:
+            tls = Tls(validate=ssl.CERT_REQUIRED)
+
+    server = Server(
+        host,
+        port=port,
+        use_ssl=use_ssl,
+        tls=tls,
+        get_info=ALL,
+        connect_timeout=5,
+    )
+    conn = Connection(server, user=bind_dn, password=bind_password,
+                      raise_exceptions=True, receive_timeout=10)
+
+    if use_starttls:
+        conn.open()
+        conn.start_tls()
+        conn.bind()
+    else:
+        conn.open()
+        conn.bind()
+
+    if not conn.bound:
+        raise Exception(f"Bind failed for {bind_dn}: {conn.result}")
+    return conn
+
+
+def _get_user_dn_cfg(conn, username: str, user_attr: str, base_dn: str) -> Optional[tuple]:
+    """Search for user DN using config-specified attribute and base DN."""
+    conn.search(
+        search_base=base_dn,
+        search_filter=f"({user_attr}={username})",
+        attributes=["distinguishedName", "displayName", "cn", user_attr, "memberOf"],
+    )
+    if not conn.entries:
+        logger.warning(f"[LDAP] User '{username}' not found in directory")
+        return None
+    entry        = conn.entries[0]
+    dn           = entry.entry_dn
+    display_name = str(entry.displayName) if entry.displayName else \
+                   str(entry.cn)          if entry.cn          else username
+    groups       = [str(g).lower() for g in entry.memberOf] if entry.memberOf else []
+    return dn, display_name, groups
+
+
+def _map_groups_to_role_cfg(groups: list, admin_group: str,
+                             operator_group: str, reader_group: str) -> Optional[str]:
+    """Map group DNs to role using explicit group config."""
+    groups_lower = [g.lower() for g in groups]
+    if admin_group    and admin_group.lower()    in groups_lower: return "admin"
+    if operator_group and operator_group.lower() in groups_lower: return "operator"
+    if reader_group   and reader_group.lower()   in groups_lower: return "reader"
+    return None
+
+
+def _get_effective_config() -> dict | None:
+    """
+    Get LDAP config — DB settings take priority over env vars.
+    Returns None if LDAP is not configured/enabled anywhere.
+    """
+    # Try DB first
+    try:
+        from database.ldap_settings import get_ldap_settings_for_auth
+        db_cfg = get_ldap_settings_for_auth()
+        if db_cfg and db_cfg.get("enabled") and db_cfg.get("host"):
+            return db_cfg
+    except Exception as e:
+        logger.debug(f"[LDAP] Could not read DB settings: {e}")
+
+    # Fall back to env vars
+    if not LDAP_ENABLED:
+        return None
+    return {
+        "enabled":        True,
+        "host":           LDAP_HOST,
+        "port":           LDAP_PORT,
+        "use_ssl":        LDAP_USE_SSL,
+        "use_starttls":   LDAP_USE_STARTTLS,
+        "tls_verify":     LDAP_TLS_VERIFY,
+        "bind_dn":        LDAP_BIND_DN,
+        "bind_password":  LDAP_BIND_PASSWORD,
+        "base_dn":        LDAP_BASE_DN,
+        "user_attr":      LDAP_USER_ATTR,
+        "admin_group":    LDAP_ADMIN_GROUP,
+        "operator_group": LDAP_OPERATOR_GROUP,
+        "reader_group":   LDAP_READER_GROUP,
+        "ca_cert":        "",
+    }
+
+
 def ldap_authenticate(username: str, password: str) -> Optional[dict]:
     """
     Attempt to authenticate a user against LDAP/AD.
+    Reads config from DB (if configured) then falls back to env vars.
 
     Returns a dict on success:
-        {
-            "username":     str,   # sAMAccountName
-            "display_name": str,   # displayName from AD
-            "role":         str,   # "admin" | "operator" | "reader"
-            "auth_source":  "ldap"
-        }
+        { "username", "display_name", "role", "auth_source": "ldap" }
 
-    Returns None if:
-        - LDAP is not configured
-        - User not found in directory
-        - Password is wrong
-        - User is not in any mapped group
-
-    Raises nothing — all errors are caught and logged.
+    Returns None on any failure — never raises.
     """
-    if not LDAP_ENABLED:
+    cfg = _get_effective_config()
+    if not cfg:
         return None
 
-    if not LDAP_BIND_DN or not LDAP_BIND_PASSWORD or not LDAP_BASE_DN:
-        logger.error("[LDAP] LDAP_BIND_DN, LDAP_BIND_PASSWORD, LDAP_BASE_DN must all be set")
+    bind_dn  = cfg["bind_dn"]
+    bind_pw  = cfg["bind_password"]
+    base_dn  = cfg["base_dn"]
+    user_attr = cfg["user_attr"] or "sAMAccountName"
+
+    if not bind_dn or not bind_pw or not base_dn:
+        logger.error("[LDAP] bind_dn, bind_password, base_dn must all be set")
         return None
 
     try:
-        # Step 1 — bind with service account to find the user DN + groups
-        svc_conn = _get_connection(LDAP_BIND_DN, LDAP_BIND_PASSWORD)
-        result   = _get_user_dn(svc_conn, username)
+        # Step 1 — service account bind to find user DN + groups
+        svc_conn = _get_connection_with_cfg(cfg, bind_dn, bind_pw)
+        result   = _get_user_dn_cfg(svc_conn, username, user_attr, base_dn)
         if not result:
             svc_conn.unbind()
             return None
@@ -205,12 +320,10 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
         logger.debug(f"[LDAP] Found user DN: {user_dn}")
         logger.debug(f"[LDAP] Groups for '{username}': {groups}")
 
-        # Step 2 — verify password by binding as the user
-        # AD requires UPN format (user@domain) for credential validation
-        # Extract domain from LDAP_BASE_DN: DC=jalen-ad,DC=com → jalen-ad.com
+        # Step 2 — verify password via UPN then DN
         domain = ".".join(
             part.split("=")[1]
-            for part in LDAP_BASE_DN.split(",")
+            for part in base_dn.split(",")
             if part.strip().upper().startswith("DC=")
         )
         upn = f"{username}@{domain}"
@@ -218,26 +331,27 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
         bound = False
         for bind_identity in [upn, user_dn]:
             try:
-                user_conn = _get_connection(bind_identity, password)
+                user_conn = _get_connection_with_cfg(cfg, bind_identity, password)
                 bound = True
                 logger.debug(f"[LDAP] User bind succeeded with '{bind_identity}'")
                 break
             except Exception as e:
                 logger.debug(f"[LDAP] User bind failed for '{bind_identity}': {e}")
-                continue
 
         if not bound:
             logger.warning(f"[LDAP] Invalid credentials for '{username}'")
             svc_conn.unbind()
             return None
 
-        # Step 3 — map groups to role (already fetched in step 1)
-        role = _map_groups_to_role(groups)
+        # Step 3 — map groups to role
+        role = _map_groups_to_role_cfg(
+            groups,
+            cfg.get("admin_group",    ""),
+            cfg.get("operator_group", ""),
+            cfg.get("reader_group",   ""),
+        )
         if not role:
-            logger.warning(
-                f"[LDAP] User '{username}' authenticated but not in any mapped group. "
-                f"Groups: {groups}"
-            )
+            logger.warning(f"[LDAP] '{username}' not in any mapped group. Groups: {groups}")
             user_conn.unbind()
             svc_conn.unbind()
             return None
@@ -258,45 +372,50 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
         return None
 
 
-def test_ldap_connection() -> dict:
+def test_ldap_connection(cfg: dict = None) -> dict:
     """
     Test LDAP connectivity using the service account.
-    Used by the settings/diagnostics endpoint.
+    Accepts an explicit config dict (from UI form) or uses effective config.
 
     Returns:
         { "success": bool, "message": str, "config": dict }
     """
-    if not LDAP_ENABLED:
+    if cfg is None:
+        cfg = _get_effective_config()
+    if not cfg:
         return {
             "success": False,
-            "message": "LDAP is not configured (LDAP_HOST not set)",
+            "message": "LDAP is not configured",
             "config":  {},
         }
 
     config = {
-        "host":           LDAP_HOST,
-        "port":           LDAP_PORT,
-        "use_ssl":        LDAP_USE_SSL,
-        "use_starttls":   LDAP_USE_STARTTLS,
-        "tls_verify":     LDAP_TLS_VERIFY,
-        "base_dn":        LDAP_BASE_DN,
-        "user_attr":      LDAP_USER_ATTR,
-        "admin_group":    LDAP_ADMIN_GROUP    or "(not set)",
-        "operator_group": LDAP_OPERATOR_GROUP or "(not set)",
-        "reader_group":   LDAP_READER_GROUP   or "(not set)",
+        "host":           cfg.get("host",           ""),
+        "port":           cfg.get("port",           389),
+        "use_ssl":        cfg.get("use_ssl",        False),
+        "use_starttls":   cfg.get("use_starttls",   False),
+        "tls_verify":     cfg.get("tls_verify",     True),
+        "base_dn":        cfg.get("base_dn",        ""),
+        "user_attr":      cfg.get("user_attr",      "sAMAccountName"),
+        "admin_group":    cfg.get("admin_group",    "") or "(not set)",
+        "operator_group": cfg.get("operator_group", "") or "(not set)",
+        "reader_group":   cfg.get("reader_group",   "") or "(not set)",
     }
 
+    host = cfg.get("host", "")
+    port = cfg.get("port", 389)
+
     try:
-        conn = _get_connection(LDAP_BIND_DN, LDAP_BIND_PASSWORD)
+        conn = _get_connection_with_cfg(cfg, cfg["bind_dn"], cfg["bind_password"])
         conn.unbind()
         return {
             "success": True,
-            "message": f"Successfully bound to {LDAP_HOST}:{LDAP_PORT} as service account",
+            "message": f"Successfully bound to {host}:{port} as service account",
             "config":  config,
         }
     except Exception as e:
         return {
             "success": False,
-            "message": f"Failed to connect to {LDAP_HOST}:{LDAP_PORT}: {str(e)}",
+            "message": f"Failed to connect to {host}:{port}: {str(e)}",
             "config":  config,
         }

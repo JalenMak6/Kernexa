@@ -231,6 +231,33 @@ def init():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user   ON refresh_tokens(user_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token  ON refresh_tokens(token)")
 
+        # ── LDAP settings ──────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ldap_settings (
+                id               SERIAL PRIMARY KEY,
+                enabled          BOOLEAN NOT NULL DEFAULT false,
+                host             TEXT NOT NULL DEFAULT '',
+                port             INTEGER NOT NULL DEFAULT 389,
+                use_ssl          BOOLEAN NOT NULL DEFAULT false,
+                use_starttls     BOOLEAN NOT NULL DEFAULT false,
+                tls_verify       BOOLEAN NOT NULL DEFAULT true,
+                bind_dn          TEXT NOT NULL DEFAULT '',
+                bind_password    TEXT NOT NULL DEFAULT '',
+                base_dn          TEXT NOT NULL DEFAULT '',
+                user_attr        TEXT NOT NULL DEFAULT 'sAMAccountName',
+                admin_group      TEXT NOT NULL DEFAULT '',
+                operator_group   TEXT NOT NULL DEFAULT '',
+                reader_group     TEXT NOT NULL DEFAULT '',
+                ca_cert          TEXT NOT NULL DEFAULT '',
+                updated_at       TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        # Ensure exactly one row exists
+        cursor.execute('''
+            INSERT INTO ldap_settings (id) VALUES (1)
+            ON CONFLICT (id) DO NOTHING
+        ''')
+
         conn.commit()
         print("Database tables created/migrated successfully")
 
