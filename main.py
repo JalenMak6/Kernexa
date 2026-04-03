@@ -35,6 +35,7 @@ from auth import (
     any_role, operator_up, admin_only,
     REFRESH_EXPIRE,
 )
+from ldap_auth import ldap_authenticate, is_ldap_enabled, test_ldap_connection
 from database import (
     get_latest_scan, get_latest_windows_scan,
     get_scan_history,
@@ -181,21 +182,57 @@ app.add_middleware(
 
 @app.post("/api/auth/login")
 async def login(body: LoginRequest, response: Response):
-    user = get_user_by_username(body.username)
-    if not user or not verify_password(body.password, user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    if not user["is_active"]:
-        raise HTTPException(status_code=403, detail="Account is disabled")
+    user_id  = None
+    username = None
+    role     = None
 
-    access_token  = create_access_token(user["id"], user["username"], user["role"])
-    refresh_token = create_refresh_token(user["id"], user["username"], user["role"])
+    # ── Try LDAP first if configured ─────────────────────────────────────────
+    if is_ldap_enabled():
+        ldap_result = ldap_authenticate(body.username, body.password)
+        if ldap_result:
+            existing = get_user_by_username(ldap_result["username"])
+            if not existing:
+                # First login — auto-create with role from AD group
+                new_user = create_user(
+                    username=ldap_result["username"],
+                    hashed_password="__ldap__",
+                    role=ldap_result["role"],
+                    created_by="ldap",
+                    is_active=True,
+                    auth_source="ldap",
+                )
+                user_id  = new_user["id"]
+                username = new_user["username"]
+                role     = new_user["role"]
+            else:
+                if not existing["is_active"]:
+                    raise HTTPException(status_code=403, detail="Account is disabled")
+                # Sync role from AD group on every login
+                if existing["role"] != ldap_result["role"]:
+                    update_user(existing["id"], {"role": ldap_result["role"]})
+                user_id  = existing["id"]
+                username = existing["username"]
+                role     = ldap_result["role"]
 
-    # Store refresh token in DB
+    # ── Fall back to local DB ─────────────────────────────────────────────────
+    if user_id is None:
+        user = get_user_by_username(body.username)
+        if not user or not verify_password(body.password, user["hashed_password"]):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        if not user["is_active"]:
+            raise HTTPException(status_code=403, detail="Account is disabled")
+        user_id  = user["id"]
+        username = user["username"]
+        role     = user["role"]
+
+    # ── Issue tokens ──────────────────────────────────────────────────────────
+    access_token  = create_access_token(user_id, username, role)
+    refresh_token = create_refresh_token(user_id, username, role)
+
     expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_EXPIRE)
-    save_refresh_token(user["id"], refresh_token, expires_at)
-    update_last_login(user["id"])
+    save_refresh_token(user_id, refresh_token, expires_at)
+    update_last_login(user_id)
 
-    # Set refresh token as httpOnly cookie
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
@@ -206,14 +243,16 @@ async def login(body: LoginRequest, response: Response):
         path="/",
     )
 
+    db_user = get_user_by_username(username)
     return {
         "access_token": access_token,
         "token_type":   "bearer",
         "expires_in":   15 * 60,
         "user": {
-            "id":       user["id"],
-            "username": user["username"],
-            "role":     user["role"],
+            "id":          user_id,
+            "username":    username,
+            "role":        role,
+            "auth_source": db_user.get("auth_source", "local") if db_user else "local",
         },
     }
 
@@ -240,7 +279,10 @@ async def refresh_token(request: Request, response: Response):
     }
 
 
-@app.post("/api/auth/register")
+@app.get("/api/auth/ldap/status", dependencies=[Depends(admin_only)])
+async def ldap_status():
+    """GET LDAP configuration and connectivity status — admin only."""
+    return test_ldap_connection()
 async def register(body: LoginRequest):
     """
     Public endpoint — no token required.

@@ -206,11 +206,15 @@ def init():
                 role            TEXT NOT NULL DEFAULT 'reader'
                                     CHECK (role IN ('admin', 'operator', 'reader')),
                 is_active       BOOLEAN NOT NULL DEFAULT true,
+                auth_source     TEXT NOT NULL DEFAULT 'local'
+                                    CHECK (auth_source IN ('local', 'ldap')),
                 created_by      TEXT NOT NULL DEFAULT 'system',
                 created_at      TIMESTAMP DEFAULT NOW(),
                 last_login      TIMESTAMP
             )
         ''')
+        # Migration: add auth_source to existing deployments
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_source TEXT NOT NULL DEFAULT 'local' CHECK (auth_source IN ('local', 'ldap'))")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
 
         # ── Refresh tokens ─────────────────────────────────────────────────────
