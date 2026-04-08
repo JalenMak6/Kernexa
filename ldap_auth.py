@@ -44,7 +44,15 @@ LDAP_ENABLED = bool(LDAP_HOST)
 
 
 def is_ldap_enabled() -> bool:
-    return LDAP_ENABLED
+    if LDAP_ENABLED:
+        return True
+    # Also check DB-stored settings (configured via UI)
+    try:
+        from database.ldap_settings import get_ldap_settings_for_auth
+        cfg = get_ldap_settings_for_auth()
+        return cfg is not None and cfg.get("enabled", False) and bool(cfg.get("host", ""))
+    except Exception:
+        return False
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -223,21 +231,117 @@ def _get_connection_with_cfg(cfg: dict, bind_dn: str, bind_password: str):
 
 
 def _get_user_dn_cfg(conn, username: str, user_attr: str, base_dn: str) -> Optional[tuple]:
-    """Search for user DN using config-specified attribute and base DN."""
-    conn.search(
-        search_base=base_dn,
-        search_filter=f"({user_attr}={username})",
-        attributes=["distinguishedName", "displayName", "cn", user_attr, "memberOf"],
+    """Search for user DN using config-specified attribute and base DN.
+
+    If the user is not found under base_dn, falls back to searching from the
+    domain root (DC=... components only) so accounts in non-employee OUs
+    (e.g. admin or service-account OUs) are still found.
+    """
+    # Derive the domain root (DC=x,DC=y,...) from the configured base_dn
+    domain_root = ",".join(
+        part.strip()
+        for part in base_dn.split(",")
+        if part.strip().upper().startswith("DC=")
     )
-    if not conn.entries:
-        logger.warning(f"[LDAP] User '{username}' not found in directory")
-        return None
-    entry        = conn.entries[0]
-    dn           = entry.entry_dn
-    display_name = str(entry.displayName) if entry.displayName else \
-                   str(entry.cn)          if entry.cn          else username
-    groups       = [str(g).lower() for g in entry.memberOf] if entry.memberOf else []
-    return dn, display_name, groups
+
+    search_bases = [base_dn]
+    if domain_root and domain_root.lower() != base_dn.lower():
+        search_bases.append(domain_root)
+
+    for search_base in search_bases:
+        conn.search(
+            search_base=search_base,
+            search_filter=f"({user_attr}={username})",
+            attributes=["distinguishedName", "displayName", "cn", user_attr, "memberOf"],
+        )
+        if conn.entries:
+            entry        = conn.entries[0]
+            dn           = entry.entry_dn
+            display_name = str(entry.displayName) if entry.displayName else \
+                           str(entry.cn)          if entry.cn          else username
+            groups       = [str(g).lower() for g in entry.memberOf] if entry.memberOf else []
+            if search_base != base_dn:
+                logger.debug(f"[LDAP] User '{username}' found via domain-root fallback search")
+            return dn, display_name, groups
+
+    logger.warning(f"[LDAP] User '{username}' not found in directory (searched: {search_bases})")
+    return None
+
+
+def _get_recursive_groups(conn, user_dn: str) -> list[str]:
+    """
+    Return all group DNs the user belongs to.
+
+    Strategy (mirrors Grafana's ldap approach):
+    1. Forward group search: find group objects where member=<user_dn>.
+       This is what Grafana uses and is reliable even when memberOf is
+       restricted or not populated.
+    2. Recursive OID (LDAP_MATCHING_RULE_IN_CHAIN) for nested memberships.
+    3. Plain memberOf re-read as last resort.
+    """
+    domain_root = ",".join(
+        p.strip() for p in user_dn.split(",")
+        if p.strip().upper().startswith("DC=")
+    ) or user_dn
+
+    # Escape DN for use inside an LDAP filter value
+    def _escape(dn: str) -> str:
+        return (dn.replace("\\", "\\5c")
+                  .replace("(", "\\28")
+                  .replace(")", "\\29")
+                  .replace("*", "\\2a")
+                  .replace("\x00", "\\00"))
+
+    escaped_dn = _escape(user_dn)
+
+    # Strategy 1 — forward member search (Grafana-style)
+    # (&(objectClass=group)(member=<user_dn>)) from domain root
+    try:
+        conn.search(
+            search_base=domain_root,
+            search_filter=f"(&(objectClass=group)(member={escaped_dn}))",
+            attributes=["distinguishedName"],
+        )
+        if conn.entries:
+            found = [str(e.distinguishedName).lower() for e in conn.entries]
+            logger.info(f"[LDAP] Forward group search found {len(found)} group(s)")
+            return found
+        logger.debug("[LDAP] Forward group search returned no results")
+    except Exception as e:
+        logger.debug(f"[LDAP] Forward group search failed: {e}")
+
+    # Strategy 2 — recursive OID (transitive membership)
+    try:
+        conn.search(
+            search_base=domain_root,
+            search_filter=f"(member:1.2.840.113556.1.4.1941:={escaped_dn})",
+            attributes=["distinguishedName"],
+        )
+        if conn.entries:
+            found = [str(e.distinguishedName).lower() for e in conn.entries]
+            logger.info(f"[LDAP] Recursive OID group search found {len(found)} group(s)")
+            return found
+        logger.debug("[LDAP] Recursive OID search returned no results")
+    except Exception as e:
+        logger.debug(f"[LDAP] Recursive OID search failed: {e}")
+
+    # Strategy 3 — re-read memberOf from user object directly
+    try:
+        conn.search(
+            search_base=user_dn,
+            search_filter="(objectClass=*)",
+            search_scope="BASE",
+            attributes=["memberOf"],
+        )
+        if conn.entries and conn.entries[0].memberOf:
+            found = [str(g).lower() for g in conn.entries[0].memberOf]
+            logger.info(f"[LDAP] memberOf re-read found {len(found)} group(s)")
+            return found
+        logger.debug("[LDAP] memberOf re-read returned no results")
+    except Exception as e:
+        logger.debug(f"[LDAP] memberOf re-read failed: {e}")
+
+    return []
 
 
 def _map_groups_to_role_cfg(groups: list, admin_group: str,
@@ -317,8 +421,8 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
             return None
 
         user_dn, display_name, groups = result
-        logger.debug(f"[LDAP] Found user DN: {user_dn}")
-        logger.debug(f"[LDAP] Groups for '{username}': {groups}")
+        logger.info(f"[LDAP] Found user DN: {user_dn}")
+        logger.info(f"[LDAP] Direct memberOf groups for '{username}': {groups}")
 
         # Step 2 — verify password via UPN then DN
         domain = ".".join(
@@ -344,12 +448,24 @@ def ldap_authenticate(username: str, password: str) -> Optional[dict]:
             return None
 
         # Step 3 — map groups to role
+        # First try direct memberOf, then fall back to recursive AD group search
         role = _map_groups_to_role_cfg(
             groups,
             cfg.get("admin_group",    ""),
             cfg.get("operator_group", ""),
             cfg.get("reader_group",   ""),
         )
+        if not role:
+            logger.info(f"[LDAP] Direct memberOf empty for '{username}', running group search")
+            groups = _get_recursive_groups(svc_conn, user_dn)
+            logger.info(f"[LDAP] Groups found for '{username}': {groups}")
+            logger.info(f"[LDAP] Comparing against — admin: '{cfg.get('admin_group','')}'")
+            role = _map_groups_to_role_cfg(
+                groups,
+                cfg.get("admin_group",    ""),
+                cfg.get("operator_group", ""),
+                cfg.get("reader_group",   ""),
+            )
         if not role:
             logger.warning(f"[LDAP] '{username}' not in any mapped group. Groups: {groups}")
             user_conn.unbind()

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Icon, Icons } from "../utils/icons.jsx";
-import { apiFetch, apiPost, apiDelete, API_BASE } from "../utils/api";
+import { apiFetch, apiPost, apiDelete, apiUpload, API_BASE } from "../utils/api";
 import { fmtDate, badge } from "../utils/helpers.jsx";
 import { CredentialsForm } from "./CredentialsForm";
 import { WindowsCredentialsForm } from "./WindowsCredentialsForm";
@@ -35,8 +35,7 @@ export function InventoryManager({ onClose, onActivated }) {
       form.append("file", file);
       form.append("name", invName.trim());
       form.append("inventory_type", invType);
-      const r = await fetch(`${API_BASE}/api/inventories/upload`, { method: "POST", body: form });
-      if (!r.ok) { const err = await r.json(); throw new Error(err.detail || r.statusText); }
+      await apiUpload("/api/inventories/upload", form);
       setFile(null); setInvName(""); setInvType("linux"); load();
     } catch (e) { alert("Upload failed: " + e.message); }
     finally { setUploading(false); }
