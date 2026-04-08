@@ -57,6 +57,20 @@ def is_ldap_enabled() -> bool:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _escape_filter_value(value: str) -> str:
+    """
+    Escape special characters in an LDAP filter value per RFC 4515.
+    Must be applied to ALL user-controlled values inserted into search filters
+    to prevent LDAP injection.
+    """
+    return (value
+            .replace("\\", "\\5c")
+            .replace("(", "\\28")
+            .replace(")", "\\29")
+            .replace("*", "\\2a")
+            .replace("\x00", "\\00"))
+
+
 def _get_connection(bind_dn: str, bind_password: str):
     """
     Create and return a bound ldap3 Connection.
@@ -112,7 +126,7 @@ def _get_user_dn(conn, username: str) -> Optional[tuple]:
     Search for a user by sAMAccountName (or configured attribute).
     Returns (user_dn, display_name, groups) or None if not found.
     """
-    search_filter = f"({LDAP_USER_ATTR}={username})"
+    search_filter = f"({LDAP_USER_ATTR}={_escape_filter_value(username)})"
     conn.search(
         search_base=LDAP_BASE_DN,
         search_filter=search_filter,
@@ -191,18 +205,23 @@ def _get_connection_with_cfg(cfg: dict, bind_dn: str, bind_password: str):
         if not tls_verify:
             tls = Tls(validate=ssl.CERT_NONE)
         elif ca_cert:
-            # Write CA cert to temp file
-            import tempfile, os
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pem", mode="w")
-            # ca_cert may be base64-encoded PEM or raw PEM
-            if "BEGIN CERTIFICATE" not in ca_cert:
-                import base64
-                tmp.write(base64.b64decode(ca_cert).decode())
-            else:
-                tmp.write(ca_cert)
-            tmp.close()
-            tls = Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=tmp.name)
-            os.unlink(tmp.name)
+            # Write CA cert to a private temp file (mode 0o600 — owner-only)
+            import tempfile, os, base64
+            fd, tmp_path = tempfile.mkstemp(suffix=".pem")
+            try:
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w") as tmp:
+                    # ca_cert may be base64-encoded PEM or raw PEM
+                    if "BEGIN CERTIFICATE" not in ca_cert:
+                        tmp.write(base64.b64decode(ca_cert).decode())
+                    else:
+                        tmp.write(ca_cert)
+                tls = Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=tmp_path)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
         else:
             tls = Tls(validate=ssl.CERT_REQUIRED)
 
@@ -251,7 +270,7 @@ def _get_user_dn_cfg(conn, username: str, user_attr: str, base_dn: str) -> Optio
     for search_base in search_bases:
         conn.search(
             search_base=search_base,
-            search_filter=f"({user_attr}={username})",
+            search_filter=f"({user_attr}={_escape_filter_value(username)})",
             attributes=["distinguishedName", "displayName", "cn", user_attr, "memberOf"],
         )
         if conn.entries:
@@ -284,15 +303,7 @@ def _get_recursive_groups(conn, user_dn: str) -> list[str]:
         if p.strip().upper().startswith("DC=")
     ) or user_dn
 
-    # Escape DN for use inside an LDAP filter value
-    def _escape(dn: str) -> str:
-        return (dn.replace("\\", "\\5c")
-                  .replace("(", "\\28")
-                  .replace(")", "\\29")
-                  .replace("*", "\\2a")
-                  .replace("\x00", "\\00"))
-
-    escaped_dn = _escape(user_dn)
+    escaped_dn = _escape_filter_value(user_dn)
 
     # Strategy 1 — forward member search (Grafana-style)
     # (&(objectClass=group)(member=<user_dn>)) from domain root

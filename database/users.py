@@ -103,17 +103,29 @@ def update_user(user_id: int, updates: dict) -> dict | None:
     if not fields:
         raise ValueError("No valid fields to update")
 
-    set_clause = ", ".join(f"{k} = %s" for k in fields)
-    values     = list(fields.values()) + [user_id]
+    # Build SET clause from a hardcoded allowlist — never interpolate
+    # field names from caller input to prevent SQL injection via column names.
+    parts  = []
+    values = []
+    if "role" in fields:
+        parts.append("role = %s")
+        values.append(fields["role"])
+    if "is_active" in fields:
+        parts.append("is_active = %s")
+        values.append(fields["is_active"])
+    if "hashed_password" in fields:
+        parts.append("hashed_password = %s")
+        values.append(fields["hashed_password"])
+    values.append(user_id)
 
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        cursor.execute(f'''
+        cursor.execute('''
             UPDATE users SET {set_clause}
             WHERE id = %s
             RETURNING id, username, role, is_active, created_at, last_login, auth_source
-        ''', values)
+        '''.format(set_clause=", ".join(parts)), values)
         row = cursor.fetchone()
         conn.commit()
         return _row_to_user(row) if row else None

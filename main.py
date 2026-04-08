@@ -18,8 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
+import re
 import uuid
 import os
 import smtplib
@@ -111,7 +112,33 @@ class UpdateUserRequest(BaseModel):
     is_active:   Optional[bool] = None
     password:    Optional[str]  = None
 
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,255}$")
+
+class PatchTriggerRequest(BaseModel):
+    advisory_id: str   = Field("", max_length=128)
+    hosts:       List[str] = Field(..., min_items=1)
+    packages:    List[str] = Field(..., min_items=1)
+    dry_run:     bool  = True
+
+    @validator("hosts", each_item=True)
+    def validate_hostname(cls, v: str) -> str:
+        if not _HOSTNAME_RE.match(v):
+            raise ValueError(f"Invalid hostname: {v!r}")
+        return v
+
+    @validator("packages", each_item=True)
+    def validate_package(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9.\-_+:@]{1,256}$", v):
+            raise ValueError(f"Invalid package name: {v!r}")
+        return v
+
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+
+def _require_valid_hostname(hostname: str) -> None:
+    """Raise 400 if hostname contains characters outside the safe allowlist."""
+    if not _HOSTNAME_RE.match(hostname):
+        raise HTTPException(status_code=400, detail="Invalid hostname format")
 
 def parse_hosts_from_content(content: str) -> list:
     return [
@@ -281,20 +308,32 @@ async def refresh_token(request: Request, response: Response):
 
 
 class LdapSettingsUpdate(BaseModel):
-    enabled:        bool   = False
-    host:           str    = ""
-    port:           int    = 389
-    use_ssl:        bool   = False
-    use_starttls:   bool   = False
-    tls_verify:     bool   = True
-    bind_dn:        str    = ""
-    bind_password:  str    = ""   # blank = keep existing
-    base_dn:        str    = ""
-    user_attr:      str    = "sAMAccountName"
-    admin_group:    str    = ""
-    operator_group: str    = ""
-    reader_group:   str    = ""
-    ca_cert:        str    = ""   # PEM string or base64
+    enabled:        bool  = False
+    host:           str   = Field("", max_length=255)
+    port:           int   = Field(389, ge=1, le=65535)
+    use_ssl:        bool  = False
+    use_starttls:   bool  = False
+    tls_verify:     bool  = True
+    bind_dn:        str   = Field("", max_length=512)
+    bind_password:  str   = Field("", max_length=512)   # blank = keep existing
+    base_dn:        str   = Field("", max_length=512)
+    user_attr:      str   = Field("sAMAccountName", max_length=64)
+    admin_group:    str   = Field("", max_length=512)
+    operator_group: str   = Field("", max_length=512)
+    reader_group:   str   = Field("", max_length=512)
+    ca_cert:        str   = Field("", max_length=16384)  # PEM string or base64
+
+    @validator("host")
+    def validate_host(cls, v: str) -> str:
+        if v and not re.match(r"^[a-zA-Z0-9.\-]+$", v):
+            raise ValueError("Invalid LDAP host — use a hostname or IP address")
+        return v
+
+    @validator("user_attr")
+    def validate_user_attr(cls, v: str) -> str:
+        if v and not re.match(r"^[a-zA-Z][a-zA-Z0-9\-]*$", v):
+            raise ValueError("user_attr must be a valid LDAP attribute name")
+        return v
 
 
 @app.get("/api/ldap/settings", dependencies=[Depends(admin_only)])
@@ -545,7 +584,7 @@ async def set_credentials(body: CredentialsUpdate):
     save_credentials(body.inventory_id, body.username, body.password)
     return {"message": "Credentials saved"}
 
-@app.get("/api/credentials/{inventory_id}", dependencies=[Depends(any_role)])
+@app.get("/api/credentials/{inventory_id}", dependencies=[Depends(operator_up)])
 async def fetch_credentials(inventory_id: int):
     creds = get_credentials(inventory_id)
     if not creds:
@@ -601,10 +640,12 @@ async def update_hosts(body: HostsUpdate):
 
 @app.get("/api/hosts/{hostname}/history", dependencies=[Depends(any_role)])
 async def get_host_history_endpoint(hostname: str):
+    _require_valid_hostname(hostname)
     return get_host_history(hostname)
 
 @app.get("/api/hosts/{hostname}/cves", dependencies=[Depends(any_role)])
 async def get_host_cves_endpoint(hostname: str):
+    _require_valid_hostname(hostname)
     return get_host_cves(hostname)
 
 @app.get("/api/tags", dependencies=[Depends(any_role)])
@@ -613,10 +654,12 @@ async def list_all_tags():
 
 @app.get("/api/hosts/{hostname}/tags", dependencies=[Depends(any_role)])
 async def get_host_tags(hostname: str):
+    _require_valid_hostname(hostname)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
 @app.post("/api/hosts/{hostname}/tags", dependencies=[Depends(operator_up)])
 async def add_host_tag(hostname: str, body: TagAdd):
+    _require_valid_hostname(hostname)
     tag = body.tag.strip().lower()
     if not tag:
         raise HTTPException(status_code=400, detail="Tag cannot be empty")
@@ -627,6 +670,7 @@ async def add_host_tag(hostname: str, body: TagAdd):
 
 @app.delete("/api/hosts/{hostname}/tags/{tag}", dependencies=[Depends(operator_up)])
 async def remove_host_tag(hostname: str, tag: str):
+    _require_valid_hostname(hostname)
     remove_tag(hostname, tag)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
@@ -794,40 +838,29 @@ async def test_notification(background_tasks: BackgroundTasks):
 # ── Patch endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/api/patch/trigger", dependencies=[Depends(operator_up)])
-async def trigger_patch(request: Request, background_tasks: BackgroundTasks):
-    body = await request.json()
-    advisory_id = body.get("advisory_id", "")
-    hosts       = body.get("hosts", [])
-    packages    = body.get("packages", [])
-    dry_run     = body.get("dry_run", True)
-
-    if not hosts:
-        raise HTTPException(status_code=400, detail="No hosts specified")
-    if not packages:
-        raise HTTPException(status_code=400, detail="No packages specified")
-
+async def trigger_patch(body: PatchTriggerRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     save_patch_job(
         job_id      = job_id,
-        advisory_id = advisory_id,
-        packages    = packages,
-        hosts       = hosts,
-        dry_run     = dry_run,
+        advisory_id = body.advisory_id,
+        packages    = body.packages,
+        hosts       = body.hosts,
+        dry_run     = body.dry_run,
     )
 
     from scan_tasks import run_patch_and_save
     background_tasks.add_task(
-        run_patch_and_save, job_id, advisory_id, hosts, packages, dry_run
+        run_patch_and_save, job_id, body.advisory_id, body.hosts, body.packages, body.dry_run
     )
     running_scans[job_id] = "running"
 
-    mode = "dry_run" if dry_run else "apply"
+    mode = "dry_run" if body.dry_run else "apply"
     return {
-        "job_id":  job_id,
-        "status":  "started",
-        "mode":    mode,
-        "hosts":   hosts,
-        "packages": packages,
+        "job_id":   job_id,
+        "status":   "started",
+        "mode":     mode,
+        "hosts":    body.hosts,
+        "packages": body.packages,
     }
 
 @app.get("/api/patch/{job_id}/status", dependencies=[Depends(any_role)])
@@ -849,6 +882,7 @@ async def patch_history():
 
 @app.get("/api/hosts/{hostname}/ports", dependencies=[Depends(any_role)])
 async def get_ports(hostname: str):
+    _require_valid_hostname(hostname)
     ports = get_host_ports(hostname)
     return {"hostname": hostname, "ports": ports}
 

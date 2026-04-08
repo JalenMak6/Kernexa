@@ -15,36 +15,61 @@ logger = logging.getLogger(__name__)
 CREDENTIALS_KEY = os.environ.get("CREDENTIALS_KEY", "").strip()
 
 
+def _get_fernet():
+    """Return a Fernet instance using CREDENTIALS_KEY directly.
+
+    Matches the key derivation in database/connection.py — CREDENTIALS_KEY must
+    be a valid Fernet key (44-char URL-safe base64, generated with
+    cryptography.fernet.Fernet.generate_key()).
+    """
+    from cryptography.fernet import Fernet
+    if not CREDENTIALS_KEY:
+        raise RuntimeError("CREDENTIALS_KEY is not set")
+    return Fernet(CREDENTIALS_KEY.encode())
+
+
 def _encrypt(value: str) -> str:
-    """Encrypt a string using Fernet if CREDENTIALS_KEY is set."""
+    """Encrypt a string using Fernet (CREDENTIALS_KEY must be set)."""
     if not value:
         return ""
     if not CREDENTIALS_KEY:
+        logger.warning("[LDAP] CREDENTIALS_KEY not set — storing bind_password as plaintext")
         return value
     try:
-        from cryptography.fernet import Fernet
-        import base64, hashlib
-        key = base64.urlsafe_b64encode(hashlib.sha256(CREDENTIALS_KEY.encode()).digest())
-        return Fernet(key).encrypt(value.encode()).decode()
+        return _get_fernet().encrypt(value.encode()).decode()
     except Exception as e:
         logger.warning(f"[LDAP] Encryption failed, storing plaintext: {e}")
         return value
 
 
 def _decrypt(value: str) -> str:
-    """Decrypt a Fernet-encrypted string."""
+    """Decrypt a Fernet-encrypted string.
+
+    Falls back to the legacy SHA256-derived key for values encrypted before
+    this fix, so existing bind passwords survive the upgrade without requiring
+    a manual re-save.
+    """
     if not value:
         return ""
     if not CREDENTIALS_KEY:
         return value
+    # Try the correct (direct) key first
     try:
-        from cryptography.fernet import Fernet, InvalidToken
-        import base64, hashlib
-        key = base64.urlsafe_b64encode(hashlib.sha256(CREDENTIALS_KEY.encode()).digest())
-        return Fernet(key).decrypt(value.encode()).decode()
+        return _get_fernet().decrypt(value.encode()).decode()
     except Exception:
-        # Not encrypted or wrong key — return as-is
-        return value
+        pass
+    # Backward-compat: try the old SHA256-derived key used before this fix
+    try:
+        from cryptography.fernet import Fernet
+        import base64, hashlib
+        legacy_key = base64.urlsafe_b64encode(hashlib.sha256(CREDENTIALS_KEY.encode()).digest())
+        plaintext = Fernet(legacy_key).decrypt(value.encode()).decode()
+        logger.info("[LDAP] Decrypted bind_password with legacy key — re-save settings to upgrade")
+        return plaintext
+    except Exception:
+        pass
+    # Not encrypted (e.g., stored before encryption was added) — return as-is
+    return value
 
 
 def get_ldap_settings() -> dict:
