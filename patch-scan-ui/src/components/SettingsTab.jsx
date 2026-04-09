@@ -449,7 +449,7 @@ function LdapSettings() {
         {/* Connection */}
         <LdapSection title="Connection">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12, marginBottom: 14 }}>
-            <div>{lbl("LDAP Host")}{inp("host", "text", "ldap://192.168.1.76")}</div>
+            <div>{lbl("LDAP Host")}{inp("host", "text", "192.168.1.76 or dc.example.com")}</div>
             <div>{lbl("Port")}{inp("port", "number", "389")}</div>
           </div>
           <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>

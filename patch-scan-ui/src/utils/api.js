@@ -104,7 +104,17 @@ export async function apiFetch(path, options = {}) {
   const res = await _fetch(path, options);
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
+    try {
+      const data = await res.json();
+      if (typeof data.detail === "string") {
+        detail = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        // FastAPI validation errors: array of { loc, msg, type }
+        detail = data.detail.map(e => e.msg || JSON.stringify(e)).join("; ");
+      } else if (data.detail) {
+        detail = JSON.stringify(data.detail);
+      }
+    } catch {}
     throw new Error(detail);
   }
   return res.json();
@@ -140,7 +150,16 @@ export async function apiUpload(path, formData) {
   });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
-    try { detail = (await res.json()).detail || detail; } catch {}
+    try {
+      const data = await res.json();
+      if (typeof data.detail === "string") {
+        detail = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        detail = data.detail.map(e => e.msg || JSON.stringify(e)).join("; ");
+      } else if (data.detail) {
+        detail = JSON.stringify(data.detail);
+      }
+    } catch {}
     throw new Error(detail);
   }
   return res.json();

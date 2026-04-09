@@ -325,8 +325,10 @@ class LdapSettingsUpdate(BaseModel):
 
     @validator("host")
     def validate_host(cls, v: str) -> str:
+        # Strip ldap:// or ldaps:// prefix if user pastes a full URI
+        v = re.sub(r"^ldaps?://", "", v.strip(), flags=re.IGNORECASE)
         if v and not re.match(r"^[a-zA-Z0-9.\-]+$", v):
-            raise ValueError("Invalid LDAP host — use a hostname or IP address")
+            raise ValueError("Invalid LDAP host — use a hostname or IP address (e.g. 192.168.1.76 or dc.example.com)")
         return v
 
     @validator("user_attr")
