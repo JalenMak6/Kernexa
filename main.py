@@ -115,10 +115,11 @@ class UpdateUserRequest(BaseModel):
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,255}$")
 
 class PatchTriggerRequest(BaseModel):
-    advisory_id: str   = Field("", max_length=128)
-    hosts:       List[str] = Field(..., min_items=1)
-    packages:    List[str] = Field(..., min_items=1)
-    dry_run:     bool  = True
+    advisory_id:     str       = Field("", max_length=128)
+    hosts:           List[str] = Field(..., min_items=1)
+    packages:        List[str] = Field(..., min_items=1)
+    dry_run:         bool      = True
+    remediation_cmd: str       = Field("", max_length=512)
 
     @validator("hosts", each_item=True)
     def validate_hostname(cls, v: str) -> str:
@@ -130,6 +131,13 @@ class PatchTriggerRequest(BaseModel):
     def validate_package(cls, v: str) -> str:
         if not re.match(r"^[a-zA-Z0-9.\-_+:@]{1,256}$", v):
             raise ValueError(f"Invalid package name: {v!r}")
+        return v
+
+    @validator("remediation_cmd")
+    def validate_remediation_cmd(cls, v: str) -> str:
+        # Allow characters typical of package manager commands
+        if v and not re.match(r'^[\w\s.\-+:@&=]+$', v):
+            raise ValueError("remediation_cmd contains invalid characters")
         return v
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -852,7 +860,8 @@ async def trigger_patch(body: PatchTriggerRequest, background_tasks: BackgroundT
 
     from scan_tasks import run_patch_and_save
     background_tasks.add_task(
-        run_patch_and_save, job_id, body.advisory_id, body.hosts, body.packages, body.dry_run
+        run_patch_and_save, job_id, body.advisory_id, body.hosts, body.packages,
+        body.dry_run, body.remediation_cmd
     )
     running_scans[job_id] = "running"
 

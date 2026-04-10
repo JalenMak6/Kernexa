@@ -119,14 +119,15 @@ def run_windows_and_save(scan_id: str, scanned_at: datetime):
 
 
 def run_patch_and_save(job_id: str, advisory_id: str, hosts: list,
-                       packages: list, dry_run: bool):
+                       packages: list, dry_run: bool, remediation_cmd: str = ''):
     """Run patch playbook and save results to DB."""
     from scanner import run_patch_job
     from database import update_patch_job
     try:
         running_scans[job_id] = "running"
         output = run_patch_job(hosts=hosts, packages=packages,
-                               dry_run=dry_run, advisory_id=advisory_id)
+                               dry_run=dry_run, advisory_id=advisory_id,
+                               remediation_cmd=remediation_cmd)
 
         status = "complete" if output['status'] in ('successful', 'failed') else output['status']
         if output['failures']:

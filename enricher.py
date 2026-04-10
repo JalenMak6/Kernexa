@@ -7,7 +7,7 @@ from database import get_conn
 
 ROCKY_ERRATA_API = "https://errata.rockylinux.org/api/v2/advisories/{}"
 ALMA_ERRATA_API  = "https://raw.githubusercontent.com/AlmaLinux/osv-database/master/advisories/almalinux{version}/{advisory_id}.json"
-UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=20"
+UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=50"
 RHEL_CVE_API     = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
 NVD_CVE_API      = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={}"
 RH_CVE_API       = "https://access.redhat.com/hydra/rest/securitydata/cve/{}.json"
@@ -57,42 +57,50 @@ def cleanup_resolved_advisories():
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        # Get the latest scan_id
-        cursor.execute("SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1")
-        row = cursor.fetchone()
-        if not row:
-            print("Cleanup: no scans found, skipping")
+        cursor.execute("SELECT COUNT(*) FROM scan_results")
+        if cursor.fetchone()[0] == 0:
+            print("Cleanup: no scan data found, skipping")
             return
-        latest_scan_id = row[0]
 
-        # Collect all advisory IDs referenced by any host in the latest scan
+        # Collect advisory IDs from each host's most recent scan.
+        # Using per-host latest avoids a partial re-scan (e.g. one host)
+        # incorrectly treating other hosts' advisories as resolved.
         cursor.execute("""
-            SELECT DISTINCT unnest(advisory_ids)
-            FROM scan_results
-            WHERE scan_id = %s
-              AND advisory_ids IS NOT NULL
-              AND array_length(advisory_ids, 1) > 0
-        """, (latest_scan_id,))
+            SELECT DISTINCT unnest(sr.advisory_ids)
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            JOIN (
+                SELECT sr2.host, MAX(s2.scanned_at) AS latest_at
+                FROM scan_results sr2
+                JOIN scan_runs s2 ON s2.scan_id = sr2.scan_id
+                GROUP BY sr2.host
+            ) latest ON sr.host = latest.host AND s.scanned_at = latest.latest_at
+            WHERE sr.advisory_ids IS NOT NULL
+              AND array_length(sr.advisory_ids, 1) > 0
+        """)
         active_advisories = {row[0] for row in cursor.fetchall() if row[0]}
 
-        # Also collect Ubuntu CVEs still referenced via scan_packages in latest scan
+        # Ubuntu CVEs: check source_package against each host's most recent scan
         cursor.execute("""
             SELECT DISTINCT cd.advisory_id
             FROM cve_details cd
             WHERE cd.advisory_id LIKE 'CVE-%%'
               AND cd.source_package IS NOT NULL
               AND EXISTS (
-                SELECT 1 FROM scan_packages sp
-                WHERE sp.scan_id = %s
-                  AND sp.package_name ILIKE cd.source_package || '%%'
+                SELECT 1
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                JOIN (
+                    SELECT sr2.host, MAX(s2.scanned_at) AS latest_at
+                    FROM scan_results sr2
+                    JOIN scan_runs s2 ON s2.scan_id = sr2.scan_id
+                    GROUP BY sr2.host
+                ) latest ON sr.host = latest.host AND s.scanned_at = latest.latest_at
+                JOIN jsonb_each_text(sr.package_source_map) kv ON kv.value = cd.source_package
               )
-        """, (latest_scan_id,))
+        """)
         active_ubuntu = {row[0] for row in cursor.fetchall()}
         active_advisories |= active_ubuntu
-
-        if not active_advisories:
-            print("Cleanup: no active advisories found in latest scan — skipping to avoid wiping all CVEs")
-            return
 
         # Find advisories in cve_details that are no longer active
         cursor.execute("SELECT advisory_id FROM cve_details")
@@ -195,14 +203,13 @@ def fetch_rocky_advisory(advisory_id: str) -> dict | None:
                     patched_packages.append(nvra.replace('.rpm', ''))
 
         if patched_packages:
-            pkg_names   = sorted({p.rsplit('-', 2)[0] for p in patched_packages})
             remediation = (
-                f"Run: yum update {' '.join(pkg_names)}\n\n"
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
                 f"Patched versions:\n" +
                 "\n".join(f"  • {p}" for p in patched_packages)
             )
         else:
-            remediation = "Apply the latest available updates via: yum update"
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -274,11 +281,14 @@ def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None
             and 'debug' not in a['package']['name']
         })
 
-        remediation = (
-            f"Run: yum update {' '.join(pkg_names[:10])}"
-            if pkg_names else
-            "Apply the latest available updates via: yum update"
-        )
+        if pkg_names:
+            remediation = (
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
+                f"Patched packages:\n" +
+                "\n".join(f"  • {p}" for p in pkg_names[:10])
+            )
+        else:
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -325,14 +335,13 @@ def fetch_rhel_advisory(advisory_id: str) -> dict | None:
         })
 
         if x86_pkgs:
-            pkg_names   = sorted({p.rsplit('-', 2)[0] for p in x86_pkgs})
             remediation = (
-                f"Run: yum update {' '.join(pkg_names)}\n\n"
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
                 f"Patched versions:\n" +
                 "\n".join(f"  • {p}" for p in x86_pkgs[:20])
             )
         else:
-            remediation = "Apply the latest available updates via: yum update"
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -447,7 +456,7 @@ def fetch_ubuntu_cves_for_package(source_package: str, codename: str) -> list[di
             for pkg_info in cve.get('packages', []):
                 for status_info in pkg_info.get('statuses', []):
                     if (status_info.get('release_codename') == codename
-                            and status_info.get('status') in ('needed', 'deferred', 'pending')):
+                            and status_info.get('status') in ('needed', 'deferred', 'pending', 'released')):
                         affected = True
                         break
                 if affected:

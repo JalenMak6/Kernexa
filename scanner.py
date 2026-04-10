@@ -191,7 +191,9 @@ def run_patch_scan() -> dict:
                 for line in flat['package_source_map']:
                     if ':' in line:
                         binary, source = line.split(':', 1)
-                        source_map[binary.strip()] = source.strip()
+                        # Strip optional version suffix: "pkg (1.2.3-4)" → "pkg"
+                        source_clean = source.strip().split(' (')[0].strip()
+                        source_map[binary.strip()] = source_clean
                 flat['package_source_map'] = source_map
 
             # Parse open ports
@@ -344,7 +346,7 @@ def run_windows_patch_scan() -> dict:
 # ── Security patch applicator ─────────────────────────────────────────────────
 
 def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
-                  advisory_id: str = '') -> dict:
+                  advisory_id: str = '', remediation_cmd: str = '') -> dict:
     """
     Runs patch_apply.yml against specified hosts.
     dry_run=True  → simulate with --assumeno / --dry-run
@@ -374,19 +376,50 @@ def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
     _is_rhel_advisory = bool(_re.match(r'^(RHSA|ALSA|RLSA|RHBA|RHEA)-', advisory_id or ''))
     pkg_str = advisory_id if _is_rhel_advisory else ' '.join(packages)
 
+    # Build the exact patch commands the playbook will run.
+    #
+    # For RHEL advisories (RHSA/ALSA/RLSA/RHBA/RHEA): always use the
+    # advisory-scoped yum command — this only touches packages covered by
+    # that specific advisory and is correct regardless of what the
+    # remediation text in the DB says (which may be stale or generic).
+    #
+    # For Debian/Ubuntu: parse the apt command from the remediation text
+    # and normalise "apt-get upgrade <pkg>" → "apt-get install --only-upgrade <pkg>"
+    # because plain apt-get upgrade doesn't accept package name arguments.
+    remediation_yum_cmd = ''
+    remediation_apt_cmd = ''
+
+    if _is_rhel_advisory:
+        remediation_yum_cmd = f'yum update --security --advisory={advisory_id}'
+    elif remediation_cmd:
+        m = _re.search(r'(yum\s+\w+(?:\s+[\w.\-+:=]+)*)', remediation_cmd)
+        if m:
+            remediation_yum_cmd = m.group(1).strip()
+
+    if remediation_cmd:
+        m = _re.search(r'(apt-get\s+(?:upgrade|install)(?:\s+[\w.\-+:]+)*)', remediation_cmd)
+        if m:
+            raw_apt = m.group(1).strip()
+            # "apt-get upgrade <pkg>" doesn't target a specific package — the
+            # correct command is "apt-get install --only-upgrade <pkg>"
+            raw_apt = _re.sub(r'^apt-get\s+upgrade\b', 'apt-get install --only-upgrade', raw_apt)
+            remediation_apt_cmd = raw_apt
+
     extravars = {
-        'ansible_connection':      'ssh',
-        'ansible_shell_type':      'sh',
-        'ansible_user':            creds['username'],
-        'ansible_password':        creds['password'],
-        'ansible_become':          True,
-        'ansible_become_method':   'sudo',
-        'ansible_become_pass':     creds['password'],
-        'ansible_ssh_common_args': '-o StrictHostKeyChecking=no',
-        'target_hosts':            'patch_targets',
-        'packages':                pkg_str,
-        'advisory_id':             advisory_id or '',
-        'dry_run':                 'true' if dry_run else 'false',
+        'ansible_connection':       'ssh',
+        'ansible_shell_type':       'sh',
+        'ansible_user':             creds['username'],
+        'ansible_password':         creds['password'],
+        'ansible_become':           True,
+        'ansible_become_method':    'sudo',
+        'ansible_become_pass':      creds['password'],
+        'ansible_ssh_common_args':  '-o StrictHostKeyChecking=no',
+        'target_hosts':             'patch_targets',
+        'packages':                 pkg_str,
+        'advisory_id':              advisory_id or '',
+        'dry_run':                  'true' if dry_run else 'false',
+        'remediation_yum_cmd':      remediation_yum_cmd,
+        'remediation_apt_cmd':      remediation_apt_cmd,
     }
 
     result = ansible_runner.run(
@@ -508,7 +541,8 @@ def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
                 output['hosts'][host] = {
                     'hostname':    msg.get('hostname', host),
                     'advisory_id': msg.get('advisory_id', advisory_id),
-                    'changed':     msg.get('changed', False),
+                    'os_family':   os_family,
+                    'changed':     msg.get('changed', False) or bool(pkg_info),
                     'failed':      msg.get('failed', False),
                     'dry_run':     msg.get('dry_run', dry_run),
                     'packages':    pkg_info,

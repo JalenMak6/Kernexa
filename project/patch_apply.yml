@@ -3,19 +3,22 @@
 # Kernexa — Security Patch Applicator (Multi-OS)
 # gather_facts: false — works on Python 3.8 and older targets
 #
-# RHEL/Rocky/AlmaLinux:
-#   Advisory ID: yum update --security --advisory=<id> --assumeno / -y
-#   Package:     yum update <pkg> --assumeno / -y
+# Primary path: execute the exact remediation command shown in the UI.
+#   remediation_yum_cmd — e.g. "yum update openssl"  (RHEL/Rocky/Alma)
+#   remediation_apt_cmd — e.g. "apt-get install --only-upgrade nodejs"  (Debian/Ubuntu)
 #
-# Ubuntu/Debian:
-#   Package:     apt-get upgrade <pkg> --dry-run / -y
-#   NOTE: Pass the package name (e.g. coreutils), not a CVE/advisory ID
+# Fallback path (when no remediation_cmd is provided):
+#   RHEL advisory:  yum update --security --advisory=<id>
+#   RHEL package:   yum update <pkg>
+#   Debian package: apt-get install --only-upgrade <pkg>
 #
 # Variables:
-#   target_hosts  — group name from temp inventory
-#   packages      — advisory ID or space-separated package names
-#   advisory_id   — advisory ID for display
-#   dry_run       — true = simulate, false = apply
+#   target_hosts          — group name from temp inventory
+#   packages              — advisory ID or space-separated package names (fallback)
+#   advisory_id           — advisory ID for display
+#   dry_run               — true = simulate, false = apply
+#   remediation_yum_cmd   — parsed yum command from remediation text (may be empty)
+#   remediation_apt_cmd   — parsed apt command from remediation text (may be empty)
 # =============================================================================
 
 - name: Apply Security Patches
@@ -50,72 +53,135 @@
         msg: "Unsupported OS — detected: {{ _os_family }}"
       when: _os_family == 'unknown'
 
-    # ── RedHat — yum ─────────────────────────────────────────────────────────
+    # ── RedHat — remediation command (primary path) ───────────────────────────
+
+    - name: Run remediation command (RedHat — dry run)
+      ansible.builtin.raw: |
+        {{ remediation_yum_cmd }} --assumeno 2>&1 || true
+      register: yum_output
+      changed_when: false
+      when: _os_family == 'redhat' and remediation_yum_cmd != '' and (dry_run | bool)
+
+    - name: Run remediation command (RedHat — apply)
+      ansible.builtin.raw: |
+        {{ remediation_yum_cmd }} -y 2>&1
+      register: yum_output
+      changed_when: "'No packages marked for update' not in yum_output.stdout"
+      when: _os_family == 'redhat' and remediation_yum_cmd != '' and not (dry_run | bool)
+
+    # ── RedHat — fallback (advisory ID or package names) ─────────────────────
 
     - name: Patch via advisory (RedHat — dry run)
       ansible.builtin.raw: |
         yum update --security --advisory="{{ packages }}" --assumeno 2>&1 || true
       register: yum_output
       changed_when: false
-      when: _os_family == 'redhat' and (_is_advisory | bool) and (dry_run | bool)
+      when: _os_family == 'redhat' and remediation_yum_cmd == '' and (_is_advisory | bool) and (dry_run | bool)
 
     - name: Patch via advisory (RedHat — apply)
       ansible.builtin.raw: |
         yum update --security --advisory="{{ packages }}" -y 2>&1
       register: yum_output
       changed_when: "'No packages marked for update' not in yum_output.stdout"
-      when: _os_family == 'redhat' and (_is_advisory | bool) and not (dry_run | bool)
+      when: _os_family == 'redhat' and remediation_yum_cmd == '' and (_is_advisory | bool) and not (dry_run | bool)
 
     - name: Patch via package names (RedHat — dry run)
       ansible.builtin.raw: |
         yum update {{ packages }} --assumeno 2>&1 || true
       register: yum_output
       changed_when: false
-      when: _os_family == 'redhat' and not (_is_advisory | bool) and (dry_run | bool)
+      when: _os_family == 'redhat' and remediation_yum_cmd == '' and not (_is_advisory | bool) and (dry_run | bool)
 
     - name: Patch via package names (RedHat — apply)
       ansible.builtin.raw: |
         yum update {{ packages }} -y 2>&1
       register: yum_output
       changed_when: "'No packages marked for update' not in yum_output.stdout"
-      when: _os_family == 'redhat' and not (_is_advisory | bool) and not (dry_run | bool)
+      when: _os_family == 'redhat' and remediation_yum_cmd == '' and not (_is_advisory | bool) and not (dry_run | bool)
 
-    # ── Debian/Ubuntu — apt-get upgrade ──────────────────────────────────────
+    # ── Debian/Ubuntu — remediation command (primary path) ───────────────────
+    #
+    # IMPORTANT: apt-get update and the install are combined into a single
+    # shell script so they are always atomic. Running apt-get update as a
+    # separate Ansible task is unreliable — if it loses the apt lock to
+    # unattended-upgrades or fails due to a transient network issue the
+    # ignore_errors would silently swallow the failure, leaving a stale
+    # package cache that makes the subsequent install report "already up to
+    # date" even when an upgrade is available.
 
-    - name: Update apt cache (Debian)
-      ansible.builtin.raw: apt-get update -qq 2>&1
-      changed_when: false
-      ignore_errors: true
-      when: _os_family == 'debian'
-
-    - name: Patch via apt-get upgrade (Debian — dry run)
-      ansible.builtin.raw: |
-        apt-get upgrade --dry-run -y {{ packages }} 2>&1 || true
+    - name: Run remediation command (Debian — dry run)
+      ansible.builtin.shell: |
+        apt-get update -qq 2>&1
+        {{ remediation_apt_cmd }} --dry-run -y 2>&1
+        true
       register: apt_output
       changed_when: false
-      when: _os_family == 'debian' and (dry_run | bool)
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: _os_family == 'debian' and remediation_apt_cmd != '' and (dry_run | bool)
 
-    - name: Patch via apt-get upgrade (Debian — apply)
-      ansible.builtin.raw: |
-        DEBIAN_FRONTEND=noninteractive apt-get upgrade -y {{ packages }} 2>&1
+    - name: Run remediation command (Debian — apply)
+      ansible.builtin.shell: |
+        apt-get update -qq 2>&1
+        {{ remediation_apt_cmd }} -y 2>&1
       register: apt_output
       changed_when: "'0 upgraded' not in apt_output.stdout"
       ignore_errors: true
-      when: _os_family == 'debian' and not (dry_run | bool)
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: _os_family == 'debian' and remediation_apt_cmd != '' and not (dry_run | bool)
+
+    # ── Debian/Ubuntu — fallback (package names) ──────────────────────────────
+
+    - name: Patch via package names (Debian — dry run)
+      ansible.builtin.shell: |
+        apt-get update -qq 2>&1
+        apt-get install --only-upgrade --dry-run -y {{ packages }} 2>&1
+        true
+      register: apt_output
+      changed_when: false
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: _os_family == 'debian' and remediation_apt_cmd == '' and (dry_run | bool)
+
+    - name: Patch via package names (Debian — apply)
+      ansible.builtin.shell: |
+        apt-get update -qq 2>&1
+        apt-get install --only-upgrade -y {{ packages }} 2>&1
+      register: apt_output
+      changed_when: "'0 upgraded' not in apt_output.stdout"
+      ignore_errors: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: _os_family == 'debian' and remediation_apt_cmd == '' and not (dry_run | bool)
 
     # ── Consolidate and emit ──────────────────────────────────────────────────
 
     - name: Set output facts (RedHat)
       ansible.builtin.set_fact:
         _stdout:  "{{ yum_output.stdout | default('') }}"
-        _changed: "{{ yum_output.changed | default(false) }}"
+        # For dry runs, changed_when: false is always set on the task, so
+        # detect pending changes from the stdout content instead.
+        # For actual apply, trust yum's exit/changed state.
+        _changed: >-
+          {{ ('Upgrading:' in (yum_output.stdout | default('')) or
+              'Installing:' in (yum_output.stdout | default('')) or
+              'Updating:'   in (yum_output.stdout | default('')))
+             if (dry_run | bool) else
+             (yum_output.changed | default(false)) }}
         _rc:      "{{ yum_output.rc | default(0) }}"
       when: _os_family == 'redhat'
 
     - name: Set output facts (Debian)
       ansible.builtin.set_fact:
         _stdout:  "{{ apt_output.stdout | default('') }}"
-        _changed: "{{ '0 upgraded' not in (apt_output.stdout | default('')) and (apt_output.stdout | default('')) != '' }}"
+        # For dry runs, detect pending upgrades from "Inst " lines in output.
+        # For actual apply, check whether anything was upgraded.
+        _changed: >-
+          {{ ('Inst ' in (apt_output.stdout | default('')))
+             if (dry_run | bool) else
+             ('0 upgraded' not in (apt_output.stdout | default('')) and
+              (apt_output.stdout | default('')) != '') }}
         _rc:      "{{ apt_output.rc | default(0) }}"
       when: _os_family == 'debian'
 

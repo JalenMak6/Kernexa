@@ -133,6 +133,12 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Refresh apt package index (Debian family)
+      ansible.builtin.raw: apt-get update -qq 2>/dev/null; true
+      when: _os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
     - name: Get pending security packages (Debian family)
       ansible.builtin.raw: |
         apt list --upgradable 2>/dev/null \
