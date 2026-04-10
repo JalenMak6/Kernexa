@@ -144,4 +144,90 @@
   --space-5:  20px;
   --space-6:  24px;
   --space-8:  32px;
+
+  /* ── Dark mode transition ─────────────────────────────────────────────────── */
+  --theme-transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Dark Mode Overrides
+   Applied when <html data-theme="dark"> is set.
+───────────────────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  /* ── Surfaces ────────────────────────────────────────────────────────────── */
+  --bg-page:         #0d1117;   /* deepest background                           */
+  --bg-card:         #161b22;   /* card, modal, input background                */
+  --bg-row:          #1a2030;   /* zebra / expanded row background              */
+  --bg-hover:        #1e2736;   /* table row hover                              */
+  --bg-subtle:       #1c2333;   /* dividers, muted section bg, toggle off       */
+  --bg-sidebar:      #090d14;   /* sidebar background (darker in dark mode)     */
+  --bg-sidebar-item: #161b22;   /* sidebar active item                          */
+
+  /* ── Borders ─────────────────────────────────────────────────────────────── */
+  --border:          #30363d;   /* standard border (cards, inputs, tables)      */
+  --border-subtle:   #21262d;   /* subtle divider (table rows)                  */
+  --border-muted:    #3d4450;   /* muted border (dashed tag btn)                */
+  --border-dark:     #30363d;   /* sidebar / dark-surface border                */
+
+  /* ── Text ────────────────────────────────────────────────────────────────── */
+  --text-primary:    #e6edf3;   /* headings, strong values                      */
+  --text-secondary:  #c9d1d9;   /* body text                                    */
+  --text-muted:      #8b949e;   /* labels, icon captions                        */
+  --text-faint:      #6e7681;   /* placeholders, sub-labels                     */
+  --text-ghost:      #484f58;   /* empty states, very muted                     */
+  --text-disabled:   #3d444d;   /* disabled / faded                             */
+
+  /* ── Blue tints (dark-adapted) ───────────────────────────────────────────── */
+  --blue-tint:       #0d1f3c;
+  --blue-border:     #1f3a6e;
+  --indigo-tint:     #0e1128;
+  --indigo-border:   #2d3561;
+  --cyan-tint:       #051f2e;
+  --cyan-border:     #0e4163;
+
+  /* ── Green tints (dark-adapted) ──────────────────────────────────────────── */
+  --green-tint:      #051c0f;
+  --green-tint-mid:  #0a2e1a;
+  --green-border:    #1a4731;
+  --green-border-lt: #235c3f;
+  --green-text:      #3fb950;
+
+  /* ── Red tints (dark-adapted) ────────────────────────────────────────────── */
+  --red-tint:        #1f0808;
+  --red-tint-mid:    #2d0f0f;
+  --red-border:      #4d1a1a;
+  --red-border-lt:   #6b2020;
+  --red-text:        #f85149;
+
+  /* ── Orange / Amber tints (dark-adapted) ────────────────────────────────── */
+  --orange-tint:     #1f1008;
+  --amber-tint:      #1f1800;
+  --amber-tint-lt:   #2d2200;
+  --orange-border:   #4d2f0f;
+  --orange-border-lt:#6b3d12;
+  --orange-text:     #e3b341;
+
+  /* ── Purple tints (dark-adapted) ─────────────────────────────────────────── */
+  --purple-tint:     #150a2a;
+  --purple-border:   #3d1f6b;
+  --purple-tint-lt:  #1a1040;
+  --purple-border-lt:#4d2d8a;
+
+  /* ── Teal tints (dark-adapted) ───────────────────────────────────────────── */
+  --teal-tint:       #051a18;
+  --teal-border:     #0e4040;
+
+  /* ── Yellow tints (dark-adapted) ─────────────────────────────────────────── */
+  --yellow-tint:     #1a1500;
+  --yellow-border:   #3d3000;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────────── */
+  --shadow-card:     0 1px 4px rgba(0,0,0,0.4);
+  --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.6);
+  --shadow-modal:    0 20px 60px rgba(0,0,0,0.7);
+  --shadow-modal-lg: 0 24px 64px rgba(0,0,0,0.65);
+  --shadow-toast:    0 4px 16px rgba(0,0,0,0.5);
+  --shadow-tooltip:  0 4px 16px rgba(0,0,0,0.6);
+  --backdrop:        rgba(0,0,0,0.65);
+  --backdrop-dark:   rgba(0,0,0,0.75);
 }
