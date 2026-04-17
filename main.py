@@ -57,6 +57,7 @@ from database import (
     revoke_refresh_token, revoke_all_user_tokens,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
+from enricher import enrich_all
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
 
 
@@ -701,6 +702,127 @@ async def trigger_scan(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_and_save, scan_id, scanned_at)
     return {"scan_id": scan_id, "status": "started", "scanned_at": scanned_at.isoformat()}
 
+# ── Manual CVE enrichment re-trigger ─────────────────────────────────────────
+
+@app.post("/api/scans/enrich", dependencies=[Depends(operator_up)])
+async def trigger_enrichment(background_tasks: BackgroundTasks):
+    """Re-run CVE enrichment on existing scan data without triggering a new scan."""
+    background_tasks.add_task(enrich_all)
+    return {"status": "started", "message": "CVE enrichment running in background — check container logs for progress"}
+
+@app.get("/api/scans/ubuntu-debug", dependencies=[Depends(operator_up)])
+async def ubuntu_cve_debug():
+    """Diagnostic: trace the Ubuntu CVE enrichment pipeline without modifying DB."""
+    import urllib.request
+    from enricher import get_ubuntu_hosts_and_packages, get_ubuntu_codename, UBUNTU_CVES_API
+    from database import get_conn
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    result = {"steps": []}
+
+    try:
+        # Step 1: Ubuntu hosts
+        hosts = get_ubuntu_hosts_and_packages()
+        result["steps"].append({
+            "step": "1_ubuntu_hosts",
+            "count": len(hosts),
+            "hosts": [
+                {
+                    "host": h["host"],
+                    "codename": h["codename"],
+                    "package_count": len(h["packages"]),
+                    "source_map_entries": len(h["source_map"]),
+                    "source_map_sample": dict(list(h["source_map"].items())[:5]),
+                    "packages_sample": h["packages"][:5],
+                }
+                for h in hosts
+            ],
+        })
+
+        # Step 2: For each unique source package, test Ubuntu CVE API
+        seen = set()
+        api_results = []
+        for h in hosts:
+            for pkg in h["packages"][:10]:  # limit to first 10 per host
+                binary = pkg.split("/")[0].split("=")[0].split(":")[0].strip()
+                src = h["source_map"].get(binary, binary)
+                if "(" in src:
+                    src = src.split("(")[0].strip()
+                if ":" in src:
+                    src = src.split(":")[-1].strip()
+                key = (src, h["codename"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    url = UBUNTU_CVES_API.format(src)
+                    with urllib.request.urlopen(url, timeout=8) as r:
+                        d = json.loads(r.read())
+                    total = d.get("total_results", 0)
+                    cves = d.get("cves", [])
+                    matching = 0
+                    for c in cves:
+                        for p in c.get("packages", []):
+                            for s in p.get("statuses", []):
+                                cn = (s.get("release_codename") or s.get("distro_series") or "")
+                                if cn == h["codename"] and s.get("status") in (
+                                    "needed", "active", "deferred", "pending", "released", "needs-triage"
+                                ):
+                                    matching += 1
+                    api_results.append({
+                        "binary": binary,
+                        "source": src,
+                        "codename": h["codename"],
+                        "api_total": total,
+                        "status_matched": matching,
+                    })
+                except Exception as e:
+                    api_results.append({"binary": binary, "source": src, "error": str(e)})
+        result["steps"].append({"step": "2_api_probe", "results": api_results})
+
+        # Step 3: cve_details rows for CVE-* IDs
+        cursor.execute("SELECT COUNT(*) FROM cve_details WHERE advisory_id LIKE 'CVE-%'")
+        ubuntu_cve_count = cursor.fetchone()[0]
+        cursor.execute("SELECT advisory_id, source_package FROM cve_details WHERE advisory_id LIKE 'CVE-%' LIMIT 10")
+        samples = [{"id": r[0], "source_package": r[1]} for r in cursor.fetchall()]
+        result["steps"].append({
+            "step": "3_stored_ubuntu_cves",
+            "count": ubuntu_cve_count,
+            "samples": samples,
+        })
+
+        # Step 4: package_source_map values in scan_results for Ubuntu hosts
+        cursor.execute("""
+            SELECT sr.host, sr.os_version, sr.package_source_map
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            WHERE (sr.os_version ILIKE 'Ubuntu%' OR sr.os_version ILIKE 'Debian%')
+            ORDER BY s.scanned_at DESC LIMIT 5
+        """)
+        rows = cursor.fetchall()
+        result["steps"].append({
+            "step": "4_scan_results_source_map",
+            "rows": [
+                {
+                    "host": r[0],
+                    "os_version": r[1],
+                    "source_map_keys": len(r[2]) if r[2] else 0,
+                    "source_map_sample": dict(list(r[2].items())[:5]) if r[2] else {},
+                }
+                for r in rows
+            ],
+        })
+
+    except Exception as e:
+        result["error"] = str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+    return result
+
 # ── Windows scan endpoints ────────────────────────────────────────────────────
 
 @app.post("/api/scans/trigger-windows", dependencies=[Depends(operator_up)])
@@ -757,6 +879,96 @@ async def get_scan_failures_endpoint(scan_id: str):
 @app.get("/api/cves", dependencies=[Depends(any_role)])
 async def get_cves():
     return get_cve_details()
+
+@app.get("/api/cve/{advisory_id}/resolved-packages", dependencies=[Depends(any_role)])
+async def get_cve_resolved_packages(advisory_id: str):
+    """
+    For Ubuntu/Debian CVEs, resolve the source package stored in cve_details
+    to the actual binary packages present on affected hosts, so the UI can
+    display the exact apt command that will run (rather than the source name).
+    Returns {"source_package": str, "binary_packages": [str], "apt_cmd": str}.
+    """
+    from database import get_conn
+    conn = get_conn()
+    cur  = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT source_package FROM cve_details WHERE advisory_id = %s",
+            (advisory_id,)
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return {"source_package": None, "binary_packages": [], "apt_cmd": None}
+
+        source_pkg = row[0]
+
+        # Find hosts affected by this CVE using the same logic as get_cve_details:
+        # look at the most recent scan_results per host where the source_package
+        # appears in package_source_map (Ubuntu/Debian CVE path).
+        cur.execute(
+            """
+            SELECT DISTINCT sr.host
+            FROM (
+                SELECT DISTINCT ON (sr.host)
+                    sr.host, sr.package_source_map
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                ORDER BY sr.host, s.scanned_at DESC
+            ) sr
+            WHERE EXISTS (
+                SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                WHERE kv.value = %s
+            )
+            """,
+            (source_pkg,)
+        )
+        hosts = [r[0] for r in cur.fetchall()]
+
+        binary_pkgs = []
+        for host in hosts:
+            cur.execute(
+                """
+                SELECT DISTINCT sp.package_name
+                FROM scan_packages sp
+                JOIN scan_results sr ON sr.scan_id = sp.scan_id
+                                    AND sr.host    = sp.host
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                WHERE sp.host = %s
+                  AND EXISTS (
+                      SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                      WHERE kv.key = sp.package_name AND kv.value = %s
+                  )
+                ORDER BY sp.package_name
+                """,
+                (host, source_pkg)
+            )
+            binary_pkgs.extend(r[0] for r in cur.fetchall())
+
+        # Deduplicate while preserving order
+        seen = set()
+        deduped = []
+        for p in binary_pkgs:
+            if p not in seen:
+                seen.add(p)
+                deduped.append(p)
+
+        if deduped:
+            apt_cmd = f"apt-get install --only-upgrade {' '.join(deduped)}"
+        elif source_pkg.endswith('-app'):
+            stripped = source_pkg[:-4]
+            deduped  = [stripped]
+            apt_cmd  = f"apt-get install --only-upgrade {stripped}"
+        else:
+            apt_cmd = f"apt-get install --only-upgrade {source_pkg}"
+
+        return {
+            "source_package":  source_pkg,
+            "binary_packages": deduped,
+            "apt_cmd":         apt_cmd,
+        }
+    finally:
+        cur.close()
+        conn.close()
 
 # ── scheduler endpoints ───────────────────────────────────────────────────────
 

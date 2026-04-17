@@ -30,6 +30,7 @@
   vars:
     ansible_forks: 20
     ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+    ansible_python_interpreter: disabled
 
   tasks:
 
@@ -101,58 +102,55 @@
 
     # ── Debian/Ubuntu — remediation command (primary path) ───────────────────
     #
-    # IMPORTANT: apt-get update and the install are combined into a single
-    # shell script so they are always atomic. Running apt-get update as a
-    # separate Ansible task is unreliable — if it loses the apt lock to
-    # unattended-upgrades or fails due to a transient network issue the
-    # ignore_errors would silently swallow the failure, leaving a stale
-    # package cache that makes the subsequent install report "already up to
-    # date" even when an upgrade is available.
+    # Use ansible.builtin.raw (not shell) so that apt output is captured
+    # directly over SSH without Python module infrastructure. The shell module
+    # on Ubuntu 24.04 loses apt stdout, making changed detection impossible.
+    # DEBIAN_FRONTEND is inlined because raw does not support environment:.
+
+    # Each task uses a unique register variable so that a later SKIPPED task
+    # cannot overwrite the output of an earlier task that actually ran.
+    # (Ansible registers skipped tasks too, which would clobber the output.)
 
     - name: Run remediation command (Debian — dry run)
-      ansible.builtin.shell: |
+      ansible.builtin.raw: |
+        export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq 2>&1
         {{ remediation_apt_cmd }} --dry-run -y 2>&1
         true
-      register: apt_output
+      register: _apt_prim_dry
       changed_when: false
-      environment:
-        DEBIAN_FRONTEND: noninteractive
       when: _os_family == 'debian' and remediation_apt_cmd != '' and (dry_run | bool)
 
     - name: Run remediation command (Debian — apply)
-      ansible.builtin.shell: |
+      ansible.builtin.raw: |
+        export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq 2>&1
         {{ remediation_apt_cmd }} -y 2>&1
-      register: apt_output
-      changed_when: "'0 upgraded' not in apt_output.stdout"
+      register: _apt_prim_app
+      changed_when: "'0 upgraded' not in (_apt_prim_app.stdout_lines | default([]) | join('\n'))"
       ignore_errors: true
-      environment:
-        DEBIAN_FRONTEND: noninteractive
       when: _os_family == 'debian' and remediation_apt_cmd != '' and not (dry_run | bool)
 
     # ── Debian/Ubuntu — fallback (package names) ──────────────────────────────
 
     - name: Patch via package names (Debian — dry run)
-      ansible.builtin.shell: |
+      ansible.builtin.raw: |
+        export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq 2>&1
         apt-get install --only-upgrade --dry-run -y {{ packages }} 2>&1
         true
-      register: apt_output
+      register: _apt_fall_dry
       changed_when: false
-      environment:
-        DEBIAN_FRONTEND: noninteractive
       when: _os_family == 'debian' and remediation_apt_cmd == '' and (dry_run | bool)
 
     - name: Patch via package names (Debian — apply)
-      ansible.builtin.shell: |
+      ansible.builtin.raw: |
+        export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq 2>&1
         apt-get install --only-upgrade -y {{ packages }} 2>&1
-      register: apt_output
-      changed_when: "'0 upgraded' not in apt_output.stdout"
+      register: _apt_fall_app
+      changed_when: "'0 upgraded' not in (_apt_fall_app.stdout_lines | default([]) | join('\n'))"
       ignore_errors: true
-      environment:
-        DEBIAN_FRONTEND: noninteractive
       when: _os_family == 'debian' and remediation_apt_cmd == '' and not (dry_run | bool)
 
     # ── Consolidate and emit ──────────────────────────────────────────────────
@@ -174,15 +172,29 @@
 
     - name: Set output facts (Debian)
       ansible.builtin.set_fact:
-        _stdout:  "{{ apt_output.stdout | default('') }}"
+        # Merge output from all four possible apt tasks (only one actually ran).
+        # Use stdout_lines (pre-split list) — stdout starts with \r progress
+        # bars which Ansible 2.20 drops when templating through set_fact.
+        # Using 'or' in Jinja2 picks the first truthy (non-empty) value.
+        _stdout: >-
+          {{ (_apt_prim_dry.stdout_lines | default([]) | join('\n'))
+             or (_apt_prim_app.stdout_lines | default([]) | join('\n'))
+             or (_apt_fall_dry.stdout_lines | default([]) | join('\n'))
+             or (_apt_fall_app.stdout_lines | default([]) | join('\n')) }}
         # For dry runs, detect pending upgrades from "Inst " lines in output.
         # For actual apply, check whether anything was upgraded.
         _changed: >-
-          {{ ('Inst ' in (apt_output.stdout | default('')))
-             if (dry_run | bool) else
-             ('0 upgraded' not in (apt_output.stdout | default('')) and
-              (apt_output.stdout | default('')) != '') }}
-        _rc:      "{{ apt_output.rc | default(0) }}"
+          {%- set out = (_apt_prim_dry.stdout_lines | default([]) | join('\n'))
+                     or (_apt_prim_app.stdout_lines | default([]) | join('\n'))
+                     or (_apt_fall_dry.stdout_lines | default([]) | join('\n'))
+                     or (_apt_fall_app.stdout_lines | default([]) | join('\n')) -%}
+          {{ ('Inst ' in out) if (dry_run | bool) else
+             ('0 upgraded' not in out and out != '') }}
+        _rc: >-
+          {{ _apt_prim_app.rc | default(
+             _apt_fall_app.rc | default(
+             _apt_prim_dry.rc | default(
+             _apt_fall_dry.rc | default(0)))) }}
       when: _os_family == 'debian'
 
     - name: Print patch results

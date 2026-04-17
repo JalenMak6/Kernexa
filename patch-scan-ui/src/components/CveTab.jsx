@@ -81,24 +81,48 @@ function severityBadge(severity) {
   );
 }
 
-function RemediationBlock({ remediation }) {
+function RemediationBlock({ remediation, resolvedAptCmd, binaryPackages, sourcePackage }) {
   if (!remediation) return null;
   const lines        = remediation.split("\n");
   const commandLine  = lines[0];
   const patchedLines = lines.slice(2).filter(l => l.trim());
+
+  // If we have resolved binary packages, show the actual command instead
+  const isUbuntuCve   = !!sourcePackage;
+  const displayCmd    = (isUbuntuCve && resolvedAptCmd)
+    ? `Run: apt-get update && ${resolvedAptCmd}`
+    : commandLine;
+  const copyCmd       = displayCmd.replace(/^Run:\s*/, '');
+  const isResolved    = isUbuntuCve && binaryPackages && binaryPackages.length > 0 &&
+                        !(binaryPackages.length === 1 && binaryPackages[0] === sourcePackage);
+
   return (
     <div style={{ marginTop: "var(--space-4)", borderTop: "1px solid var(--border)", paddingTop: "var(--space-4)" }}>
       <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--space-2)", display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
         Remediation
       </div>
-      <div style={{ background: "var(--bg-sidebar)", borderRadius: "var(--radius-base)", padding: "10px 14px", marginBottom: patchedLines.length > 0 ? 10 : 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)" }}>
-        <code style={{ fontSize: "var(--text-base)", color: "var(--green-light)", fontFamily: "monospace" }}>{commandLine}</code>
-        <button onClick={() => navigator.clipboard.writeText(commandLine.replace('Run: ', ''))} title="Copy command"
-          style={{ background: "var(--bg-sidebar-item)", border: "1px solid var(--border-dark)", borderRadius: "var(--radius-md)", padding: "3px 8px", cursor: "pointer", fontSize: "var(--text-xs)", color: "var(--text-faint)", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+      <div style={{ background: "var(--bg-sidebar)", borderRadius: "var(--radius-base)", padding: "10px 14px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)" }}>
+        <code style={{ fontSize: "var(--text-base)", color: "var(--green-light)", fontFamily: "monospace", wordBreak: "break-all" }}>{displayCmd}</code>
+        <button onClick={() => navigator.clipboard.writeText(copyCmd)} title="Copy command"
+          style={{ background: "var(--bg-sidebar-item)", border: "1px solid var(--border-dark)", borderRadius: "var(--radius-md)", padding: "3px 8px", cursor: "pointer", fontSize: "var(--text-xs)", color: "var(--text-faint)", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>
           Copy
         </button>
       </div>
+      {isResolved && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginBottom: 5 }}>
+            Binary packages that will be upgraded (resolved from source: <code style={{ fontFamily: "monospace", color: "var(--text-faint)" }}>{sourcePackage}</code>):
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {binaryPackages.map((pkg, i) => (
+              <span key={i} style={{ fontSize: "var(--text-sm)", fontFamily: "monospace", background: "var(--green-tint)", border: "1px solid var(--green-border)", color: "var(--green-text)", padding: "2px 8px", borderRadius: "var(--radius-sm)" }}>
+                {pkg}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {patchedLines.length > 0 && (
         <div>
           <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginBottom: 5 }}>Patched versions available:</div>
@@ -116,17 +140,31 @@ function RemediationBlock({ remediation }) {
 }
 
 function CveRow({ cve, onPatch }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,       setExpanded]       = useState(false);
+  const [resolvedPkgs,   setResolvedPkgs]   = useState(null); // { binary_packages, apt_cmd, source_package }
+  const isUbuntuCve = !!cve.source_package && /^CVE-/.test(cve.advisory_id || '');
+
+  const handleExpand = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && isUbuntuCve && resolvedPkgs === null) {
+      apiFetch(`/api/cve/${encodeURIComponent(cve.advisory_id)}/resolved-packages`)
+        .then(data => setResolvedPkgs(data))
+        .catch(() => setResolvedPkgs({}));
+    }
+  };
+
   const canPatch = (cve.affected_hosts?.length || 0) > 0;
   const hasPackage = /^(RHSA|ALSA|RLSA|RHBA|RHEA)-/.test(cve.advisory_id || '') ||
-    !!(cve.remediation?.match(/(?:yum update|apt-get upgrade|apt-get install)\s+([\w][\w.\-+]+)/i));
+    !!(cve.source_package) ||
+    !!(cve.remediation?.match(/(?:yum\s+update|apt-get\s+(?:upgrade|install)(?:\s+--only-upgrade)?)\s+([\w][\w.\-+]+)/i));
   const patchTitle = !hasPackage
     ? "No package name found in remediation — patch manually"
     : `Patch ${cve.affected_hosts?.length} affected host${cve.affected_hosts?.length > 1 ? "s" : ""}`;
   return (
     <>
       <tr style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s", cursor: "pointer" }}
-        onClick={() => setExpanded(!expanded)}
+        onClick={handleExpand}
         onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
         onMouseLeave={e => e.currentTarget.style.background = ""}>
         <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
@@ -161,7 +199,7 @@ function CveRow({ cve, onPatch }) {
                 🛠 Patch
               </button>
             )}
-            <div onClick={() => setExpanded(!expanded)} style={{ cursor: "pointer", display: "inline-flex", transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+            <div onClick={handleExpand} style={{ cursor: "pointer", display: "inline-flex", transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
               <Icon d={Icons.chevron} size={13} color="var(--text-ghost)" />
             </div>
           </div>
@@ -237,7 +275,12 @@ function CveRow({ cve, onPatch }) {
                   <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>Fetched {fmtDate(cve.fetched_at)}</div>
                 </div>
               </div>
-              <RemediationBlock remediation={cve.remediation} />
+              <RemediationBlock
+                remediation={cve.remediation}
+                resolvedAptCmd={resolvedPkgs?.apt_cmd}
+                binaryPackages={resolvedPkgs?.binary_packages}
+                sourcePackage={cve.source_package}
+              />
             </div>
           </td>
         </tr>

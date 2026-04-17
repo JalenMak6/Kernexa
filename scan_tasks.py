@@ -118,6 +118,96 @@ def run_windows_and_save(scan_id: str, scanned_at: datetime):
         print(f"run_windows_and_save error: {e}")
 
 
+def _cleanup_after_patch(hosts: list, advisory_id: str):
+    """
+    After a patch, update the scan DB directly so the CVE tab reflects the
+    patched state — no rescan needed.
+
+    Ubuntu/Debian CVEs (advisory_id starts with 'CVE-'):
+      - Look up source_package from cve_details
+      - Delete every scan_packages row for those hosts whose binary maps to
+        that source_package in package_source_map
+      - Remove the binary→source entries from package_source_map
+
+    RHEL advisories (RLSA/RHSA/ALSA):
+      - Remove the advisory_id from scan_results.advisory_ids for those hosts
+
+    Then run cleanup_resolved_advisories() so the CVE disappears from the tab.
+    """
+    from enricher import cleanup_resolved_advisories
+    conn   = get_conn()
+    cursor = conn.cursor()
+    try:
+        # Resolve source_package for CVE-* advisories
+        source_pkg = None
+        if advisory_id and advisory_id.startswith('CVE-'):
+            cursor.execute(
+                'SELECT source_package FROM cve_details WHERE advisory_id = %s',
+                (advisory_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                source_pkg = row[0]
+
+        is_rhel_advisory = advisory_id and bool(
+            __import__('re').match(r'^(RHSA|ALSA|RLSA|RHBA|RHEA)-', advisory_id)
+        )
+
+        for host in hosts:
+            # Find the most recent scan_results row for this host
+            cursor.execute('''
+                SELECT sr.scan_id, sr.advisory_ids, sr.package_source_map
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                WHERE sr.host = %s
+                ORDER BY s.scanned_at DESC LIMIT 1
+            ''', (host,))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            scan_id, advisory_ids, source_map = row
+            source_map   = source_map or {}
+            advisory_ids = list(advisory_ids or [])
+
+            if is_rhel_advisory:
+                # Drop the advisory from the RHEL host's advisory list
+                new_ids = [aid for aid in advisory_ids if aid != advisory_id]
+                cursor.execute(
+                    'UPDATE scan_results SET advisory_ids = %s WHERE scan_id = %s AND host = %s',
+                    (new_ids, scan_id, host)
+                )
+
+            elif source_pkg:
+                # Find every binary package that maps to this source package
+                to_remove = {
+                    binary for binary, src in source_map.items()
+                    if src == source_pkg
+                }
+                to_remove.add(source_pkg)   # cover binary == source case
+
+                cursor.execute(
+                    'DELETE FROM scan_packages WHERE scan_id = %s AND host = %s AND package_name = ANY(%s)',
+                    (scan_id, host, list(to_remove))
+                )
+
+                new_map = {k: v for k, v in source_map.items() if k not in to_remove}
+                cursor.execute(
+                    'UPDATE scan_results SET package_source_map = %s WHERE scan_id = %s AND host = %s',
+                    (json.dumps(new_map), scan_id, host)
+                )
+
+        conn.commit()
+        print(f"Post-patch DB update complete — hosts={hosts}, advisory={advisory_id}, source_pkg={source_pkg}")
+        cleanup_resolved_advisories()
+
+    except Exception as e:
+        conn.rollback()
+        print(f"Post-patch DB update error (non-fatal): {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def run_patch_and_save(job_id: str, advisory_id: str, hosts: list,
                        packages: list, dry_run: bool, remediation_cmd: str = ''):
     """Run patch playbook and save results to DB."""
@@ -144,6 +234,16 @@ def run_patch_and_save(job_id: str, advisory_id: str, hosts: list,
         mode = "DRY RUN" if dry_run else "APPLIED"
         print(f"Patch job {job_id} [{mode}] complete — "
               f"{len(output['hosts'])} hosts, {len(output['failures'])} failures")
+
+        # After a real patch, update the DB directly so the CVE tab reflects
+        # the patched state without needing a full rescan.  Runs in a daemon
+        # thread so it doesn't block the patch job response.
+        if not dry_run:
+            import threading
+            t = threading.Thread(
+                target=_cleanup_after_patch, args=(hosts, advisory_id), daemon=True
+            )
+            t.start()
 
     except Exception as e:
         running_scans[job_id] = f"failed: {str(e)}"

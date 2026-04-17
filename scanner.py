@@ -112,6 +112,141 @@ def parse_ports(port_lines: list) -> list:
 
 # ── Linux patch scan ──────────────────────────────────────────────────────────
 
+def run_patch_scan_for_hosts(hosts: list) -> dict:
+    """
+    Run linux_patch_scan.yml against a specific subset of hosts.
+    Used after a patch job to refresh scan_packages/scan_results for just
+    the patched hosts so that resolved CVEs are cleaned up immediately.
+    Returns the same output dict format as run_patch_scan().
+    """
+    import tempfile
+    creds = get_active_inventory_credentials()
+    if not creds:
+        raise RuntimeError("No credentials found for active inventory.")
+
+    for stale in ["/app/env/extravars", "/app/env/envvars"]:
+        if os.path.exists(stale):
+            os.remove(stale)
+
+    inv_content = "[all]\n" + "\n".join(hosts) + "\n"
+    tmp_inv     = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.ini', dir='/app/inventory',
+        delete=False, prefix='rescan_'
+    )
+    tmp_inv.write(inv_content)
+    tmp_inv.close()
+
+    extravars = {
+        'ansible_connection':      'ssh',
+        'ansible_shell_type':      'sh',
+        'ansible_user':            creds['username'],
+        'ansible_password':        creds['password'],
+        'ansible_become':          True,
+        'ansible_become_method':   'sudo',
+        'ansible_become_pass':     creds['password'],
+        'ansible_ssh_common_args': '-o StrictHostKeyChecking=no',
+    }
+
+    result = ansible_runner.run(
+        private_data_dir='/app',
+        playbook='linux_patch_scan.yml',
+        quiet=False,
+        cmdline=f'-i {tmp_inv.name} --forks 50 --timeout 10',
+        extravars=extravars,
+    )
+
+    try:
+        os.remove(tmp_inv.name)
+    except Exception:
+        pass
+
+    output = {
+        'status':   result.status,
+        'rc':       result.rc,
+        'hosts':    {},
+        'failures': {},
+    }
+
+    try:
+        output['ansible_log'] = ''.join(list(result.stdout))
+    except Exception:
+        output['ansible_log'] = ''
+
+    for event in result.events:
+        event_type = event.get('event', '')
+        ed   = event.get('event_data', {})
+        host = ed.get('remote_addr') or ed.get('host')
+        task = ed.get('task', '')
+        res  = ed.get('res', {})
+
+        if event_type == 'runner_on_ok':
+            if task != 'Print kernel version and packages' or not host:
+                continue
+            if 'msg' not in res:
+                continue
+
+            msg  = res['msg']
+            flat = {}
+            if isinstance(msg, list):
+                for item in msg:
+                    flat.update(item)
+            elif isinstance(msg, dict):
+                flat = msg
+
+            if 'pending_security_packages' in flat:
+                flat['pending_security_packages'] = parse_packages(flat['pending_security_packages'])
+            if 'current_kernel_version' in flat:
+                flat['current_kernel_version'] = flat['current_kernel_version'].strip()
+            if 'latest_available_kernel_version' in flat:
+                flat['latest_available_kernel_version'] = flat['latest_available_kernel_version'].strip()
+            if 'last_reboot_time' in flat:
+                flat['last_reboot_time'] = flat['last_reboot_time'].strip()
+            flat['advisory_ids'] = [a.strip() for a in flat.get('advisory_ids', []) if a.strip()]
+            if 'package_source_map' in flat:
+                source_map = {}
+                for line in flat['package_source_map']:
+                    if ':' not in line:
+                        continue
+                    parts  = line.split(':')
+                    binary = parts[0].strip()
+                    if not binary:
+                        continue
+                    source_raw   = parts[-1] if len(parts) >= 3 else parts[1]
+                    source_clean = source_raw.strip().split(' (')[0].strip()
+                    if source_clean:
+                        source_map[binary] = source_clean
+                flat['package_source_map'] = source_map
+
+            flat['open_ports'] = parse_ports(flat.get('open_ports', []))
+            output['hosts'][host] = flat
+
+        elif event_type == 'runner_on_failed':
+            if not host:
+                continue
+            output['failures'][host] = {
+                'reason': 'task_failed',
+                'task':   task,
+                'msg':    res.get('msg', 'Unknown error'),
+                'rc':     res.get('rc'),
+                'stderr': res.get('stderr', '').strip(),
+                'stdout': res.get('stdout', '').strip(),
+            }
+
+        elif event_type == 'runner_on_unreachable':
+            if not host:
+                continue
+            output['failures'][host] = {
+                'reason': 'unreachable',
+                'task':   task,
+                'msg':    res.get('msg', 'Host unreachable'),
+                'rc':     None,
+                'stderr': '',
+                'stdout': '',
+            }
+
+    return output
+
+
 def run_patch_scan() -> dict:
     creds = get_active_inventory_credentials()
     if not creds:
@@ -189,11 +324,22 @@ def run_patch_scan() -> dict:
             if 'package_source_map' in flat:
                 source_map = {}
                 for line in flat['package_source_map']:
-                    if ':' in line:
-                        binary, source = line.split(':', 1)
-                        # Strip optional version suffix: "pkg (1.2.3-4)" → "pkg"
-                        source_clean = source.strip().split(' (')[0].strip()
-                        source_map[binary.strip()] = source_clean
+                    if ':' not in line:
+                        continue
+                    # Line format from Ansible: "binary:source" or (if arch suffix
+                    # slipped through) "binary:arch:source". Split on first colon
+                    # to get the binary name, then reconstruct source from remainder.
+                    parts = line.split(':')
+                    binary = parts[0].strip()
+                    if not binary:
+                        continue
+                    # If there are 3+ segments the middle one is an arch token
+                    # (e.g. "libssl3t64:amd64:openssl") — take the last segment.
+                    source_raw = parts[-1] if len(parts) >= 3 else parts[1]
+                    # Strip optional version annotation: "openssl (3.0.13-0ubuntu3)" → "openssl"
+                    source_clean = source_raw.strip().split(' (')[0].strip()
+                    if source_clean:
+                        source_map[binary] = source_clean
                 flat['package_source_map'] = source_map
 
             # Parse open ports
@@ -392,18 +538,71 @@ def run_patch_job(hosts: list, packages: list, dry_run: bool = True,
     if _is_rhel_advisory:
         remediation_yum_cmd = f'yum update --security --advisory={advisory_id}'
     elif remediation_cmd:
-        m = _re.search(r'(yum\s+\w+(?:\s+[\w.\-+:=]+)*)', remediation_cmd)
+        m = _re.search(r'(yum[ \t]+\w+(?:[ \t]+[\w.\-+:=]+)*)', remediation_cmd)
         if m:
             remediation_yum_cmd = m.group(1).strip()
 
     if remediation_cmd:
-        m = _re.search(r'(apt-get\s+(?:upgrade|install)(?:\s+[\w.\-+:]+)*)', remediation_cmd)
+        # Use [ \t]+ (horizontal whitespace only) for the argument portion so
+        # the match stops at the first newline and never captures surrounding
+        # advisory text (e.g. "Ubuntu Security Notice: …") as extra arguments.
+        m = _re.search(r'(apt-get[ \t]+(?:upgrade|install)(?:[ \t]+[\w.\-+:]+)*)', remediation_cmd)
         if m:
             raw_apt = m.group(1).strip()
             # "apt-get upgrade <pkg>" doesn't target a specific package — the
             # correct command is "apt-get install --only-upgrade <pkg>"
-            raw_apt = _re.sub(r'^apt-get\s+upgrade\b', 'apt-get install --only-upgrade', raw_apt)
+            raw_apt = _re.sub(r'^apt-get[ \t]+upgrade\b', 'apt-get install --only-upgrade', raw_apt)
             remediation_apt_cmd = raw_apt
+
+    # For Ubuntu/Debian CVE patches the remediation text names the SOURCE package
+    # (e.g. "systemd"), but apt operates on BINARY packages.  The pending binary
+    # packages (e.g. "libudev1", "udev") may be different from the source name.
+    # Look up which binary packages in scan_packages map to this CVE's source_package
+    # and replace the apt command target so the upgrade actually fires.
+    if remediation_apt_cmd and advisory_id and advisory_id.startswith('CVE-') and hosts:
+        from database import get_conn as _get_conn
+        _conn = _get_conn()
+        _cur  = _conn.cursor()
+        try:
+            _cur.execute(
+                'SELECT source_package FROM cve_details WHERE advisory_id = %s',
+                (advisory_id,)
+            )
+            _row = _cur.fetchone()
+            if _row and _row[0]:
+                _source_pkg   = _row[0]
+                _binary_pkgs  = []
+                for _host in hosts:
+                    _cur.execute('''
+                        SELECT DISTINCT sp.package_name
+                        FROM scan_packages sp
+                        JOIN scan_results sr ON sr.scan_id = sp.scan_id
+                                            AND sr.host    = sp.host
+                        JOIN scan_runs s ON s.scan_id = sr.scan_id
+                        WHERE sp.host = %s
+                          AND EXISTS (
+                              SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                              WHERE kv.key = sp.package_name AND kv.value = %s
+                          )
+                        ORDER BY sp.package_name
+                    ''', (_host, _source_pkg))
+                    _binary_pkgs.extend(r[0] for r in _cur.fetchall())
+                _binary_pkgs = list(dict.fromkeys(_binary_pkgs))  # deduplicate
+                if _binary_pkgs:
+                    remediation_apt_cmd = f'apt-get install --only-upgrade {" ".join(_binary_pkgs)}'
+                    print(f"Patch: {_source_pkg} source → binary packages: {_binary_pkgs}")
+                elif _source_pkg.endswith('-app'):
+                    # Ubuntu uses internal source package names like 'runc-app',
+                    # 'containerd-app' that don't exist as apt binary packages.
+                    # The actual binary is the same name without the '-app' suffix.
+                    _stripped = _source_pkg[:-4]
+                    remediation_apt_cmd = f'apt-get install --only-upgrade {_stripped}'
+                    print(f"Patch: {_source_pkg} → Ubuntu -app suffix stripped → {_stripped}")
+        except Exception as _e:
+            print(f"Patch: binary package lookup failed (using source name): {_e}")
+        finally:
+            _cur.close()
+            _conn.close()
 
     extravars = {
         'ansible_connection':       'ssh',
