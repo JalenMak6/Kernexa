@@ -26,9 +26,9 @@ export function DashboardTab({
 
   const thStyle = (col) => ({
     padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700,
-    letterSpacing: "0.06em", textTransform: "uppercase", color: "#64748b",
+    letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)",
     cursor: col ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap",
-    background: sortCol === col ? "#f1f5f9" : "transparent",
+    background: sortCol === col ? "var(--bg-subtle)" : "transparent",
   });
 
   // ── Windows derived data ───────────────────────────────────────────────────
@@ -92,9 +92,9 @@ export function DashboardTab({
 
       {/* ── Charts row ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Kernel Compliance</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>{compliancePct}% of hosts up to date</div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 24, boxShadow: "var(--shadow-card)" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>Kernel Compliance</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>{compliancePct}% of hosts up to date</div>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie data={complianceData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value">
@@ -104,11 +104,11 @@ export function DashboardTab({
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", marginBottom: 4 }}>Top Packages Pending</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>Most common security updates across all hosts</div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 24, boxShadow: "var(--shadow-card)" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>Top Packages Pending</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Most common security updates across all hosts</div>
           {topPackages.length === 0
-            ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 180, color: "#94a3b8", fontSize: 13 }}>No pending packages</div>
+            ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 180, color: "var(--text-muted)", fontSize: 13 }}>No pending packages</div>
             : <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={topPackages} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
@@ -124,18 +124,18 @@ export function DashboardTab({
       </div>
 
       {/* ── Linux Host Summary ── */}
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)", marginBottom: hasWinData ? 24 : 0 }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9" }}>
+      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", boxShadow: "var(--shadow-card)", marginBottom: hasWinData ? 24 : 0 }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6" }} />
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
                 🐧 Linux Host Summary — {filteredHosts.length} of {totalHosts} hosts
                 {activeFilterCount > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active</span>}
               </div>
             </div>
             {(activeFilterCount > 0 || search) && (
-              <button onClick={clearFilters} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fef2f2", cursor: "pointer", fontSize: 12, color: "#dc2626", fontFamily: "inherit" }}>Clear all ×</button>
+              <button onClick={clearFilters} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid var(--red-border)", background: "var(--red-tint)", cursor: "pointer", fontSize: 12, color: "var(--red)", fontFamily: "inherit" }}>Clear all ×</button>
             )}
           </div>
           <FilterBar
@@ -149,7 +149,7 @@ export function DashboardTab({
         </div>
         {hasLinuxData ? (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+            <thead style={{ background: "var(--bg-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
               <tr>
                 <th style={thStyle("host")} onClick={() => sortBy("host")}>Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
                 <th style={{ ...thStyle("os_version"), width: 100 }} onClick={() => sortBy("os_version")}>OS</th>
@@ -164,13 +164,13 @@ export function DashboardTab({
             </thead>
             <tbody>
               {filteredHosts.length === 0
-                ? <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No hosts match your filters</td></tr>
+                ? <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No hosts match your filters</td></tr>
                 : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
               }
             </tbody>
           </table>
         ) : (
-          <div style={{ padding: "32px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+          <div style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
             No Linux scan data — click <strong>Run Scan</strong> with a Linux inventory active.
           </div>
         )}
@@ -178,16 +178,16 @@ export function DashboardTab({
 
       {/* ── Windows Host Summary ── */}
       {hasWinData && (
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0ea5e9" }} />
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
                   🪟 Windows Host Summary — {winTotalHosts} hosts · {winTotalKBs} pending KBs
                 </div>
                 {winRecords[0]?.scanned_at && (
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Last scan: {fmtDate(winRecords[0].scanned_at)}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Last scan: {fmtDate(winRecords[0].scanned_at)}</div>
                 )}
               </div>
             </div>
@@ -198,10 +198,10 @@ export function DashboardTab({
           </div>
 
           <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <thead style={{ background: "#f8fafc", borderBottom: "1px solid #f1f5f9" }}>
+            <thead style={{ background: "var(--bg-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
               <tr>
                 {["Host", "OS", "Patch Status", "Pending By Type", "Reboot", "Last Scan"].map((h, i) => (
-                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#64748b",
+                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)",
                     width: i === 1 ? 120 : i === 2 ? 110 : i === 3 ? 190 : i === 4 ? 110 : i === 5 ? 150 : undefined }}>{h}</th>
                 ))}
               </tr>
@@ -226,18 +226,18 @@ export function DashboardTab({
                 const isIP = /^\d+\.\d+\.\d+\.\d+$/.test(h.hostname);
 
                 return (
-                  <tr key={h.hostname} style={{ borderBottom: "1px solid #f1f5f9", transition: "background 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
+                  <tr key={h.hostname} style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
                     onMouseLeave={e => e.currentTarget.style.background = ""}>
                     <td style={{ padding: "13px 16px" }}>
                       <button onClick={() => changeTab("windows")}
-                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#0f172a", fontFamily: "inherit", textAlign: "left", display: "block" }}
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 600, fontSize: 13, color: "var(--text-primary)", fontFamily: "inherit", textAlign: "left", display: "block" }}
                         onMouseEnter={e => e.currentTarget.style.color = "#0ea5e9"}
-                        onMouseLeave={e => e.currentTarget.style.color = "#0f172a"}
+                        onMouseLeave={e => e.currentTarget.style.color = "var(--text-primary)"}
                       >
                         {isIP ? h.hostname : h.hostname.split(".")[0]}
                       </button>
-                      {!isIP && <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace", marginTop: 2 }}>.{h.hostname.split(".").slice(1).join(".")}</div>}
+                      {!isIP && <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace", marginTop: 2 }}>.{h.hostname.split(".").slice(1).join(".")}</div>}
                     </td>
                     <td style={{ padding: "13px 16px" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, background: osBadge.bg, color: osBadge.color, border: `1px solid ${osBadge.border}`, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap" }}>{osBadge.label}</span>
@@ -262,15 +262,15 @@ export function DashboardTab({
                         : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>✓ No Reboot</span>
                       }
                     </td>
-                    <td style={{ padding: "13px 16px", fontSize: 12, color: "#64748b" }}>
-                      {h.updates[0]?.scanned_at ? fmtDate(h.updates[0].scanned_at) : <span style={{ color: "#cbd5e1" }}>—</span>}
+                    <td style={{ padding: "13px 16px", fontSize: 12, color: "var(--text-muted)" }}>
+                      {h.updates[0]?.scanned_at ? fmtDate(h.updates[0].scanned_at) : <span style={{ color: "var(--text-disabled)" }}>—</span>}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ padding: "10px 20px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "flex-end" }}>
             <button onClick={() => changeTab("windows")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#0ea5e9", fontWeight: 600, fontFamily: "inherit" }}>
               View full Windows report →
             </button>

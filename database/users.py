@@ -11,16 +11,17 @@ from database.connection import get_conn
 # ── User CRUD ─────────────────────────────────────────────────────────────────
 
 def create_user(username: str, hashed_password: str, role: str,
-                created_by: str = "system", is_active: bool = True) -> dict:
+                created_by: str = "system", is_active: bool = True,
+                auth_source: str = "local") -> dict:
     """Create a new user. Raises if username already exists."""
     conn   = get_conn()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            INSERT INTO users (username, hashed_password, role, is_active, created_by)
-            VALUES (%s, %s, %s, %s, %s)
-            RETURNING id, username, role, is_active, created_at, last_login
-        ''', (username, hashed_password, role, is_active, created_by))
+            INSERT INTO users (username, hashed_password, role, is_active, created_by, auth_source)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, username, role, is_active, created_at, last_login, auth_source
+        ''', (username, hashed_password, role, is_active, created_by, auth_source))
         row = cursor.fetchone()
         conn.commit()
         return _row_to_user(row)
@@ -40,7 +41,7 @@ def get_user_by_username(username: str) -> dict | None:
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT id, username, hashed_password, role, is_active, created_at, last_login
+            SELECT id, username, hashed_password, role, is_active, created_at, last_login, auth_source
             FROM users WHERE username = %s
         ''', (username,))
         row = cursor.fetchone()
@@ -54,6 +55,7 @@ def get_user_by_username(username: str) -> dict | None:
             "is_active":       row[4],
             "created_at":      row[5].isoformat() + "Z" if row[5] else None,
             "last_login":      row[6].isoformat() + "Z" if row[6] else None,
+            "auth_source":     row[7] if len(row) > 7 else "local",
         }
     finally:
         cursor.close()
@@ -66,7 +68,7 @@ def get_user_by_id(user_id: int) -> dict | None:
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT id, username, role, is_active, created_at, last_login
+            SELECT id, username, role, is_active, created_at, last_login, auth_source
             FROM users WHERE id = %s
         ''', (user_id,))
         row = cursor.fetchone()
@@ -82,7 +84,7 @@ def list_users() -> list:
     cursor = conn.cursor()
     try:
         cursor.execute('''
-            SELECT id, username, role, is_active, created_at, last_login
+            SELECT id, username, role, is_active, created_at, last_login, auth_source
             FROM users ORDER BY id
         ''')
         return [_row_to_user(row) for row in cursor.fetchall()]
@@ -101,17 +103,29 @@ def update_user(user_id: int, updates: dict) -> dict | None:
     if not fields:
         raise ValueError("No valid fields to update")
 
-    set_clause = ", ".join(f"{k} = %s" for k in fields)
-    values     = list(fields.values()) + [user_id]
+    # Build SET clause from a hardcoded allowlist — never interpolate
+    # field names from caller input to prevent SQL injection via column names.
+    parts  = []
+    values = []
+    if "role" in fields:
+        parts.append("role = %s")
+        values.append(fields["role"])
+    if "is_active" in fields:
+        parts.append("is_active = %s")
+        values.append(fields["is_active"])
+    if "hashed_password" in fields:
+        parts.append("hashed_password = %s")
+        values.append(fields["hashed_password"])
+    values.append(user_id)
 
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        cursor.execute(f'''
+        cursor.execute('''
             UPDATE users SET {set_clause}
             WHERE id = %s
-            RETURNING id, username, role, is_active, created_at, last_login
-        ''', values)
+            RETURNING id, username, role, is_active, created_at, last_login, auth_source
+        '''.format(set_clause=", ".join(parts)), values)
         row = cursor.fetchone()
         conn.commit()
         return _row_to_user(row) if row else None
@@ -263,10 +277,11 @@ def cleanup_expired_tokens() -> int:
 def _row_to_user(row) -> dict:
     """Convert a DB row (no password) to a user dict."""
     return {
-        "id":         row[0],
-        "username":   row[1],
-        "role":       row[2],
-        "is_active":  row[3],
-        "created_at": row[4].isoformat() + "Z" if row[4] else None,
-        "last_login": row[5].isoformat() + "Z" if row[5] else None,
+        "id":          row[0],
+        "username":    row[1],
+        "role":        row[2],
+        "is_active":   row[3],
+        "created_at":  row[4].isoformat() + "Z" if row[4] else None,
+        "last_login":  row[5].isoformat() + "Z" if row[5] else None,
+        "auth_source": row[6] if len(row) > 6 else "local",
     }

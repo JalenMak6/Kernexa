@@ -81,24 +81,48 @@ function severityBadge(severity) {
   );
 }
 
-function RemediationBlock({ remediation }) {
+function RemediationBlock({ remediation, resolvedAptCmd, binaryPackages, sourcePackage }) {
   if (!remediation) return null;
   const lines        = remediation.split("\n");
   const commandLine  = lines[0];
   const patchedLines = lines.slice(2).filter(l => l.trim());
+
+  // If we have resolved binary packages, show the actual command instead
+  const isUbuntuCve   = !!sourcePackage;
+  const displayCmd    = (isUbuntuCve && resolvedAptCmd)
+    ? `Run: apt-get update && ${resolvedAptCmd}`
+    : commandLine;
+  const copyCmd       = displayCmd.replace(/^Run:\s*/, '');
+  const isResolved    = isUbuntuCve && binaryPackages && binaryPackages.length > 0 &&
+                        !(binaryPackages.length === 1 && binaryPackages[0] === sourcePackage);
+
   return (
     <div style={{ marginTop: "var(--space-4)", borderTop: "1px solid var(--border)", paddingTop: "var(--space-4)" }}>
       <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--space-2)", display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
         Remediation
       </div>
-      <div style={{ background: "var(--bg-sidebar)", borderRadius: "var(--radius-base)", padding: "10px 14px", marginBottom: patchedLines.length > 0 ? 10 : 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)" }}>
-        <code style={{ fontSize: "var(--text-base)", color: "var(--green-light)", fontFamily: "monospace" }}>{commandLine}</code>
-        <button onClick={() => navigator.clipboard.writeText(commandLine.replace('Run: ', ''))} title="Copy command"
-          style={{ background: "var(--bg-sidebar-item)", border: "1px solid var(--border-dark)", borderRadius: "var(--radius-md)", padding: "3px 8px", cursor: "pointer", fontSize: "var(--text-xs)", color: "var(--text-faint)", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+      <div style={{ background: "var(--bg-sidebar)", borderRadius: "var(--radius-base)", padding: "10px 14px", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)" }}>
+        <code style={{ fontSize: "var(--text-base)", color: "var(--green-light)", fontFamily: "monospace", wordBreak: "break-all" }}>{displayCmd}</code>
+        <button onClick={() => navigator.clipboard.writeText(copyCmd)} title="Copy command"
+          style={{ background: "var(--bg-sidebar-item)", border: "1px solid var(--border-dark)", borderRadius: "var(--radius-md)", padding: "3px 8px", cursor: "pointer", fontSize: "var(--text-xs)", color: "var(--text-faint)", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0 }}>
           Copy
         </button>
       </div>
+      {isResolved && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginBottom: 5 }}>
+            Binary packages that will be upgraded (resolved from source: <code style={{ fontFamily: "monospace", color: "var(--text-faint)" }}>{sourcePackage}</code>):
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {binaryPackages.map((pkg, i) => (
+              <span key={i} style={{ fontSize: "var(--text-sm)", fontFamily: "monospace", background: "var(--green-tint)", border: "1px solid var(--green-border)", color: "var(--green-text)", padding: "2px 8px", borderRadius: "var(--radius-sm)" }}>
+                {pkg}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {patchedLines.length > 0 && (
         <div>
           <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginBottom: 5 }}>Patched versions available:</div>
@@ -116,17 +140,31 @@ function RemediationBlock({ remediation }) {
 }
 
 function CveRow({ cve, onPatch }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,       setExpanded]       = useState(false);
+  const [resolvedPkgs,   setResolvedPkgs]   = useState(null); // { binary_packages, apt_cmd, source_package }
+  const isUbuntuCve = !!cve.source_package && /^CVE-/.test(cve.advisory_id || '');
+
+  const handleExpand = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && isUbuntuCve && resolvedPkgs === null) {
+      apiFetch(`/api/cve/${encodeURIComponent(cve.advisory_id)}/resolved-packages`)
+        .then(data => setResolvedPkgs(data))
+        .catch(() => setResolvedPkgs({}));
+    }
+  };
+
   const canPatch = (cve.affected_hosts?.length || 0) > 0;
   const hasPackage = /^(RHSA|ALSA|RLSA|RHBA|RHEA)-/.test(cve.advisory_id || '') ||
-    !!(cve.remediation?.match(/(?:yum update|apt-get upgrade|apt-get install)\s+([\w][\w.\-+]+)/i));
+    !!(cve.source_package) ||
+    !!(cve.remediation?.match(/(?:yum\s+update|apt-get\s+(?:upgrade|install)(?:\s+--only-upgrade)?)\s+([\w][\w.\-+]+)/i));
   const patchTitle = !hasPackage
     ? "No package name found in remediation — patch manually"
     : `Patch ${cve.affected_hosts?.length} affected host${cve.affected_hosts?.length > 1 ? "s" : ""}`;
   return (
     <>
       <tr style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s", cursor: "pointer" }}
-        onClick={() => setExpanded(!expanded)}
+        onClick={handleExpand}
         onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
         onMouseLeave={e => e.currentTarget.style.background = ""}>
         <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
@@ -161,7 +199,7 @@ function CveRow({ cve, onPatch }) {
                 🛠 Patch
               </button>
             )}
-            <div onClick={() => setExpanded(!expanded)} style={{ cursor: "pointer", display: "inline-flex", transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+            <div onClick={handleExpand} style={{ cursor: "pointer", display: "inline-flex", transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
               <Icon d={Icons.chevron} size={13} color="var(--text-ghost)" />
             </div>
           </div>
@@ -237,7 +275,12 @@ function CveRow({ cve, onPatch }) {
                   <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>Fetched {fmtDate(cve.fetched_at)}</div>
                 </div>
               </div>
-              <RemediationBlock remediation={cve.remediation} />
+              <RemediationBlock
+                remediation={cve.remediation}
+                resolvedAptCmd={resolvedPkgs?.apt_cmd}
+                binaryPackages={resolvedPkgs?.binary_packages}
+                sourcePackage={cve.source_package}
+              />
             </div>
           </td>
         </tr>
@@ -257,14 +300,26 @@ function PatchModal({ cve, onClose }) {
   const [dryResult,  setDryResult]  = useState(null);
   const [applyResult,setApplyResult]= useState(null);
   const [error,      setError]      = useState(null);
+  const [expandedOut, setExpandedOut] = useState({});
 
-  // Extract package name from remediation text
-  // Handles: "yum update openssl", "apt-get update && apt-get upgrade coreutils"
+  // Extract the raw remediation command from the remediation text (first line)
+  // Handles: "Run: yum update openssl", "Run: apt-get update && apt-get upgrade nodejs",
+  //          "Apply the latest available updates via: yum update"
   const sourcePackage = cve.source_package || ''
+  const remediationCmd = (() => {
+    if (!cve.remediation) return ''
+    const firstLine = cve.remediation.split('\n')[0].trim()
+    if (firstLine.startsWith('Run: ')) return firstLine.slice(5)
+    const viaMatch = firstLine.match(/via:\s+(.+)$/)
+    if (viaMatch) return viaMatch[1].trim()
+    return ''
+  })()
+
+  // Also extract package name from remediation text for fallback use
+  const sourcePackageFallback = sourcePackage
   const remediationPkgs = (() => {
     if (!cve.remediation) return []
     const text = cve.remediation
-    // Try all command patterns, pick the first match with an actual package name
     const patterns = [
       /apt-get upgrade\s+([\w][\w.\-+]+(?:\s+[\w][\w.\-+]+)*)/i,
       /apt-get install(?:\s+--only-upgrade)?\s+([\w][\w.\-+]+(?:\s+[\w][\w.\-+]+)*)/i,
@@ -279,7 +334,7 @@ function PatchModal({ cve, onClose }) {
     }
     return []
   })()
-  const patchPackages = remediationPkgs.length ? remediationPkgs : sourcePackage ? [sourcePackage] : []
+  const patchPackages = remediationPkgs.length ? remediationPkgs : sourcePackageFallback ? [sourcePackageFallback] : []
 
   const isAdvisory    = /^(RHSA|ALSA|RLSA|RHBA|RHEA)-/.test(cve.advisory_id || '')
   const isCveId       = patchPackages.length > 0 && /^CVE-/.test(patchPackages[0] || '')
@@ -311,10 +366,11 @@ function PatchModal({ cve, onClose }) {
     setError(null); setPhase("dry_running");
     try {
       const res = await apiPost("/api/patch/trigger", {
-        advisory_id: cve.advisory_id,
-        hosts:       [...selected],
-        packages:    isAdvisory ? [cve.advisory_id] : patchPackages,
-        dry_run:     true,
+        advisory_id:     cve.advisory_id,
+        hosts:           [...selected],
+        packages:        isAdvisory ? [cve.advisory_id] : patchPackages,
+        dry_run:         true,
+        remediation_cmd: remediationCmd,
       });
       setJobId(res.job_id);
       pollJob(res.job_id, (job) => {
@@ -332,10 +388,11 @@ function PatchModal({ cve, onClose }) {
     setError(null); setPhase("applying");
     try {
       const res = await apiPost("/api/patch/trigger", {
-        advisory_id: cve.advisory_id,
-        hosts:       [...selected],
-        packages:    isAdvisory ? [cve.advisory_id] : patchPackages,
-        dry_run:     false,
+        advisory_id:     cve.advisory_id,
+        hosts:           [...selected],
+        packages:        isAdvisory ? [cve.advisory_id] : patchPackages,
+        dry_run:         false,
+        remediation_cmd: remediationCmd,
       });
       setJobId(res.job_id);
       pollJob(res.job_id, (job) => {
@@ -455,18 +512,24 @@ function PatchModal({ cve, onClose }) {
               <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Dry Run Results</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                 {[...selected].map(h => {
-                  const hr      = hostResults(dryResult)[h];
-                  const isError = hr?.failed || !!hostFailures(dryResult)[h];
-                  const pkgs    = hr?.packages || {};
-                  const pkgList = Object.entries(pkgs);
+                  const hr        = hostResults(dryResult)[h];
+                  const failure   = hostFailures(dryResult)[h];
+                  const isError   = hr?.failed || !!failure;
+                  const pkgs      = hr?.packages || {};
+                  const pkgList   = Object.entries(pkgs);
+                  const outKey    = `dry-${h}`;
+                  const showOut   = expandedOut[outKey];
+                  const rawOut    = (hr?.stdout || '').trim();
                   return (
                     <div key={h} style={{ padding: "10px 14px", background: "#f8fafc", border: `1px solid ${isError ? "#fecaca" : "#e2e8f0"}`, borderRadius: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pkgList.length ? 8 : 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontFamily: "monospace", fontSize: 13, color: "#0f172a" }}>{h}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: statusColor(h, dryResult) }}>{statusLabel(h, dryResult)}</span>
                       </div>
+
+                      {/* Package list — what would be upgraded */}
                       {pkgList.length > 0 && (
-                        <div style={{ background: "#f1f5f9", borderRadius: 6, padding: "8px 10px" }}>
+                        <div style={{ background: "#f1f5f9", borderRadius: 6, padding: "8px 10px", marginTop: 8 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", marginBottom: 5 }}>
                             {pkgList.length} package{pkgList.length > 1 ? "s" : ""} would be upgraded:
                           </div>
@@ -479,13 +542,41 @@ function PatchModal({ cve, onClose }) {
                           ))}
                         </div>
                       )}
-                      {!pkgList.length && !isError && hr?.stdout && hr.stdout.startsWith("Cannot patch") && (
-                        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", fontSize: 11, color: "#92400e", marginTop: 4 }}>
+
+                      {/* Cannot patch warning */}
+                      {!pkgList.length && !isError && hr?.stdout?.startsWith("Cannot patch") && (
+                        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", fontSize: 11, color: "#92400e", marginTop: 8 }}>
                           ⚠ {hr.stdout}
                         </div>
                       )}
+
+                      {/* Already up to date */}
                       {!pkgList.length && !isError && !hr?.stdout?.startsWith("Cannot patch") && (
-                        <div style={{ fontSize: 12, color: "#94a3b8" }}>No packages need updating — already up to date.</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+                          Advisory already satisfied — all covered packages are at the required version.
+                        </div>
+                      )}
+
+                      {/* Failure */}
+                      {failure && (
+                        <div style={{ fontSize: 12, color: "#dc2626", marginTop: 6 }}>
+                          {failure.msg || failure.reason}
+                        </div>
+                      )}
+
+                      {/* Raw command output toggle */}
+                      {rawOut && (
+                        <div style={{ marginTop: 8 }}>
+                          <button onClick={() => setExpandedOut(o => ({ ...o, [outKey]: !o[outKey] }))}
+                            style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+                            {showOut ? "▾ Hide output" : "▸ Show command output"}
+                          </button>
+                          {showOut && (
+                            <pre style={{ marginTop: 6, background: "#0f172a", color: "#e2e8f0", borderRadius: 6, padding: "10px 12px", fontSize: 11, fontFamily: "monospace", overflowX: "auto", maxHeight: 220, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                              {rawOut}
+                            </pre>
+                          )}
+                        </div>
                       )}
                     </div>
                   );
@@ -502,7 +593,7 @@ function PatchModal({ cve, onClose }) {
             <div style={{ textAlign: "center", padding: "32px 0" }}>
               <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#16a34a", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 16px" }} />
               <div style={{ fontWeight: 600, color: "#0f172a" }}>Applying patches...</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Running yum update on {selected.size} host{selected.size > 1 ? "s" : ""}.</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Running on {selected.size} host{selected.size > 1 ? "s" : ""}.</div>
             </div>
           )}
 
@@ -513,16 +604,23 @@ function PatchModal({ cve, onClose }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {[...selected].map(h => {
                   const hr      = hostResults(applyResult)[h];
+                  const failure = hostFailures(applyResult)[h];
+                  const isError = hr?.failed || !!failure;
                   const pkgs    = hr?.packages || {};
                   const pkgList = Object.entries(pkgs);
+                  const outKey  = `apply-${h}`;
+                  const showOut = expandedOut[outKey];
+                  const rawOut  = (hr?.stdout || '').trim();
                   return (
-                    <div key={h} style={{ padding: "10px 14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: pkgList.length ? 8 : 0 }}>
+                    <div key={h} style={{ padding: "10px 14px", background: "#f8fafc", border: `1px solid ${isError ? "#fecaca" : "#e2e8f0"}`, borderRadius: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontFamily: "monospace", fontSize: 13, color: "#0f172a" }}>{h}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: statusColor(h, applyResult) }}>{statusLabel(h, applyResult)}</span>
                       </div>
+
+                      {/* Packages upgraded */}
                       {pkgList.length > 0 && (
-                        <div style={{ background: "#f0fdf4", borderRadius: 6, padding: "8px 10px" }}>
+                        <div style={{ background: "#f0fdf4", borderRadius: 6, padding: "8px 10px", marginTop: 8 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: "#15803d", marginBottom: 5 }}>
                             {pkgList.length} package{pkgList.length > 1 ? "s" : ""} upgraded:
                           </div>
@@ -535,8 +633,34 @@ function PatchModal({ cve, onClose }) {
                           ))}
                         </div>
                       )}
-                      {!pkgList.length && (
-                        <div style={{ fontSize: 12, color: "#94a3b8" }}>Already up to date — no changes made.</div>
+
+                      {/* Already up to date */}
+                      {!pkgList.length && !isError && (
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+                          Advisory already satisfied — no packages were updated.
+                        </div>
+                      )}
+
+                      {/* Failure detail */}
+                      {failure && (
+                        <div style={{ fontSize: 12, color: "#dc2626", marginTop: 6 }}>
+                          {failure.msg || failure.reason}
+                        </div>
+                      )}
+
+                      {/* Raw command output toggle */}
+                      {rawOut && (
+                        <div style={{ marginTop: 8 }}>
+                          <button onClick={() => setExpandedOut(o => ({ ...o, [outKey]: !o[outKey] }))}
+                            style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
+                            {showOut ? "▾ Hide output" : "▸ Show command output"}
+                          </button>
+                          {showOut && (
+                            <pre style={{ marginTop: 6, background: "#0f172a", color: "#e2e8f0", borderRadius: 6, padding: "10px 12px", fontSize: 11, fontFamily: "monospace", overflowX: "auto", maxHeight: 220, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                              {rawOut}
+                            </pre>
+                          )}
+                        </div>
                       )}
                     </div>
                   );

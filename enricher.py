@@ -7,10 +7,11 @@ from database import get_conn
 
 ROCKY_ERRATA_API = "https://errata.rockylinux.org/api/v2/advisories/{}"
 ALMA_ERRATA_API  = "https://raw.githubusercontent.com/AlmaLinux/osv-database/master/advisories/almalinux{version}/{advisory_id}.json"
-UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=20"
+UBUNTU_CVES_API  = "https://ubuntu.com/security/cves.json?package={}&limit=20&offset={}"
 RHEL_CVE_API     = "https://access.redhat.com/hydra/rest/securitydata/cve.json?advisory={}"
 NVD_CVE_API      = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={}"
 RH_CVE_API       = "https://access.redhat.com/hydra/rest/securitydata/cve/{}.json"
+OSV_API          = "https://api.osv.dev/v1/query"
 
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 
@@ -22,6 +23,17 @@ UBUNTU_CODENAMES = {
     '25.04': 'plucky',
 }
 
+DEBIAN_MAJOR_VERSIONS = {'10', '11', '12', '13'}
+
+DEBIAN_VERSION_CODENAME = {
+    '10': 'buster',
+    '11': 'bullseye',
+    '12': 'bookworm',
+    '13': 'trixie',
+}
+
+DEBIAN_SECURITY_TRACKER_JSON = "https://security-tracker.debian.org/tracker/data/json"
+
 UBUNTU_PRIORITY_MAP = {
     'critical':   'Critical',
     'high':       'Important',
@@ -29,6 +41,15 @@ UBUNTU_PRIORITY_MAP = {
     'low':        'Low',
     'negligible': 'Low',
     'undefined':  'Low',
+}
+
+DEBIAN_SEVERITY_MAP = {
+    'critical':      'Critical',
+    'high':          'Important',
+    'medium':        'Moderate',
+    'low':           'Low',
+    'unimportant':   'Low',
+    'not yet assigned': 'Low',
 }
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -39,6 +60,15 @@ def get_ubuntu_codename(os_version: str) -> str | None:
     for version, codename in UBUNTU_CODENAMES.items():
         if version in os_version:
             return codename
+    return None
+
+def get_debian_major_version(os_version: str) -> str | None:
+    """Return major version string ('12', '13', …) for Debian hosts, or None."""
+    if not os_version:
+        return None
+    m = re.search(r'Debian\s+(\d+)', os_version, re.IGNORECASE)
+    if m and m.group(1) in DEBIAN_MAJOR_VERSIONS:
+        return m.group(1)
     return None
 
 # ── Cleanup resolved advisories ───────────────────────────────────────────────
@@ -57,42 +87,58 @@ def cleanup_resolved_advisories():
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        # Get the latest scan_id
-        cursor.execute("SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1")
-        row = cursor.fetchone()
-        if not row:
-            print("Cleanup: no scans found, skipping")
+        cursor.execute("SELECT COUNT(*) FROM scan_results")
+        if cursor.fetchone()[0] == 0:
+            print("Cleanup: no scan data found, skipping")
             return
-        latest_scan_id = row[0]
 
-        # Collect all advisory IDs referenced by any host in the latest scan
+        # Collect advisory IDs from each host's most recent scan.
+        # Using per-host latest avoids a partial re-scan (e.g. one host)
+        # incorrectly treating other hosts' advisories as resolved.
         cursor.execute("""
-            SELECT DISTINCT unnest(advisory_ids)
-            FROM scan_results
-            WHERE scan_id = %s
-              AND advisory_ids IS NOT NULL
-              AND array_length(advisory_ids, 1) > 0
-        """, (latest_scan_id,))
+            SELECT DISTINCT unnest(sr.advisory_ids)
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            JOIN (
+                SELECT sr2.host, MAX(s2.scanned_at) AS latest_at
+                FROM scan_results sr2
+                JOIN scan_runs s2 ON s2.scan_id = sr2.scan_id
+                GROUP BY sr2.host
+            ) latest ON sr.host = latest.host AND s.scanned_at = latest.latest_at
+            WHERE sr.advisory_ids IS NOT NULL
+              AND array_length(sr.advisory_ids, 1) > 0
+        """)
         active_advisories = {row[0] for row in cursor.fetchall() if row[0]}
 
-        # Also collect Ubuntu CVEs still referenced via scan_packages in latest scan
+        # Ubuntu CVEs: check source_package against each host's most recent scan.
+        # Walk scan_packages and look up each binary's source via package_source_map
+        # (key lookup). COALESCE: if the binary has no entry in the map (dpkg-query
+        # failed, or source == binary), fall back to the binary name so packages
+        # whose source == binary still keep their CVEs alive.
         cursor.execute("""
             SELECT DISTINCT cd.advisory_id
             FROM cve_details cd
             WHERE cd.advisory_id LIKE 'CVE-%%'
               AND cd.source_package IS NOT NULL
               AND EXISTS (
-                SELECT 1 FROM scan_packages sp
-                WHERE sp.scan_id = %s
-                  AND sp.package_name ILIKE cd.source_package || '%%'
+                SELECT 1
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                JOIN (
+                    SELECT sr2.host, MAX(s2.scanned_at) AS latest_at
+                    FROM scan_results sr2
+                    JOIN scan_runs s2 ON s2.scan_id = sr2.scan_id
+                    GROUP BY sr2.host
+                ) latest ON sr.host = latest.host AND s.scanned_at = latest.latest_at
+                JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+                WHERE COALESCE(
+                    sr.package_source_map->>sp.package_name,
+                    sp.package_name
+                ) = cd.source_package
               )
-        """, (latest_scan_id,))
+        """)
         active_ubuntu = {row[0] for row in cursor.fetchall()}
         active_advisories |= active_ubuntu
-
-        if not active_advisories:
-            print("Cleanup: no active advisories found in latest scan — skipping to avoid wiping all CVEs")
-            return
 
         # Find advisories in cve_details that are no longer active
         cursor.execute("SELECT advisory_id FROM cve_details")
@@ -195,14 +241,13 @@ def fetch_rocky_advisory(advisory_id: str) -> dict | None:
                     patched_packages.append(nvra.replace('.rpm', ''))
 
         if patched_packages:
-            pkg_names   = sorted({p.rsplit('-', 2)[0] for p in patched_packages})
             remediation = (
-                f"Run: yum update {' '.join(pkg_names)}\n\n"
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
                 f"Patched versions:\n" +
                 "\n".join(f"  • {p}" for p in patched_packages)
             )
         else:
-            remediation = "Apply the latest available updates via: yum update"
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -274,11 +319,14 @@ def fetch_alma_advisory(advisory_id: str, os_version: str = None) -> dict | None
             and 'debug' not in a['package']['name']
         })
 
-        remediation = (
-            f"Run: yum update {' '.join(pkg_names[:10])}"
-            if pkg_names else
-            "Apply the latest available updates via: yum update"
-        )
+        if pkg_names:
+            remediation = (
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
+                f"Patched packages:\n" +
+                "\n".join(f"  • {p}" for p in pkg_names[:10])
+            )
+        else:
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -325,14 +373,13 @@ def fetch_rhel_advisory(advisory_id: str) -> dict | None:
         })
 
         if x86_pkgs:
-            pkg_names   = sorted({p.rsplit('-', 2)[0] for p in x86_pkgs})
             remediation = (
-                f"Run: yum update {' '.join(pkg_names)}\n\n"
+                f"Run: yum update --security --advisory={advisory_id}\n\n"
                 f"Patched versions:\n" +
                 "\n".join(f"  • {p}" for p in x86_pkgs[:20])
             )
         else:
-            remediation = "Apply the latest available updates via: yum update"
+            remediation = f"Run: yum update --security --advisory={advisory_id}"
 
         return {
             'advisory_id': advisory_id,
@@ -380,13 +427,18 @@ def enrich_advisories():
 
     print(f"Enricher: cached {success}/{len(pending)} advisories")
 
-# ── Ubuntu enrichment ─────────────────────────────────────────────────────────
+# ── Debian enrichment (OSV.dev) ───────────────────────────────────────────────
 
-def get_ubuntu_hosts_and_packages() -> list[dict]:
+def get_debian_hosts_and_packages() -> list[dict]:
+    """Return Debian hosts (not Ubuntu) with their pending packages from the latest scan."""
     conn = get_conn()
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1')
+        cursor.execute("""
+            SELECT s.scan_id FROM scan_runs s
+            WHERE EXISTS (SELECT 1 FROM scan_results sr WHERE sr.scan_id = s.scan_id)
+            ORDER BY s.scanned_at DESC LIMIT 1
+        """)
         row = cursor.fetchone()
         if not row:
             return []
@@ -394,11 +446,207 @@ def get_ubuntu_hosts_and_packages() -> list[dict]:
 
         cursor.execute('''
             SELECT sr.host, sr.os_version,
-                   array_agg(sp.package_name) as packages,
+                   array_agg(sp.package_name) FILTER (WHERE sp.package_name IS NOT NULL) as packages,
                    sr.package_source_map
             FROM scan_results sr
-            JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
-            WHERE sr.scan_id = %s AND sr.os_version ILIKE 'Ubuntu%%'
+            LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+            WHERE sr.scan_id = %s
+              AND sr.os_version ILIKE 'Debian%%'
+            GROUP BY sr.host, sr.os_version, sr.package_source_map
+        ''', (latest_scan_id,))
+
+        results = []
+        for host, os_version, packages, source_map in cursor.fetchall():
+            major = get_debian_major_version(os_version)
+            if major and packages:
+                results.append({
+                    'host':       host,
+                    'os_version': os_version,
+                    'major':      major,
+                    'packages':   packages,
+                    'source_map': source_map or {},
+                })
+        return results
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def fetch_debian_security_tracker() -> dict:
+    """
+    Download the Debian Security Tracker full JSON.
+    Returns a dict keyed by source package name.
+    The JSON structure is:
+        { "package": { "CVE-YYYY-NNNN": { "releases": { "bookworm": { "status": "open|resolved|undetermined", "urgency": "...", "fixed_version": "..." } } } } }
+    Downloads are ~50 MB — called once per enrich_all() run and shared across all Debian hosts.
+    """
+    try:
+        print("Debian enricher: downloading Debian Security Tracker JSON (this may take a moment)...")
+        resp = requests.get(DEBIAN_SECURITY_TRACKER_JSON, timeout=(10, 120))
+        if resp.status_code != 200:
+            print(f"Debian enricher: tracker JSON returned HTTP {resp.status_code}")
+            return {}
+        data = resp.json()
+        print(f"Debian enricher: loaded tracker data for {len(data)} source packages")
+        return data
+    except Exception as e:
+        print(f"Debian enricher: failed to download tracker JSON: {e}")
+        return {}
+
+
+def get_debian_cves_from_tracker(source_package: str, codename: str,
+                                  debian_major: str, tracker_data: dict) -> list[dict]:
+    """
+    Extract active CVEs for a source package from the cached tracker JSON.
+    Shows CVEs whose status in the target Debian release is 'open' (unfixed) or
+    'resolved' (fix available in Debian repo) — i.e. the package has a known
+    vulnerability regardless of whether a fix has been issued yet.
+    """
+    pkg_data = tracker_data.get(source_package)
+    if not pkg_data:
+        return []
+
+    results = []
+    for cve_id, cve_info in pkg_data.items():
+        if not cve_id.startswith('CVE-'):
+            continue
+
+        release_info  = cve_info.get('releases', {}).get(codename, {})
+        status        = release_info.get('status', '')
+        fixed_version = release_info.get('fixed_version', '')
+
+        # 'open' = vulnerable, no fix yet; 'resolved' = fix available
+        if status not in ('open', 'resolved'):
+            continue
+
+        # Only report 'resolved' CVEs that were fixed via a Debian-specific
+        # security update for this release (version contains "~deb{major}u").
+        # CVEs with ancient fixed_version (e.g. "1:9.3.1" fixed before the
+        # current Debian release existed) are already in the installed package
+        # and are irrelevant to the pending upgrade.
+        release_tag = f'~deb{debian_major}u'
+        if status == 'resolved' and release_tag not in fixed_version:
+            continue
+
+        urgency  = release_info.get('urgency', 'unimportant').lower()
+        severity = DEBIAN_SEVERITY_MAP.get(urgency, 'Moderate')
+
+        description = cve_info.get('description', '')
+        synopsis    = f"{cve_id}: {description[:120]}" if description else f"Debian: {cve_id} affecting {source_package}"
+
+        if status == 'resolved' and fixed_version:
+            remediation = (
+                f"Run: apt-get update && apt-get install --only-upgrade {source_package}\n\n"
+                f"Fixed in: {fixed_version}"
+            )
+        else:
+            remediation = (
+                f"Run: apt-get update && apt-get install --only-upgrade {source_package}\n\n"
+                f"No fix available in Debian {codename} yet — monitor DSA announcements."
+            )
+
+        results.append({
+            'advisory_id':    cve_id,
+            'cve_ids':        [cve_id],
+            'severity':       severity,
+            'synopsis':       synopsis,
+            'description':    description,
+            'remediation':    remediation,
+            'source_package': source_package,
+        })
+
+    return results
+
+
+def enrich_debian_advisories():
+    debian_hosts = get_debian_hosts_and_packages()
+    print(f"Debian enricher: found {len(debian_hosts)} Debian hosts with packages")
+    for h in debian_hosts:
+        print(f"  {h['host']} ({h['os_version']}): {len(h['packages'])} packages")
+
+    if not debian_hosts:
+        return
+
+    # Download tracker JSON once — shared across all Debian hosts in this run
+    tracker_data = fetch_debian_security_tracker()
+    if not tracker_data:
+        print("Debian enricher: no tracker data available, skipping")
+        return
+
+    cached_cve_ids   = get_cached_ubuntu_cve_ids()  # same CVE-* pattern
+    seen_pkg_version = set()
+    new_count        = 0
+
+    for host_info in debian_hosts:
+        major    = host_info['major']
+        codename = DEBIAN_VERSION_CODENAME.get(major, '')
+        if not codename:
+            print(f"Debian enricher: unknown Debian version {major}, skipping {host_info['host']}")
+            continue
+        source_map = host_info['source_map']
+
+        for package in host_info['packages']:
+            binary_name = package.split('/')[0].split('=')[0].split(':')[0].strip()
+            src_name    = source_map.get(binary_name, binary_name)
+            src_name    = src_name.split(' (')[0].strip()
+            if ':' in src_name:
+                src_name = src_name.split(':')[-1].strip()
+            if not src_name:
+                src_name = binary_name
+
+            key = (src_name, major)
+            if key in seen_pkg_version:
+                continue
+            seen_pkg_version.add(key)
+
+            cve_list = get_debian_cves_from_tracker(src_name, codename, major, tracker_data)
+            if cve_list:
+                print(f"Debian enricher: {src_name} ({codename}) → {len(cve_list)} CVEs")
+            for cve_data in cve_list:
+                if cve_data['advisory_id'] in cached_cve_ids:
+                    continue
+                try:
+                    save_cve_details(
+                        cve_data['advisory_id'], cve_data['cve_ids'], cve_data['severity'],
+                        cve_data['description'], cve_data['synopsis'], cve_data['remediation'],
+                        source_package=cve_data['source_package'],
+                    )
+                    cached_cve_ids.add(cve_data['advisory_id'])
+                    new_count += 1
+                except Exception as e:
+                    print(f"Debian enricher: ERROR saving {cve_data['advisory_id']}: {e}")
+
+    print(f"Debian enricher: cached {new_count} new Debian CVEs")
+
+
+# ── Ubuntu enrichment ─────────────────────────────────────────────────────────
+
+def get_ubuntu_hosts_and_packages() -> list[dict]:
+    conn = get_conn()
+    cursor = conn.cursor()
+    try:
+        # Use the latest scan_run that actually has Linux scan_results.
+        # scan_runs also contains Windows scan entries (which have no scan_results),
+        # so a plain ORDER BY scanned_at DESC LIMIT 1 can return a Windows scan_id
+        # and cause the entire Ubuntu enrichment to be silently skipped.
+        cursor.execute("""
+            SELECT s.scan_id FROM scan_runs s
+            WHERE EXISTS (SELECT 1 FROM scan_results sr WHERE sr.scan_id = s.scan_id)
+            ORDER BY s.scanned_at DESC LIMIT 1
+        """)
+        row = cursor.fetchone()
+        if not row:
+            return []
+        latest_scan_id = row[0]
+
+        cursor.execute('''
+            SELECT sr.host, sr.os_version,
+                   array_agg(sp.package_name) FILTER (WHERE sp.package_name IS NOT NULL) as packages,
+                   sr.package_source_map
+            FROM scan_results sr
+            LEFT JOIN scan_packages sp ON sp.scan_id = sr.scan_id AND sp.host = sr.host
+            WHERE sr.scan_id = %s
+              AND sr.os_version ILIKE 'Ubuntu%%'
             GROUP BY sr.host, sr.os_version, sr.package_source_map
         ''', (latest_scan_id,))
 
@@ -429,59 +677,90 @@ def get_cached_ubuntu_cve_ids() -> set:
 
 def fetch_ubuntu_cves_for_package(source_package: str, codename: str) -> list[dict]:
     try:
-        url  = UBUNTU_CVES_API.format(source_package)
-        resp = requests.get(url, timeout=(5, 20))
-        if resp.status_code != 200:
-            print(f"Ubuntu enricher: {source_package} returned HTTP {resp.status_code}, skipping")
-            return []
+        results   = []
+        offset    = 0
+        page_size = 20
+        seen_ids  = set()
 
-        cves    = resp.json().get('cves', [])
-        results = []
+        while True:
+            url  = UBUNTU_CVES_API.format(source_package, offset)
+            resp = requests.get(url, timeout=(5, 20))
+            if resp.status_code != 200:
+                print(f"Ubuntu enricher: {source_package} returned HTTP {resp.status_code}, skipping")
+                return []
 
-        for cve in cves:
-            cve_id = cve.get('id', '')
-            if not cve_id.startswith('CVE-'):
-                continue
+            payload = resp.json()
+            cves    = payload.get('cves', [])
+            total   = payload.get('total_results', 0)
 
-            affected = False
-            for pkg_info in cve.get('packages', []):
-                for status_info in pkg_info.get('statuses', []):
-                    if (status_info.get('release_codename') == codename
-                            and status_info.get('status') in ('needed', 'deferred', 'pending')):
-                        affected = True
+            if not cves:
+                break
+
+            for cve in cves:
+                cve_id = cve.get('id', '')
+                if not cve_id.startswith('CVE-') or cve_id in seen_ids:
+                    continue
+                seen_ids.add(cve_id)
+
+                affected = False
+                for pkg_info in cve.get('packages', []):
+                    for status_info in pkg_info.get('statuses', []):
+                        # The Ubuntu CVE API uses either 'release_codename' or
+                        # 'distro_series' depending on API version — check both.
+                        entry_codename = (
+                            status_info.get('release_codename')
+                            or status_info.get('distro_series')
+                            or status_info.get('codename')
+                            or ''
+                        )
+                        if (entry_codename == codename
+                                and status_info.get('status') in (
+                                    'needed', 'active', 'deferred', 'pending',
+                                    'released', 'needs-triage',
+                                )):
+                            affected = True
+                            break
+                    if affected:
                         break
-                if affected:
-                    break
 
-            if not affected:
-                continue
+                if not affected:
+                    continue
 
-            notices = cve.get('notices', [])
-            if notices:
-                notice       = notices[-1]
-                synopsis     = notice.get('title', cve_id)
-                description  = notice.get('description', cve.get('description', ''))
-                usn_id       = notice.get('id', '')
-                instructions = notice.get('instructions', 'In general, a standard system update will make all the necessary changes.')
-                remediation  = (
-                    f"Run: apt-get update && apt-get upgrade {source_package}\n\n"
-                    f"Ubuntu Security Notice: {usn_id}\n{instructions}"
-                )
-            else:
-                synopsis    = f"Ubuntu: {cve_id} affecting {source_package}"
-                description = cve.get('description', '')
-                remediation = f"Run: apt-get update && apt-get upgrade {source_package}"
+                # Ubuntu internal source packages like 'runc-app', 'containerd-app'
+                # are not real apt binary package names. Strip the '-app' suffix so
+                # the remediation command shown in the UI (and sent to apt) is correct.
+                apt_pkg = source_package[:-4] if source_package.endswith('-app') else source_package
 
-            severity = UBUNTU_PRIORITY_MAP.get(cve.get('priority', '').lower(), 'Moderate')
-            results.append({
-                'advisory_id':    cve_id,
-                'cve_ids':        [cve_id],
-                'severity':       severity,
-                'synopsis':       synopsis,
-                'description':    description,
-                'remediation':    remediation,
-                'source_package': source_package,
-            })
+                notices = cve.get('notices', [])
+                if notices:
+                    notice       = notices[-1]
+                    synopsis     = notice.get('title', cve_id)
+                    description  = notice.get('description', cve.get('description', ''))
+                    usn_id       = notice.get('id', '')
+                    instructions = notice.get('instructions', 'In general, a standard system update will make all the necessary changes.')
+                    remediation  = (
+                        f"Run: apt-get update && apt-get upgrade {apt_pkg}\n\n"
+                        f"Ubuntu Security Notice: {usn_id}\n{instructions}"
+                    )
+                else:
+                    synopsis    = f"Ubuntu: {cve_id} affecting {source_package}"
+                    description = cve.get('description', '')
+                    remediation = f"Run: apt-get update && apt-get upgrade {apt_pkg}"
+
+                severity = UBUNTU_PRIORITY_MAP.get(cve.get('priority', '').lower(), 'Moderate')
+                results.append({
+                    'advisory_id':    cve_id,
+                    'cve_ids':        [cve_id],
+                    'severity':       severity,
+                    'synopsis':       synopsis,
+                    'description':    description,
+                    'remediation':    remediation,
+                    'source_package': source_package,
+                })
+
+            offset += page_size
+            if offset >= total:
+                break
 
         return results
     except Exception as e:
@@ -506,9 +785,18 @@ def enrich_ubuntu_advisories():
         source_map = host_info['source_map']
 
         for package in host_info['packages']:
-            binary_name = package.split('/')[0].split('=')[0].strip()
+            # Strip architecture suffix (e.g. "libssl3t64:amd64" → "libssl3t64")
+            # and version pinning (e.g. "pkg=1.2.3") before source lookup.
+            binary_name = package.split('/')[0].split('=')[0].split(':')[0].strip()
             src_name    = source_map.get(binary_name, binary_name)
-            src_name    = src_name.split(' (')[0].strip()
+            # Strip optional version annotation "pkg (1.2.3)" → "pkg"
+            # Also strip any stray arch prefix left in the value, e.g. "amd64:openssl"
+            src_name = src_name.split(' (')[0].strip()
+            if ':' in src_name:
+                # Value was corrupted with arch prefix (e.g. "amd64:openssl") — take last segment
+                src_name = src_name.split(':')[-1].strip()
+            if not src_name:
+                src_name = binary_name
 
             key = (src_name, codename)
             if key in seen_pkg_codename:
@@ -719,7 +1007,13 @@ def enrich_all():
     except Exception as e:
         print(f"enrich_all: Ubuntu enrichment failed: {e}")
 
-    print("enrich_all: starting CVSS enrichment (post-Ubuntu, new CVEs only)")
+    print("enrich_all: starting Debian enrichment")
+    try:
+        enrich_debian_advisories()
+    except Exception as e:
+        print(f"enrich_all: Debian enrichment failed: {e}")
+
+    print("enrich_all: starting CVSS enrichment (post-Ubuntu/Debian, new CVEs only)")
     try:
         enrich_cvss()
     except Exception as e:

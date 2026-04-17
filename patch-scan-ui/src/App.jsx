@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useTheme } from "./context/ThemeContext.jsx";
 
 import { apiFetch, apiPost, setLogoutCallback, clearToken, tryRefreshOnLoad, logout as apiLogout } from "./utils/api";
 import { kernelOutdated, fmtDate } from "./utils/helpers.jsx";
@@ -96,6 +97,9 @@ export default function App() {
   const [intervalUnit,    setIntervalUnit]    = useState("hours");
   const [intervalSaving,  setIntervalSaving]  = useState(false);
   const [intervalSaved,   setIntervalSaved]   = useState(false);
+
+  // Theme
+  const { darkMode, toggle: toggleDark } = useTheme();
 
   // Pending registration count — admin only, polled every 30s
   const [pendingCount, setPendingCount] = useState(0);
@@ -484,7 +488,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Sign out — pinned to bottom of sidebar */}
+          {/* Dark mode toggle + Sign out — pinned to bottom of sidebar */}
           <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 12 }}>
             {isCollapsed ? (
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
@@ -504,6 +508,43 @@ export default function App() {
               </div>
             )}
             
+            {/* Dark mode toggle */}
+            <button
+              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={toggleDark}
+              style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #1e293b", background: "transparent", cursor: "pointer", fontSize: 12, color: "#64748b", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "space-between", gap: 8, transition: "all 0.15s", marginBottom: 4 }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#f1f5f9"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#64748b"; }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {darkMode ? (
+                  /* Sun icon */
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                ) : (
+                  /* Moon icon */
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                )}
+                {!isCollapsed && <span style={{ whiteSpace: "nowrap" }}>{darkMode ? "Light mode" : "Dark mode"}</span>}
+              </div>
+              {!isCollapsed && (
+                <div style={{
+                  width: 32, height: 18, borderRadius: 9, border: "1px solid #334155",
+                  background: darkMode ? "#3b82f6" : "#1e293b",
+                  position: "relative", transition: "background 0.2s",
+                  flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: "absolute", top: 2, left: darkMode ? 15 : 2,
+                    width: 12, height: 12, borderRadius: "50%",
+                    background: "#fff", transition: "left 0.2s",
+                  }} />
+                </div>
+              )}
+            </button>
+
             <button title={isCollapsed ? "Sign out" : ""} onClick={handleLogout}
               style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #1e293b", background: "transparent", cursor: "pointer", fontSize: 12, color: "#64748b", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: isCollapsed ? "center" : "flex-start", gap: 8, transition: "all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background = "#1e293b"; e.currentTarget.style.color = "#f87171"; }}
@@ -519,20 +560,20 @@ export default function App() {
       </div>
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{ marginLeft: currentSidebarWidth, padding: "32px", minHeight: "100vh", width: `calc(100vw - ${currentSidebarWidth}px)`, transition: "margin-left 0.2s ease-in-out, width 0.2s ease-in-out" }}>
+      <div style={{ marginLeft: currentSidebarWidth, padding: "32px", minHeight: "100vh", width: `calc(100vw - ${currentSidebarWidth}px)`, transition: "margin-left 0.2s ease-in-out, width 0.2s ease-in-out, background 0.2s ease" }}>
 
         {/* Topbar */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{tabTitle}</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)" }}>{tabTitle}</h1>
             {latestScan && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Last scan: {fmtDate(latestScan.scanned_at)}</div>}
             <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10 }}>
               <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>Auto-scan every</span>
               <input type="number" min={1} max={999} value={intervalValue} onChange={e => setIntervalValue(Math.max(1, parseInt(e.target.value) || 1))}
-                style={{ width: 52, padding: "5px 0", border: "1.5px solid #e2e8f0", borderRadius: 8, fontSize: 14, fontWeight: 700, color: "#0f172a", fontFamily: "inherit", textAlign: "center", background: "#fff", outline: "none" }} />
-              <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 8, padding: 3, gap: 2 }}>
+                style={{ width: 52, padding: "5px 0", border: "1.5px solid var(--border)", borderRadius: 8, fontSize: 14, fontWeight: 700, color: "var(--text-primary)", fontFamily: "inherit", textAlign: "center", background: "var(--bg-card)", outline: "none" }} />
+              <div style={{ display: "flex", background: "var(--bg-subtle)", borderRadius: 8, padding: 3, gap: 2 }}>
                 {["minutes", "hours", "days"].map(u => (
-                  <button key={u} onClick={() => setIntervalUnit(u)} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: intervalUnit === u ? "#fff" : "transparent", color: intervalUnit === u ? "#0f172a" : "#94a3b8", fontSize: 12, fontWeight: intervalUnit === u ? 700 : 500, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>{u}</button>
+                  <button key={u} onClick={() => setIntervalUnit(u)} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: intervalUnit === u ? "var(--bg-card)" : "transparent", color: intervalUnit === u ? "var(--text-primary)" : "var(--text-ghost)", fontSize: 12, fontWeight: intervalUnit === u ? 700 : 500, cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}>{u}</button>
                 ))}
               </div>
               <button onClick={saveInterval} disabled={intervalSaving} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: intervalSaved ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: intervalSaving ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: intervalSaving ? 0.7 : 1 }}>
@@ -544,13 +585,13 @@ export default function App() {
 
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {/* Greeting */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", background: "var(--bg-subtle)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, color: "var(--text-primary)" }}>
               <span>👋</span>
               <span>Hi, <strong style={{ textTransform: "capitalize" }}>{user?.username}</strong></span>
-              <span style={{ fontSize: 10, color: "#94a3b8", background: "#f1f5f9", border: "1px solid #e2e8f0", padding: "1px 7px", borderRadius: 999, textTransform: "capitalize", marginLeft: 2 }}>{user?.role}</span>
+              <span style={{ fontSize: 10, color: "var(--text-muted)", background: "var(--bg-hover)", border: "1px solid var(--border)", padding: "1px 7px", borderRadius: 999, textTransform: "capitalize", marginLeft: 2 }}>{user?.role}</span>
             </div>
 
-            <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "8px 14px", border: "1px solid #e2e8f0", borderRadius: 8, background: refreshing ? "#f8fafc" : "#fff", cursor: refreshing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: refreshing ? "#94a3b8" : "#475569", fontFamily: "inherit" }}>
+            <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "8px 14px", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-card)", cursor: refreshing ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: refreshing ? "var(--text-ghost)" : "var(--text-muted)", fontFamily: "inherit" }}>
               <div style={{ animation: refreshing ? "spin 0.8s linear infinite" : "none", display: "flex" }}>
                 <Icon d={Icons.refresh} size={13} color={refreshing ? "#94a3b8" : "#475569"} />
               </div>
@@ -581,14 +622,14 @@ export default function App() {
 
         {/* Banners */}
         {activeInventoryName && !activeHasCredentials && !error && (
-          <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#c2410c", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={16} color="#c2410c" /><span>SSH credentials not set for <strong>{activeInventoryName}</strong>.</span></div>
-            <button onClick={() => setShowInventoryManager(true)} style={{ background: "#c2410c", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", marginLeft: 12, whiteSpace: "nowrap" }}>Set Credentials</button>
+          <div style={{ background: "var(--orange-tint)", border: "1px solid var(--orange-border)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "var(--orange)", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.key} size={16} color="var(--orange)" /><span>SSH credentials not set for <strong>{activeInventoryName}</strong>.</span></div>
+            <button onClick={() => setShowInventoryManager(true)} style={{ background: "var(--orange)", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", marginLeft: 12, whiteSpace: "nowrap" }}>Set Credentials</button>
           </div>
         )}
         {error && (
-          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#dc2626", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.warning} size={16} color="#dc2626" />{error}</div>
+          <div style={{ background: "var(--red-tint)", border: "1px solid var(--red-border)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "var(--red)", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon d={Icons.warning} size={16} color="var(--red)" />{error}</div>
             <button onClick={() => setError(null)} style={{ background: "none", border: "none", cursor: "pointer" }}><Icon d={Icons.close} size={14} color="#dc2626" /></button>
           </div>
         )}
@@ -605,10 +646,10 @@ export default function App() {
               <div style={{ width: 32, height: 32, border: "3px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
             </div>
           ) : !latestScan && winRecords.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "80px 32px", background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0" }}>
-              <Icon d={Icons.scan} size={48} color="#cbd5e1" />
-              <div style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "#334155" }}>No scan data yet</div>
-              <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6, marginBottom: 20 }}>
+            <div style={{ textAlign: "center", padding: "80px 32px", background: "var(--bg-card)", borderRadius: 16, border: "1px solid var(--border)" }}>
+              <Icon d={Icons.scan} size={48} color="var(--text-disabled)" />
+              <div style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "var(--text-secondary)" }}>No scan data yet</div>
+              <div style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 6, marginBottom: 20 }}>
                 {inventoryCount === 0 ? "Upload an inventory file, set credentials and run a scan"
                   : !activeHasCredentials ? `${inventoryCount} hosts ready — set SSH credentials first`
                   : `${inventoryCount} hosts ready — click Linux Scan to start`}

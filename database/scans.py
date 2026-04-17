@@ -197,34 +197,53 @@ def get_cve_details():
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1')
-        row = cursor.fetchone()
-        if not row:
-            return []
-        latest_scan_id = row[0]
-
+        # Use the most recent scan per host (not a single global scan_id).
+        # This ensures that a partial re-scan (e.g. only the patched host)
+        # doesn't hide CVE data for hosts that haven't been re-scanned yet,
+        # and that a patched host stops contributing to affected_hosts as
+        # soon as its own latest scan no longer reports the advisory.
         cursor.execute('''
             SELECT
                 cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
                 cd.description, cd.fetched_at, cd.remediation,
                 cd.cvss_score, cd.cvss_vector, cd.cvss_version, cd.cvss_source,
-                ARRAY_AGG(DISTINCT sr.host) FILTER (WHERE sr.host IS NOT NULL) as affected_hosts
+                ARRAY_AGG(DISTINCT phl.host) FILTER (WHERE phl.host IS NOT NULL) as affected_hosts,
+                cd.source_package
             FROM cve_details cd
-            LEFT JOIN scan_results sr ON sr.scan_id = %s AND (
+            LEFT JOIN (
+                SELECT DISTINCT ON (sr.host)
+                    sr.host, sr.scan_id, sr.advisory_ids, sr.package_source_map,
+                    sr.os_version
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                ORDER BY sr.host, s.scanned_at DESC
+            ) phl ON (
                 (cd.advisory_id ~ \'^(RLSA|RHSA|ALSA)-\'
-                    AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
+                    AND cd.advisory_id = ANY(phl.advisory_ids::text[]))
                 OR
+                -- Ubuntu/Debian CVEs: match by walking scan_packages and looking up
+                -- each binary's source via package_source_map (key lookup).
+                -- COALESCE: if the binary has no entry in the map (dpkg-query failed
+                -- or source == binary), fall back to the binary name itself so
+                -- packages whose source == binary still match their CVEs.
                 (cd.advisory_id LIKE \'CVE-%%\'
                     AND cd.source_package IS NOT NULL
+                    AND (phl.os_version ILIKE \'Ubuntu%%\' OR phl.os_version ILIKE \'Debian%%\')
                     AND EXISTS (
-                        SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
-                        WHERE kv.value = cd.source_package
+                        SELECT 1 FROM scan_packages sp
+                        WHERE sp.scan_id = phl.scan_id
+                          AND sp.host    = phl.host
+                          AND COALESCE(
+                              phl.package_source_map->>sp.package_name,
+                              sp.package_name
+                          ) = cd.source_package
                     )
                 )
             )
             GROUP BY cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
                      cd.description, cd.fetched_at, cd.remediation, cd.source_package,
                      cd.cvss_score, cd.cvss_vector, cd.cvss_version, cd.cvss_source
+            HAVING COUNT(DISTINCT phl.host) > 0
             ORDER BY
                 CASE cd.severity
                     WHEN \'Critical\'  THEN 1
@@ -234,7 +253,7 @@ def get_cve_details():
                     ELSE 5
                 END,
                 cd.advisory_id
-        ''', (latest_scan_id,))
+        ''')
 
         rows = cursor.fetchall()
         return [
@@ -251,6 +270,7 @@ def get_cve_details():
                 'cvss_version':   row[9],
                 'cvss_source':    row[10],
                 'affected_hosts': row[11] or [],
+                'source_package': row[12],
             }
             for row in rows
         ]

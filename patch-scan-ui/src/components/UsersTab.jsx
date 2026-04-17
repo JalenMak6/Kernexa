@@ -118,7 +118,8 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
   const [password, setPassword] = useState("");
   const [error,    setError]    = useState(null);
   const [loading,  setLoading]  = useState(false);
-  const isSelf = user.id === currentUser?.id;
+  const isSelf   = user.id === currentUser?.id;
+  const isLdap   = user.auth_source === "ldap";
 
   const handleSave = async () => {
     setError(null); setLoading(true);
@@ -148,12 +149,18 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
           <button onClick={onClose} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
         </div>
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {isLdap && (
+            <div style={{ background: "#e0f2fe", border: "1px solid #bae6fd", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#0369a1", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>🔒</span>
+              <span>This is an <strong>Active Directory</strong> account. Role is managed by AD group membership. Password cannot be changed here.</span>
+            </div>
+          )}
           <div>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role</label>
             <div style={{ display: "flex", gap: 8 }}>
               {["admin", "operator", "reader"].map(r => {
-                const cfg = ROLE_CONFIG[r];
-                const disabled = isSelf && r !== "admin";
+                const cfg      = ROLE_CONFIG[r];
+                const disabled = isSelf && r !== "admin" || isLdap;
                 return (
                   <button key={r} onClick={() => !disabled && setRole(r)}
                     style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: `2px solid ${role === r ? cfg.dot : "#e2e8f0"}`, background: role === r ? cfg.bg : "#fff", color: disabled ? "#cbd5e1" : role === r ? cfg.color : "#64748b", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", textTransform: "capitalize", transition: "all 0.15s" }}>
@@ -162,7 +169,8 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
                 );
               })}
             </div>
-            {isSelf && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>⚠ You cannot change your own role</div>}
+            {isSelf  && !isLdap && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>⚠ You cannot change your own role</div>}
+            {isLdap  && <div style={{ fontSize: 11, color: "#0369a1", marginTop: 4 }}>Role is controlled by Active Directory group membership</div>}
           </div>
           <div>
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Account Status</label>
@@ -176,13 +184,15 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
             </div>
             {isSelf && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>⚠ You cannot disable your own account</div>}
           </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-              New Password <span style={{ fontWeight: 400, textTransform: "none" }}>(leave blank to keep current)</span>
-            </label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters"
-              style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-          </div>
+          {!isLdap && (
+            <div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                New Password <span style={{ fontWeight: 400, textTransform: "none" }}>(leave blank to keep current)</span>
+              </label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters"
+                style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
+            </div>
+          )}
           {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", color: "#dc2626", fontSize: 13 }}>{error}</div>}
         </div>
         <div style={{ padding: "16px 24px", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -340,9 +350,12 @@ export function UsersTab({ currentUser }) {
                         <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
                           {u.username[0].toUpperCase()}
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
-                          {u.username}
-                          {isSelf && <span style={{ fontSize: 10, color: "#6366f1", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "1px 6px", borderRadius: 999, marginLeft: 6, fontWeight: 700 }}>You</span>}
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", display: "flex", alignItems: "center", gap: 6 }}>
+                            {u.username}
+                            {isSelf && <span style={{ fontSize: 10, color: "#6366f1", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "1px 6px", borderRadius: 999, fontWeight: 700 }}>You</span>}
+                            {u.auth_source === "ldap" && <span style={{ fontSize: 10, color: "#0369a1", background: "#e0f2fe", border: "1px solid #bae6fd", padding: "1px 6px", borderRadius: 999, fontWeight: 700 }}>AD</span>}
+                          </div>
                         </div>
                       </div>
                     </td>

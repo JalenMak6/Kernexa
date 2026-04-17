@@ -19,3 +19,5 @@ openai>=1.0.0
 #Auth
 bcrypt
 python-jose[cryptography]
+
+ldap3>=2.9.1
