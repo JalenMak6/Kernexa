@@ -117,8 +117,8 @@ _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,255}$")
 
 class PatchTriggerRequest(BaseModel):
     advisory_id:     str       = Field("", max_length=128)
-    hosts:           List[str] = Field(..., min_items=1)
-    packages:        List[str] = Field(..., min_items=1)
+    hosts:           List[str] = Field(default_factory=list)
+    packages:        List[str] = Field(default_factory=list)
     dry_run:         bool      = True
     remediation_cmd: str       = Field("", max_length=512)
 
@@ -1067,6 +1067,10 @@ async def test_notification(background_tasks: BackgroundTasks):
 
 @app.post("/api/patch/trigger", dependencies=[Depends(operator_up)])
 async def trigger_patch(body: PatchTriggerRequest, background_tasks: BackgroundTasks):
+    if not body.hosts:
+        raise HTTPException(status_code=400, detail="hosts list must not be empty")
+    if not body.packages:
+        raise HTTPException(status_code=400, detail="packages list must not be empty")
     job_id = str(uuid.uuid4())
     save_patch_job(
         job_id      = job_id,
