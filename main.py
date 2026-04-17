@@ -398,6 +398,9 @@ async def test_ldap_config(body: LdapSettingsUpdate):
 async def ldap_status():
     """GET LDAP connectivity status using current effective config."""
     return test_ldap_connection()
+
+
+@app.post("/api/auth/register")
 async def register(body: LoginRequest):
     """
     Public endpoint — no token required.
@@ -422,6 +425,9 @@ async def register(body: LoginRequest):
         return {"message": "Registration submitted — awaiting admin approval"}
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.post("/api/auth/refresh")
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
     if not token:
