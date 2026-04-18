@@ -222,8 +222,11 @@ jobs:
           CI_TEST_ROLE=reader
           EOF
 
+      - name: Tear down any leftover containers
+        run: docker compose down -v || true
+
       - name: Start containers
-        run: docker compose up -d
+        run: docker compose up -d --build --force-recreate
 
       - name: Wait for app to be ready
         run: |
