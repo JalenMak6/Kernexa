@@ -117,7 +117,7 @@ if not ubuntu_hosts:
     cursor.close()
     conn.close()
     sys.exit(1)
-
+ 
 # ── Step 4: Resolve source names & probe API ────────────────────────────
 print("\n[STEP 4] Resolving binary→source names and probing Ubuntu CVE API...")
 seen = set()
