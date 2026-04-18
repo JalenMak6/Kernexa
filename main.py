@@ -426,36 +426,6 @@ async def register(body: LoginRequest):
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-
-@app.post("/api/auth/refresh")
-async def refresh_token(request: Request, response: Response):
-    token = request.cookies.get("refresh_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="No refresh token provided")
-
-    # Validate token signature and expiry
-    payload = decode_token(token)
-    if payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid token type")
-
-    # Check DB — ensures token hasn't been revoked
-    stored = get_refresh_token(token)
-    if not stored:
-        raise HTTPException(status_code=401, detail="Refresh token revoked or expired")
-
-    user = get_user_by_id(stored["user_id"])
-    if not user or not user["is_active"]:
-        raise HTTPException(status_code=403, detail="Account is disabled")
-
-    # Issue new access token
-    access_token = create_access_token(user["id"], user["username"], user["role"])
-    return {
-        "access_token": access_token,
-        "token_type":   "bearer",
-        "expires_in":   15 * 60,
-    }
-
-
 @app.post("/api/auth/logout")
 async def logout(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
