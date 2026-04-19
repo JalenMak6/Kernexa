@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Icon, Icons } from "../utils/icons.jsx";
 import { kernelOutdated, badge } from "../utils/helpers.jsx";
+import { apiFetch, apiDelete } from "../utils/api";
 
 const SUGGESTED_TAGS = ["production", "staging", "dmz", "web", "db", "infra"];
 
@@ -84,11 +85,11 @@ function TagEditor({ hostname, tags, onTagsChanged }) {
     if (!tag || tags.includes(tag)) { setInput(""); return; }
     setSaving(true);
     try {
-      const res = await fetch(`/api/hosts/${encodeURIComponent(hostname)}/tags`, {
+      const res = await apiFetch(`/api/hosts/${encodeURIComponent(hostname)}/tags`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tag }),
-      }).then(r => r.json());
+      });
       onTagsChanged(res.tags);
     } catch {}
     setSaving(false);
@@ -256,20 +257,20 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
   useEffect(() => {
     if (activeTab === "cves" && cves.length === 0) {
       setLoadingCves(true);
-      fetch(`/api/hosts/${encodeURIComponent(host.host)}/cves`)
-        .then(r => r.json()).then(d => { setCves(d); setLoadingCves(false); })
+      apiFetch(`/api/hosts/${encodeURIComponent(host.host)}/cves`)
+        .then(d => { setCves(d); setLoadingCves(false); })
         .catch(() => setLoadingCves(false));
     }
     if (activeTab === "history" && history.length === 0) {
       setLoadingHistory(true);
-      fetch(`/api/hosts/${encodeURIComponent(host.host)}/history`)
-        .then(r => r.json()).then(d => { setHistory(d); setLoadingHistory(false); })
+      apiFetch(`/api/hosts/${encodeURIComponent(host.host)}/history`)
+        .then(d => { setHistory(d); setLoadingHistory(false); })
         .catch(() => setLoadingHistory(false));
     }
     if (activeTab === "ports" && ports.length === 0) {
       setLoadingPorts(true);
-      fetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
-        .then(r => r.json()).then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
+      apiFetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
+        .then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
         .catch(() => setLoadingPorts(false));
     }
   }, [activeTab]);
@@ -337,7 +338,7 @@ function HostDetailPanel({ host, tags, onTagsChanged, onClose }) {
                 {tags.map(t => (
                   <TagChip key={t} tag={t} onRemove={async (tag) => {
                     try {
-                      const res = await fetch(`/api/hosts/${encodeURIComponent(host.host)}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" }).then(r => r.json());
+                      const res = await apiDelete(`/api/hosts/${encodeURIComponent(host.host)}/tags/${encodeURIComponent(tag)}`);
                       onTagsChanged(res.tags);
                     } catch {}
                   }} />
@@ -663,8 +664,8 @@ export function HostRow({ host }) {
   // Fetch ports eagerly on mount so the column shows data immediately
   useEffect(() => {
     setLoadingPorts(true);
-    fetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
-      .then(r => r.json())
+    apiFetch(`/api/hosts/${encodeURIComponent(host.host)}/ports`)
+      
       .then(d => { setPorts(d.ports || []); setLoadingPorts(false); })
       .catch(() => { setPorts([]); setLoadingPorts(false); });
   }, [host.host]);
@@ -691,7 +692,7 @@ export function HostRow({ host }) {
           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)", alignItems: "center" }}>
             {tags.map(t => <TagChip key={t} tag={t} onRemove={async (tag) => {
               try {
-                const res = await fetch(`/api/hosts/${encodeURIComponent(host.host)}/tags/${encodeURIComponent(tag)}`, { method: "DELETE" }).then(r => r.json());
+                const res = await apiDelete(`/api/hosts/${encodeURIComponent(host.host)}/tags/${encodeURIComponent(tag)}`);
                 setTags(res.tags);
               } catch {}
             }} />)}

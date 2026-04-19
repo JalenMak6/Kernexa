@@ -11,15 +11,16 @@ Business logic lives in:
   database.py          all DB functions
   enricher.py          CVE enrichment
 """
-
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
+ 
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from pydantic import BaseModel
+from datetime import datetime, timezone, timedelta
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
+import re
 import uuid
 import os
 import smtplib
@@ -28,6 +29,15 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate
 
+from auth import (
+    hash_password, verify_password,
+    create_access_token, create_refresh_token, decode_token,
+    get_current_user, require_role,
+    any_role, operator_up, admin_only,
+    REFRESH_EXPIRE,
+)
+from ldap_auth import ldap_authenticate, is_ldap_enabled, test_ldap_connection
+from database.ldap_settings import get_ldap_settings, save_ldap_settings
 from database import (
     get_latest_scan, get_latest_windows_scan,
     get_scan_history,
@@ -41,8 +51,13 @@ from database import (
     get_scan_interval, save_scan_interval,
     get_host_ports,
     save_patch_job, get_patch_job, get_patch_history,
+    get_user_by_username, get_user_by_id, list_users,
+    create_user, update_user, delete_user, update_last_login,
+    user_exists, save_refresh_token, get_refresh_token,
+    revoke_refresh_token, revoke_all_user_tokens,
 )
 from scan_tasks import run_and_save, run_windows_and_save, running_scans
+from enricher import enrich_all
 from scheduler import scheduler, reschedule, start_scheduler, stop_scheduler
 
 
@@ -84,7 +99,55 @@ class NotificationSettings(BaseModel):
 class IntervalPayload(BaseModel):
     interval_minutes: int
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role:     str = "reader"
+
+class UpdateUserRequest(BaseModel):
+    role:        Optional[str]  = None
+    is_active:   Optional[bool] = None
+    password:    Optional[str]  = None
+
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,255}$")
+
+class PatchTriggerRequest(BaseModel):
+    advisory_id:     str       = Field("", max_length=128)
+    hosts:           List[str] = Field(default_factory=list)
+    packages:        List[str] = Field(default_factory=list)
+    dry_run:         bool      = True
+    remediation_cmd: str       = Field("", max_length=512)
+
+    @validator("hosts", each_item=True)
+    def validate_hostname(cls, v: str) -> str:
+        if not _HOSTNAME_RE.match(v):
+            raise ValueError(f"Invalid hostname: {v!r}")
+        return v
+
+    @validator("packages", each_item=True)
+    def validate_package(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9.\-_+:@]{1,256}$", v):
+            raise ValueError(f"Invalid package name: {v!r}")
+        return v
+
+    @validator("remediation_cmd")
+    def validate_remediation_cmd(cls, v: str) -> str:
+        # Allow characters typical of package manager commands
+        if v and not re.match(r'^[\w\s.\-+:@&=]+$', v):
+            raise ValueError("remediation_cmd contains invalid characters")
+        return v
+
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+
+def _require_valid_hostname(hostname: str) -> None:
+    """Raise 400 if hostname contains characters outside the safe allowlist."""
+    if not _HOSTNAME_RE.match(hostname):
+        raise HTTPException(status_code=400, detail="Invalid hostname format")
 
 def parse_hosts_from_content(content: str) -> list:
     return [
@@ -152,13 +215,315 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── auth endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+async def login(body: LoginRequest, response: Response):
+    user_id  = None
+    username = None
+    role     = None
+
+    # ── Try LDAP first if configured ─────────────────────────────────────────
+    if is_ldap_enabled():
+        ldap_result = ldap_authenticate(body.username, body.password)
+        if ldap_result:
+            existing = get_user_by_username(ldap_result["username"])
+            if not existing:
+                # First login — auto-create with role from AD group
+                new_user = create_user(
+                    username=ldap_result["username"],
+                    hashed_password="__ldap__",
+                    role=ldap_result["role"],
+                    created_by="ldap",
+                    is_active=True,
+                    auth_source="ldap",
+                )
+                user_id  = new_user["id"]
+                username = new_user["username"]
+                role     = new_user["role"]
+            else:
+                if not existing["is_active"]:
+                    raise HTTPException(status_code=403, detail="Account is disabled")
+                # Sync role from AD group on every login
+                if existing["role"] != ldap_result["role"]:
+                    update_user(existing["id"], {"role": ldap_result["role"]})
+                user_id  = existing["id"]
+                username = existing["username"]
+                role     = ldap_result["role"]
+
+    # ── Fall back to local DB ─────────────────────────────────────────────────
+    if user_id is None:
+        user = get_user_by_username(body.username)
+        if not user or not verify_password(body.password, user["hashed_password"]):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        if not user["is_active"]:
+            raise HTTPException(status_code=403, detail="Account is disabled")
+        user_id  = user["id"]
+        username = user["username"]
+        role     = user["role"]
+
+    # ── Issue tokens ──────────────────────────────────────────────────────────
+    access_token  = create_access_token(user_id, username, role)
+    refresh_token = create_refresh_token(user_id, username, role)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_EXPIRE)
+    save_refresh_token(user_id, refresh_token, expires_at)
+    update_last_login(user_id)
+
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=REFRESH_EXPIRE * 86400,
+        path="/",
+    )
+
+    db_user = get_user_by_username(username)
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+        "user": {
+            "id":          user_id,
+            "username":    username,
+            "role":        role,
+            "auth_source": db_user.get("auth_source", "local") if db_user else "local",
+        },
+    }
+
+
+@app.post("/api/auth/refresh")
+async def refresh_token(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No refresh token provided")
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid token type")
+    stored = get_refresh_token(token)
+    if not stored:
+        raise HTTPException(status_code=401, detail="Refresh token revoked or expired")
+    user = get_user_by_id(stored["user_id"])
+    if not user or not user["is_active"]:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+    access_token = create_access_token(user["id"], user["username"], user["role"])
+    return {
+        "access_token": access_token,
+        "token_type":   "bearer",
+        "expires_in":   15 * 60,
+    }
+
+
+class LdapSettingsUpdate(BaseModel):
+    enabled:        bool  = False
+    host:           str   = Field("", max_length=255)
+    port:           int   = Field(389, ge=1, le=65535)
+    use_ssl:        bool  = False
+    use_starttls:   bool  = False
+    tls_verify:     bool  = True
+    bind_dn:        str   = Field("", max_length=512)
+    bind_password:  str   = Field("", max_length=512)   # blank = keep existing
+    base_dn:        str   = Field("", max_length=512)
+    user_attr:      str   = Field("sAMAccountName", max_length=64)
+    admin_group:    str   = Field("", max_length=512)
+    operator_group: str   = Field("", max_length=512)
+    reader_group:   str   = Field("", max_length=512)
+    ca_cert:        str   = Field("", max_length=16384)  # PEM string or base64
+
+    @validator("host")
+    def validate_host(cls, v: str) -> str:
+        # Strip ldap:// or ldaps:// prefix if user pastes a full URI
+        v = re.sub(r"^ldaps?://", "", v.strip(), flags=re.IGNORECASE)
+        if v and not re.match(r"^[a-zA-Z0-9.\-]+$", v):
+            raise ValueError("Invalid LDAP host — use a hostname or IP address (e.g. 192.168.1.76 or dc.example.com)")
+        return v
+
+    @validator("user_attr")
+    def validate_user_attr(cls, v: str) -> str:
+        if v and not re.match(r"^[a-zA-Z][a-zA-Z0-9\-]*$", v):
+            raise ValueError("user_attr must be a valid LDAP attribute name")
+        return v
+
+
+@app.get("/api/ldap/settings", dependencies=[Depends(admin_only)])
+async def get_ldap_config():
+    """GET current LDAP settings — password is masked."""
+    return get_ldap_settings()
+
+
+@app.post("/api/ldap/settings", dependencies=[Depends(admin_only)])
+async def save_ldap_config(body: LdapSettingsUpdate):
+    """Save LDAP settings to DB. Blank password = keep existing."""
+    keep_password = not body.bind_password or body.bind_password == "••••••••"
+    saved = save_ldap_settings(body.dict(), keep_password=keep_password)
+    return saved
+
+
+@app.post("/api/ldap/test", dependencies=[Depends(admin_only)])
+async def test_ldap_config(body: LdapSettingsUpdate):
+    """
+    Test LDAP connectivity with the provided settings (not necessarily saved).
+    Useful for validating config before saving.
+    """
+    # Fetch existing password from DB if the form left it blank
+    if not body.bind_password or body.bind_password == "••••••••":
+        from database.ldap_settings import get_ldap_settings_for_auth
+        existing = get_ldap_settings_for_auth()
+        bind_pw  = existing["bind_password"] if existing else ""
+    else:
+        bind_pw = body.bind_password
+
+    cfg = {
+        "enabled":        body.enabled,
+        "host":           body.host,
+        "port":           body.port,
+        "use_ssl":        body.use_ssl,
+        "use_starttls":   body.use_starttls,
+        "tls_verify":     body.tls_verify,
+        "bind_dn":        body.bind_dn,
+        "bind_password":  bind_pw,
+        "base_dn":        body.base_dn,
+        "user_attr":      body.user_attr or "sAMAccountName",
+        "admin_group":    body.admin_group,
+        "operator_group": body.operator_group,
+        "reader_group":   body.reader_group,
+        "ca_cert":        body.ca_cert,
+    }
+    return test_ldap_connection(cfg)
+
+
+@app.get("/api/auth/ldap/status", dependencies=[Depends(admin_only)])
+async def ldap_status():
+    """GET LDAP connectivity status using current effective config."""
+    return test_ldap_connection()
+
+
+@app.post("/api/auth/register")
+async def register(body: LoginRequest):
+    """
+    Public endpoint — no token required.
+    Creates a user with is_active=False pending admin approval.
+    """
+    if not body.username or not body.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if len(body.username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if user_exists(body.username):
+        raise HTTPException(status_code=409, detail="Username already taken — please choose another")
+    try:
+        create_user(
+            username=body.username,
+            hashed_password=hash_password(body.password),
+            role="reader",
+            created_by="self-registration",
+            is_active=False,        # requires admin approval before login
+        )
+        return {"message": "Registration submitted — awaiting admin approval"}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+@app.post("/api/auth/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get("refresh_token")
+    if token:
+        revoke_refresh_token(token)
+    response.delete_cookie("refresh_token", path="/")
+    return {"message": "Logged out"}
+
+
+@app.get("/api/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    full = get_user_by_id(user["id"])
+    if not full:
+        raise HTTPException(status_code=404, detail="User not found")
+    return full
+
+
+# ── user management endpoints (admin only) ────────────────────────────────────
+
+@app.get("/api/users", dependencies=[Depends(admin_only)])
+async def get_users():
+    return list_users()
+
+
+@app.get("/api/users/pending", dependencies=[Depends(admin_only)])
+async def get_pending_users():
+    """Returns users awaiting approval (is_active=False, created_by=self-registration)."""
+    all_users = list_users()
+    return [u for u in all_users if not u["is_active"]]
+
+
+@app.post("/api/users", dependencies=[Depends(admin_only)])
+async def create_new_user(body: CreateUserRequest,
+                          current: dict = Depends(get_current_user)):
+    if body.role not in ("admin", "operator", "reader"):
+        raise HTTPException(status_code=400,
+                            detail="Invalid role — must be admin, operator, or reader")
+    if not body.username or not body.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        user = create_user(
+            username=body.username,
+            hashed_password=hash_password(body.password),
+            role=body.role,
+            created_by=current["username"],
+        )
+        return user
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.put("/api/users/{user_id}", dependencies=[Depends(admin_only)])
+async def update_existing_user(user_id: int, body: UpdateUserRequest,
+                               current: dict = Depends(get_current_user)):
+    # Prevent admin from deactivating or demoting themselves
+    if user_id == current["id"]:
+        if body.is_active is False:
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+        if body.role and body.role != "admin":
+            raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    updates = {}
+    if body.role is not None:
+        if body.role not in ("admin", "operator", "reader"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        updates["role"] = body.role
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+    if body.password is not None:
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        updates["hashed_password"] = hash_password(body.password)
+
+    user = update_user(user_id, updates)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.delete("/api/users/{user_id}", dependencies=[Depends(admin_only)])
+async def remove_user(user_id: int, current: dict = Depends(get_current_user)):
+    if user_id == current["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    deleted = delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"message": "User deleted"}
+
+
 # ── inventory endpoints ───────────────────────────────────────────────────────
 
-@app.get("/api/inventories")
+@app.get("/api/inventories", dependencies=[Depends(any_role)])
 async def list_inventories():
     return get_inventories()
 
-@app.post("/api/inventories/upload")
+@app.post("/api/inventories/upload", dependencies=[Depends(operator_up)])
 async def upload_inventory(
     file: UploadFile = File(...),
     name: str = Form(...),
@@ -173,7 +538,7 @@ async def upload_inventory(
     return {"id": inv_id, "name": name, "host_count": len(hosts),
             "inventory_type": inv_type, "message": f"Uploaded {len(hosts)} hosts"}
 
-@app.post("/api/inventories/{inv_id}/activate")
+@app.post("/api/inventories/{inv_id}/activate", dependencies=[Depends(operator_up)])
 async def set_active_inventory(inv_id: int):
     content  = activate_inventory(inv_id)
     hosts    = parse_hosts_from_content(content)
@@ -192,28 +557,28 @@ async def set_active_inventory(inv_id: int):
 
     return {"message": f"Activated {inv_type} inventory with {len(hosts)} hosts"}
 
-@app.delete("/api/inventories/{inv_id}")
+@app.delete("/api/inventories/{inv_id}", dependencies=[Depends(operator_up)])
 async def remove_inventory(inv_id: int):
     delete_inventory(inv_id)
     return {"message": "Deleted"}
 
 # ── credential endpoints ──────────────────────────────────────────────────────
 
-@app.post("/api/credentials")
+@app.post("/api/credentials", dependencies=[Depends(operator_up)])
 async def set_credentials(body: CredentialsUpdate):
     if not body.username or not body.password:
         raise HTTPException(status_code=400, detail="Username and password are required")
     save_credentials(body.inventory_id, body.username, body.password)
     return {"message": "Credentials saved"}
 
-@app.get("/api/credentials/{inventory_id}")
+@app.get("/api/credentials/{inventory_id}", dependencies=[Depends(operator_up)])
 async def fetch_credentials(inventory_id: int):
     creds = get_credentials(inventory_id)
     if not creds:
         return {"username": "", "has_credentials": False}
     return {"username": creds["username"], "has_credentials": True, "updated_at": creds["updated_at"]}
 
-@app.get("/api/windows/credentials")
+@app.get("/api/windows/credentials", dependencies=[Depends(any_role)])
 async def get_windows_creds():
     creds = get_windows_credentials()
     if not creds:
@@ -227,7 +592,7 @@ async def get_windows_creds():
         "updated_at": creds["updated_at"],
     }
 
-@app.post("/api/windows/credentials")
+@app.post("/api/windows/credentials", dependencies=[Depends(operator_up)])
 async def set_windows_creds(body: WindowsCredentialsUpdate):
     if not body.username or not body.password:
         raise HTTPException(status_code=400, detail="Username and password are required")
@@ -241,7 +606,7 @@ async def set_windows_creds(body: WindowsCredentialsUpdate):
 
 # ── host endpoints ────────────────────────────────────────────────────────────
 
-@app.get("/api/hosts")
+@app.get("/api/hosts", dependencies=[Depends(any_role)])
 async def get_hosts_endpoint():
     if not os.path.exists(INVENTORY_PATH):
         return {"hosts": []}
@@ -250,7 +615,7 @@ async def get_hosts_endpoint():
     hosts = [l.strip() for l in lines if l.strip() and not l.startswith("[")]
     return {"hosts": hosts}
 
-@app.post("/api/hosts")
+@app.post("/api/hosts", dependencies=[Depends(operator_up)])
 async def update_hosts(body: HostsUpdate):
     if not body.hosts:
         raise HTTPException(status_code=400, detail="Host list cannot be empty")
@@ -260,24 +625,28 @@ async def update_hosts(body: HostsUpdate):
         f.write(content)
     return {"message": f"Inventory updated with {len(body.hosts)} hosts", "hosts": body.hosts}
 
-@app.get("/api/hosts/{hostname}/history")
+@app.get("/api/hosts/{hostname}/history", dependencies=[Depends(any_role)])
 async def get_host_history_endpoint(hostname: str):
+    _require_valid_hostname(hostname)
     return get_host_history(hostname)
 
-@app.get("/api/hosts/{hostname}/cves")
+@app.get("/api/hosts/{hostname}/cves", dependencies=[Depends(any_role)])
 async def get_host_cves_endpoint(hostname: str):
+    _require_valid_hostname(hostname)
     return get_host_cves(hostname)
 
-@app.get("/api/tags")
+@app.get("/api/tags", dependencies=[Depends(any_role)])
 async def list_all_tags():
     return {"tags": get_all_tags()}
 
-@app.get("/api/hosts/{hostname}/tags")
+@app.get("/api/hosts/{hostname}/tags", dependencies=[Depends(any_role)])
 async def get_host_tags(hostname: str):
+    _require_valid_hostname(hostname)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
-@app.post("/api/hosts/{hostname}/tags")
+@app.post("/api/hosts/{hostname}/tags", dependencies=[Depends(operator_up)])
 async def add_host_tag(hostname: str, body: TagAdd):
+    _require_valid_hostname(hostname)
     tag = body.tag.strip().lower()
     if not tag:
         raise HTTPException(status_code=400, detail="Tag cannot be empty")
@@ -286,14 +655,15 @@ async def add_host_tag(hostname: str, body: TagAdd):
     add_tag(hostname, tag)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
-@app.delete("/api/hosts/{hostname}/tags/{tag}")
+@app.delete("/api/hosts/{hostname}/tags/{tag}", dependencies=[Depends(operator_up)])
 async def remove_host_tag(hostname: str, tag: str):
+    _require_valid_hostname(hostname)
     remove_tag(hostname, tag)
     return {"hostname": hostname, "tags": get_tags_for_host(hostname)}
 
 # ── Linux scan endpoints ──────────────────────────────────────────────────────
 
-@app.post("/api/scans/trigger")
+@app.post("/api/scans/trigger", dependencies=[Depends(operator_up)])
 async def trigger_scan(background_tasks: BackgroundTasks):
     creds = get_active_inventory_credentials()
     if not creds:
@@ -308,9 +678,130 @@ async def trigger_scan(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_and_save, scan_id, scanned_at)
     return {"scan_id": scan_id, "status": "started", "scanned_at": scanned_at.isoformat()}
 
+# ── Manual CVE enrichment re-trigger ─────────────────────────────────────────
+
+@app.post("/api/scans/enrich", dependencies=[Depends(operator_up)])
+async def trigger_enrichment(background_tasks: BackgroundTasks):
+    """Re-run CVE enrichment on existing scan data without triggering a new scan."""
+    background_tasks.add_task(enrich_all)
+    return {"status": "started", "message": "CVE enrichment running in background — check container logs for progress"}
+
+@app.get("/api/scans/ubuntu-debug", dependencies=[Depends(operator_up)])
+async def ubuntu_cve_debug():
+    """Diagnostic: trace the Ubuntu CVE enrichment pipeline without modifying DB."""
+    import urllib.request
+    from enricher import get_ubuntu_hosts_and_packages, get_ubuntu_codename, UBUNTU_CVES_API
+    from database import get_conn
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    result = {"steps": []}
+
+    try:
+        # Step 1: Ubuntu hosts
+        hosts = get_ubuntu_hosts_and_packages()
+        result["steps"].append({
+            "step": "1_ubuntu_hosts",
+            "count": len(hosts),
+            "hosts": [
+                {
+                    "host": h["host"],
+                    "codename": h["codename"],
+                    "package_count": len(h["packages"]),
+                    "source_map_entries": len(h["source_map"]),
+                    "source_map_sample": dict(list(h["source_map"].items())[:5]),
+                    "packages_sample": h["packages"][:5],
+                }
+                for h in hosts
+            ],
+        })
+
+        # Step 2: For each unique source package, test Ubuntu CVE API
+        seen = set()
+        api_results = []
+        for h in hosts:
+            for pkg in h["packages"][:10]:  # limit to first 10 per host
+                binary = pkg.split("/")[0].split("=")[0].split(":")[0].strip()
+                src = h["source_map"].get(binary, binary)
+                if "(" in src:
+                    src = src.split("(")[0].strip()
+                if ":" in src:
+                    src = src.split(":")[-1].strip()
+                key = (src, h["codename"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    url = UBUNTU_CVES_API.format(src)
+                    with urllib.request.urlopen(url, timeout=8) as r:
+                        d = json.loads(r.read())
+                    total = d.get("total_results", 0)
+                    cves = d.get("cves", [])
+                    matching = 0
+                    for c in cves:
+                        for p in c.get("packages", []):
+                            for s in p.get("statuses", []):
+                                cn = (s.get("release_codename") or s.get("distro_series") or "")
+                                if cn == h["codename"] and s.get("status") in (
+                                    "needed", "active", "deferred", "pending", "released", "needs-triage"
+                                ):
+                                    matching += 1
+                    api_results.append({
+                        "binary": binary,
+                        "source": src,
+                        "codename": h["codename"],
+                        "api_total": total,
+                        "status_matched": matching,
+                    })
+                except Exception as e:
+                    api_results.append({"binary": binary, "source": src, "error": str(e)})
+        result["steps"].append({"step": "2_api_probe", "results": api_results})
+
+        # Step 3: cve_details rows for CVE-* IDs
+        cursor.execute("SELECT COUNT(*) FROM cve_details WHERE advisory_id LIKE 'CVE-%'")
+        ubuntu_cve_count = cursor.fetchone()[0]
+        cursor.execute("SELECT advisory_id, source_package FROM cve_details WHERE advisory_id LIKE 'CVE-%' LIMIT 10")
+        samples = [{"id": r[0], "source_package": r[1]} for r in cursor.fetchall()]
+        result["steps"].append({
+            "step": "3_stored_ubuntu_cves",
+            "count": ubuntu_cve_count,
+            "samples": samples,
+        })
+
+        # Step 4: package_source_map values in scan_results for Ubuntu hosts
+        cursor.execute("""
+            SELECT sr.host, sr.os_version, sr.package_source_map
+            FROM scan_results sr
+            JOIN scan_runs s ON s.scan_id = sr.scan_id
+            WHERE (sr.os_version ILIKE 'Ubuntu%' OR sr.os_version ILIKE 'Debian%')
+            ORDER BY s.scanned_at DESC LIMIT 5
+        """)
+        rows = cursor.fetchall()
+        result["steps"].append({
+            "step": "4_scan_results_source_map",
+            "rows": [
+                {
+                    "host": r[0],
+                    "os_version": r[1],
+                    "source_map_keys": len(r[2]) if r[2] else 0,
+                    "source_map_sample": dict(list(r[2].items())[:5]) if r[2] else {},
+                }
+                for r in rows
+            ],
+        })
+
+    except Exception as e:
+        result["error"] = str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+    return result
+
 # ── Windows scan endpoints ────────────────────────────────────────────────────
 
-@app.post("/api/scans/trigger-windows")
+@app.post("/api/scans/trigger-windows", dependencies=[Depends(operator_up)])
 async def trigger_windows_scan(background_tasks: BackgroundTasks):
     already_running = any(v in ("running", "pending") for v in running_scans.values())
     if already_running:
@@ -321,7 +812,7 @@ async def trigger_windows_scan(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_windows_and_save, scan_id, scanned_at)
     return {"scan_id": scan_id, "status": "started", "scanned_at": scanned_at.isoformat()}
 
-@app.get("/api/scans/windows/latest")
+@app.get("/api/scans/windows/latest", dependencies=[Depends(any_role)])
 async def latest_windows_scan():
     data = get_latest_windows_scan()
     if not data:
@@ -330,29 +821,29 @@ async def latest_windows_scan():
 
 # ── shared scan endpoints ─────────────────────────────────────────────────────
 
-@app.get("/api/scans/current")
+@app.get("/api/scans/current", dependencies=[Depends(any_role)])
 async def current_scan():
     for scan_id, status in reversed(list(running_scans.items())):
         if status in ("running", "pending"):
             return {"scanning": True, "scan_id": scan_id, "status": status}
     return {"scanning": False}
 
-@app.get("/api/scans/latest")
+@app.get("/api/scans/latest", dependencies=[Depends(any_role)])
 async def latest_scan():
     data = get_latest_scan()
     if not data:
         raise HTTPException(status_code=404, detail="No scans found")
     return data
 
-@app.get("/api/scans/history")
+@app.get("/api/scans/history", dependencies=[Depends(any_role)])
 async def scan_history():
     return get_scan_history()
 
-@app.get("/api/scans/{scan_id}/status")
+@app.get("/api/scans/{scan_id}/status", dependencies=[Depends(any_role)])
 async def get_scan_status(scan_id: str):
     return {"scan_id": scan_id, "status": running_scans.get(scan_id, "unknown")}
 
-@app.get("/api/scans/{scan_id}/failures")
+@app.get("/api/scans/{scan_id}/failures", dependencies=[Depends(any_role)])
 async def get_scan_failures_endpoint(scan_id: str):
     data = get_scan_failures(scan_id)
     if not data:
@@ -361,13 +852,103 @@ async def get_scan_failures_endpoint(scan_id: str):
 
 # ── CVE advisories ────────────────────────────────────────────────────────────
 
-@app.get("/api/cves")
+@app.get("/api/cves", dependencies=[Depends(any_role)])
 async def get_cves():
     return get_cve_details()
 
+@app.get("/api/cve/{advisory_id}/resolved-packages", dependencies=[Depends(any_role)])
+async def get_cve_resolved_packages(advisory_id: str):
+    """
+    For Ubuntu/Debian CVEs, resolve the source package stored in cve_details
+    to the actual binary packages present on affected hosts, so the UI can
+    display the exact apt command that will run (rather than the source name).
+    Returns {"source_package": str, "binary_packages": [str], "apt_cmd": str}.
+    """
+    from database import get_conn
+    conn = get_conn()
+    cur  = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT source_package FROM cve_details WHERE advisory_id = %s",
+            (advisory_id,)
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return {"source_package": None, "binary_packages": [], "apt_cmd": None}
+
+        source_pkg = row[0]
+
+        # Find hosts affected by this CVE using the same logic as get_cve_details:
+        # look at the most recent scan_results per host where the source_package
+        # appears in package_source_map (Ubuntu/Debian CVE path).
+        cur.execute(
+            """
+            SELECT DISTINCT sr.host
+            FROM (
+                SELECT DISTINCT ON (sr.host)
+                    sr.host, sr.package_source_map
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                ORDER BY sr.host, s.scanned_at DESC
+            ) sr
+            WHERE EXISTS (
+                SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                WHERE kv.value = %s
+            )
+            """,
+            (source_pkg,)
+        )
+        hosts = [r[0] for r in cur.fetchall()]
+
+        binary_pkgs = []
+        for host in hosts:
+            cur.execute(
+                """
+                SELECT DISTINCT sp.package_name
+                FROM scan_packages sp
+                JOIN scan_results sr ON sr.scan_id = sp.scan_id
+                                    AND sr.host    = sp.host
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                WHERE sp.host = %s
+                  AND EXISTS (
+                      SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                      WHERE kv.key = sp.package_name AND kv.value = %s
+                  )
+                ORDER BY sp.package_name
+                """,
+                (host, source_pkg)
+            )
+            binary_pkgs.extend(r[0] for r in cur.fetchall())
+
+        # Deduplicate while preserving order
+        seen = set()
+        deduped = []
+        for p in binary_pkgs:
+            if p not in seen:
+                seen.add(p)
+                deduped.append(p)
+
+        if deduped:
+            apt_cmd = f"apt-get install --only-upgrade {' '.join(deduped)}"
+        elif source_pkg.endswith('-app'):
+            stripped = source_pkg[:-4]
+            deduped  = [stripped]
+            apt_cmd  = f"apt-get install --only-upgrade {stripped}"
+        else:
+            apt_cmd = f"apt-get install --only-upgrade {source_pkg}"
+
+        return {
+            "source_package":  source_pkg,
+            "binary_packages": deduped,
+            "apt_cmd":         apt_cmd,
+        }
+    finally:
+        cur.close()
+        conn.close()
+
 # ── scheduler endpoints ───────────────────────────────────────────────────────
 
-@app.get("/api/scheduler/status")
+@app.get("/api/scheduler/status", dependencies=[Depends(any_role)])
 async def scheduler_status():
     job = scheduler.get_job("auto_scan")
     if not job:
@@ -378,11 +959,11 @@ async def scheduler_status():
         "interval_minutes": get_scan_interval(),
     }
 
-@app.get("/api/scheduler/interval")
+@app.get("/api/scheduler/interval", dependencies=[Depends(any_role)])
 async def get_interval():
     return {"interval_minutes": get_scan_interval()}
 
-@app.post("/api/scheduler/interval")
+@app.post("/api/scheduler/interval", dependencies=[Depends(operator_up)])
 async def set_interval(body: IntervalPayload):
     minutes = body.interval_minutes
     if minutes < 1:
@@ -395,14 +976,14 @@ async def set_interval(body: IntervalPayload):
 
 # ── notification endpoints ────────────────────────────────────────────────────
 
-@app.get("/api/notifications/settings")
+@app.get("/api/notifications/settings", dependencies=[Depends(operator_up)])
 async def get_notification_settings_endpoint():
     s = get_notification_settings()
     if s.get("smtp_password"):
         s["smtp_password"] = "••••••••"
     return s
 
-@app.post("/api/notifications/settings")
+@app.post("/api/notifications/settings", dependencies=[Depends(operator_up)])
 async def save_notification_settings_endpoint(body: NotificationSettings):
     existing = get_notification_settings()
     password = body.smtp_password
@@ -416,7 +997,7 @@ async def save_notification_settings_endpoint(body: NotificationSettings):
     )
     return {"message": "Settings saved"}
 
-@app.post("/api/notifications/test")
+@app.post("/api/notifications/test", dependencies=[Depends(operator_up)])
 async def test_notification(background_tasks: BackgroundTasks):
     settings = get_notification_settings()
     if not settings["smtp_host"]:
@@ -454,44 +1035,38 @@ async def test_notification(background_tasks: BackgroundTasks):
 
 # ── Patch endpoints ───────────────────────────────────────────────────────────
 
-@app.post("/api/patch/trigger")
-async def trigger_patch(request: Request, background_tasks: BackgroundTasks):
-    body = await request.json()
-    advisory_id = body.get("advisory_id", "")
-    hosts       = body.get("hosts", [])
-    packages    = body.get("packages", [])
-    dry_run     = body.get("dry_run", True)
-
-    if not hosts:
-        raise HTTPException(status_code=400, detail="No hosts specified")
-    if not packages:
-        raise HTTPException(status_code=400, detail="No packages specified")
-
+@app.post("/api/patch/trigger", dependencies=[Depends(operator_up)])
+async def trigger_patch(body: PatchTriggerRequest, background_tasks: BackgroundTasks):
+    if not body.hosts:
+        raise HTTPException(status_code=400, detail="hosts list must not be empty")
+    if not body.packages:
+        raise HTTPException(status_code=400, detail="packages list must not be empty")
     job_id = str(uuid.uuid4())
     save_patch_job(
         job_id      = job_id,
-        advisory_id = advisory_id,
-        packages    = packages,
-        hosts       = hosts,
-        dry_run     = dry_run,
+        advisory_id = body.advisory_id,
+        packages    = body.packages,
+        hosts       = body.hosts,
+        dry_run     = body.dry_run,
     )
 
     from scan_tasks import run_patch_and_save
     background_tasks.add_task(
-        run_patch_and_save, job_id, advisory_id, hosts, packages, dry_run
+        run_patch_and_save, job_id, body.advisory_id, body.hosts, body.packages,
+        body.dry_run, body.remediation_cmd
     )
     running_scans[job_id] = "running"
 
-    mode = "dry_run" if dry_run else "apply"
+    mode = "dry_run" if body.dry_run else "apply"
     return {
-        "job_id":  job_id,
-        "status":  "started",
-        "mode":    mode,
-        "hosts":   hosts,
-        "packages": packages,
+        "job_id":   job_id,
+        "status":   "started",
+        "mode":     mode,
+        "hosts":    body.hosts,
+        "packages": body.packages,
     }
 
-@app.get("/api/patch/{job_id}/status")
+@app.get("/api/patch/{job_id}/status", dependencies=[Depends(any_role)])
 async def patch_job_status(job_id: str):
     # Check in-memory first for live status
     mem_status = running_scans.get(job_id)
@@ -502,14 +1077,15 @@ async def patch_job_status(job_id: str):
         job['status'] = mem_status
     return job
 
-@app.get("/api/patch/history")
+@app.get("/api/patch/history", dependencies=[Depends(any_role)])
 async def patch_history():
     return get_patch_history(limit=50)
 
 # ── Host ports endpoint ───────────────────────────────────────────────────────
 
-@app.get("/api/hosts/{hostname}/ports")
+@app.get("/api/hosts/{hostname}/ports", dependencies=[Depends(any_role)])
 async def get_ports(hostname: str):
+    _require_valid_hostname(hostname)
     ports = get_host_ports(hostname)
     return {"hostname": hostname, "ports": ports}
 
@@ -573,7 +1149,7 @@ def _get_openai_client():
 
 # ── AI chat endpoint ──────────────────────────────────────────────────────────
 
-@app.post("/api/chat")
+@app.post("/api/chat", dependencies=[Depends(any_role)])
 async def chat(body: ChatMessage):
     client, model = _get_openai_client()
 

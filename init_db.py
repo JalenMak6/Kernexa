@@ -197,8 +197,70 @@ def init():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_patch_jobs_advisory ON patch_jobs(advisory_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_patch_jobs_status   ON patch_jobs(status)")
 
+        # ── Users ──────────────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id              SERIAL PRIMARY KEY,
+                username        TEXT NOT NULL UNIQUE,
+                hashed_password TEXT NOT NULL,
+                role            TEXT NOT NULL DEFAULT 'reader'
+                                    CHECK (role IN ('admin', 'operator', 'reader')),
+                is_active       BOOLEAN NOT NULL DEFAULT true,
+                auth_source     TEXT NOT NULL DEFAULT 'local'
+                                    CHECK (auth_source IN ('local', 'ldap')),
+                created_by      TEXT NOT NULL DEFAULT 'system',
+                created_at      TIMESTAMP DEFAULT NOW(),
+                last_login      TIMESTAMP
+            )
+        ''')
+        # Migration: add auth_source to existing deployments
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_source TEXT NOT NULL DEFAULT 'local' CHECK (auth_source IN ('local', 'ldap'))")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+
+        # ── Refresh tokens ─────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id          SERIAL PRIMARY KEY,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token       TEXT NOT NULL UNIQUE,
+                expires_at  TIMESTAMP NOT NULL,
+                revoked     BOOLEAN NOT NULL DEFAULT false,
+                created_at  TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user   ON refresh_tokens(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token  ON refresh_tokens(token)")
+
+        # ── LDAP settings ──────────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ldap_settings (
+                id               SERIAL PRIMARY KEY,
+                enabled          BOOLEAN NOT NULL DEFAULT false,
+                host             TEXT NOT NULL DEFAULT '',
+                port             INTEGER NOT NULL DEFAULT 389,
+                use_ssl          BOOLEAN NOT NULL DEFAULT false,
+                use_starttls     BOOLEAN NOT NULL DEFAULT false,
+                tls_verify       BOOLEAN NOT NULL DEFAULT true,
+                bind_dn          TEXT NOT NULL DEFAULT '',
+                bind_password    TEXT NOT NULL DEFAULT '',
+                base_dn          TEXT NOT NULL DEFAULT '',
+                user_attr        TEXT NOT NULL DEFAULT 'sAMAccountName',
+                admin_group      TEXT NOT NULL DEFAULT '',
+                operator_group   TEXT NOT NULL DEFAULT '',
+                reader_group     TEXT NOT NULL DEFAULT '',
+                ca_cert          TEXT NOT NULL DEFAULT '',
+                updated_at       TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        # Ensure exactly one row exists
+        cursor.execute('''
+            INSERT INTO ldap_settings (id) VALUES (1)
+            ON CONFLICT (id) DO NOTHING
+        ''')
+
         conn.commit()
         print("Database tables created/migrated successfully")
+
     except Exception as e:
         conn.rollback()
         print(f"Error: {e}")
@@ -206,6 +268,77 @@ def init():
     finally:
         cursor.close()
         conn.close()
+
+    # ── Seed users from environment variables ──────────────────────────────────
+    _seed_users()
+
+
+def _seed_users():
+    """
+    Create users from environment variables on startup.
+    All operations are idempotent — existing users are never overwritten.
+
+    Required:
+        KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS   — admin account
+
+    Optional demo accounts:
+        KERNEXA_OPERATOR_USER / KERNEXA_OPERATOR_PASS  — operator role
+        KERNEXA_READER_USER  / KERNEXA_READER_PASS     — reader role
+
+    Optional CI account:
+        CI_TEST_USER / CI_TEST_PASS / CI_TEST_ROLE (default: reader)
+    """
+    import os
+    import bcrypt
+    from database.users import user_exists, create_user
+
+    def _hash(password: str) -> str:
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    def _seed(username, password, role, label=""):
+        if not username or not password:
+            return
+        if user_exists(username):
+            print(f"User '{username}' already exists — skipping")
+            return
+        create_user(
+            username=username,
+            hashed_password=_hash(password),
+            role=role,
+            created_by="system",
+        )
+        print(f"Created {label or role} user '{username}'")
+
+    # Admin — warn if not set
+    admin_user = os.environ.get("KERNEXA_ADMIN_USER", "").strip()
+    admin_pass = os.environ.get("KERNEXA_ADMIN_PASS", "").strip()
+    if admin_user and admin_pass:
+        _seed(admin_user, admin_pass, "admin", "admin")
+    else:
+        print("WARNING: KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS not set — no admin created")
+
+    # Optional operator demo account
+    _seed(
+        os.environ.get("KERNEXA_OPERATOR_USER", "").strip(),
+        os.environ.get("KERNEXA_OPERATOR_PASS", "").strip(),
+        "operator", "operator",
+    )
+
+    # Optional reader demo account
+    _seed(
+        os.environ.get("KERNEXA_READER_USER", "").strip(),
+        os.environ.get("KERNEXA_READER_PASS", "").strip(),
+        "reader", "reader",
+    )
+
+    # Optional CI test user
+    ci_role = os.environ.get("CI_TEST_ROLE", "reader").strip()
+    _seed(
+        os.environ.get("CI_TEST_USER", "").strip(),
+        os.environ.get("CI_TEST_PASS", "").strip(),
+        ci_role if ci_role in ("admin", "operator", "reader") else "reader",
+        f"CI ({ci_role})",
+    )
 
 if __name__ == "__main__":
     init()

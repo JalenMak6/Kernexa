@@ -133,11 +133,18 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Refresh apt package index (Debian family)
+      ansible.builtin.raw: apt-get update -qq 2>/dev/null; true
+      when: _os_family == "Debian"
+      changed_when: false
+      ignore_errors: true
+
     - name: Get pending security packages (Debian family)
       ansible.builtin.raw: |
         apt list --upgradable 2>/dev/null \
           | grep -v "^Listing" \
-          | awk -F/ '{print $1}'
+          | awk -F/ '{print $1}' \
+          | sed 's/:[a-zA-Z0-9_]*$//'
       register: pending_pkgs_deb_raw
       when: _os_family == "Debian"
       changed_when: false
@@ -172,8 +179,12 @@
     - name: Get binary-to-source package map
       ansible.builtin.raw: |
         apt list --upgradable 2>/dev/null | grep -v "^Listing" | awk -F/ '{print $1}' | \
-        while read pkg; do
-          src=$(dpkg-query -f='${Source}\n' -W "$pkg" 2>/dev/null | head -1)
+        sed 's/:[a-zA-Z0-9_]*$//' | \
+        while IFS= read -r pkg; do
+          src=$(dpkg-query -f='${Source}\n' -W "$pkg" 2>/dev/null | head -1 | awk '{print $1}')
+          if [ -z "$src" ]; then
+            src=$(apt-cache show "$pkg" 2>/dev/null | grep -m1 "^Source:" | awk '{print $2}')
+          fi
           echo "$pkg:${src:-$pkg}"
         done
       register: pkg_source_map_raw

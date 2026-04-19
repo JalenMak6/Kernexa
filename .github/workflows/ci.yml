@@ -214,19 +214,33 @@ jobs:
           ADMINER_PORT=8080
           IMAGE=${{ needs.build.outputs.image_local_tag }}
           ENABLE_DOCS=true
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          KERNEXA_ADMIN_USER=${{ secrets.KERNEXA_ADMIN_USER }}
+          KERNEXA_ADMIN_PASS=${{ secrets.KERNEXA_ADMIN_PASS }}
+          CI_TEST_USER=ci_runner
+          CI_TEST_PASS=${{ secrets.CI_TEST_PASS }}
+          CI_TEST_ROLE=reader
           EOF
 
+      - name: Tear down any leftover containers
+        run: docker compose down -v || true
+
       - name: Start containers
-        run: docker compose up -d
+        run: docker compose up -d --build --force-recreate
 
       - name: Wait for app to be ready
         run: |
           echo "Waiting for app to be ready..."
           sleep 10
           for i in {1..10}; do
+            # Use /api/auth/login instead of a protected endpoint
+            # — it always responds (200 or 422) once the app is up
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              http://localhost:8000/api/scans/latest || echo "000")
-            if [ "$STATUS" = "200" ] || [ "$STATUS" = "404" ]; then
+              -X POST http://localhost:8000/api/auth/login \
+              -H "Content-Type: application/json" \
+              -d '{"username":"__healthcheck__","password":"__healthcheck__"}' \
+              || echo "000")
+            if [ "$STATUS" = "401" ] || [ "$STATUS" = "200" ] || [ "$STATUS" = "422" ]; then
               echo "App is up (HTTP $STATUS)"
               exit 0
             fi
@@ -243,6 +257,11 @@ jobs:
       - name: Run pytest
         env:
           TEST_BASE_URL: http://localhost:8000
+          CI_TEST_USER: ci_runner
+          CI_TEST_PASS: ${{ secrets.CI_TEST_PASS }}
+          CI_TEST_ROLE: reader
+          KERNEXA_ADMIN_USER: ${{ secrets.KERNEXA_ADMIN_USER }}
+          KERNEXA_ADMIN_PASS: ${{ secrets.KERNEXA_ADMIN_PASS }}
         run: |
           /home/jalen/.local/bin/pytest tests/test_api.py \
             --tb=short \

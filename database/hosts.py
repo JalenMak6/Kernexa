@@ -136,26 +136,29 @@ def get_host_cves(hostname: str) -> list:
     conn   = get_conn()
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT scan_id FROM scan_runs ORDER BY scanned_at DESC LIMIT 1')
-        row = cursor.fetchone()
-        if not row:
-            return []
-        latest_scan_id = row[0]
-
+        # Use this host's most recent scan, not the global latest scan_id,
+        # so a re-scan of another host doesn't clear this host's CVE history.
         cursor.execute('''
             SELECT
                 cd.advisory_id, cd.synopsis, cd.severity, cd.cve_ids,
                 cd.description, cd.cvss_score, cd.cvss_vector,
                 cd.cvss_version, cd.cvss_source, cd.remediation
             FROM cve_details cd
-            JOIN scan_results sr ON sr.scan_id = %s AND sr.host = %s AND (
+            JOIN (
+                SELECT sr.advisory_ids, sr.package_source_map
+                FROM scan_results sr
+                JOIN scan_runs s ON s.scan_id = sr.scan_id
+                WHERE sr.host = %s
+                ORDER BY s.scanned_at DESC
+                LIMIT 1
+            ) latest_host_scan ON (
                 (cd.advisory_id ~ \'^(RLSA|RHSA|ALSA)-\'
-                    AND cd.advisory_id = ANY(sr.advisory_ids::text[]))
+                    AND cd.advisory_id = ANY(latest_host_scan.advisory_ids::text[]))
                 OR
                 (cd.advisory_id LIKE \'CVE-%%\'
                     AND cd.source_package IS NOT NULL
                     AND EXISTS (
-                        SELECT 1 FROM jsonb_each_text(sr.package_source_map) kv
+                        SELECT 1 FROM jsonb_each_text(latest_host_scan.package_source_map) kv
                         WHERE kv.value = cd.source_package
                     )
                 )
@@ -169,7 +172,7 @@ def get_host_cves(hostname: str) -> list:
                     ELSE 5
                 END,
                 cd.cvss_score DESC NULLS LAST
-        ''', (latest_scan_id, hostname))
+        ''', (hostname,))
 
         rows = cursor.fetchall()
         return [
