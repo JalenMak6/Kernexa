@@ -371,7 +371,7 @@ export default function App() {
             {isCollapsed ? (
               <span style={{ fontWeight: 800, fontSize: 20, color: "#1e3a8a" }}>K</span>
             ) : (
-              <img src="/kernexa.png" alt="Kernexa" style={{ width: "100%", maxHeight: 40, objectFit: "contain" }} />
+              <img src="/kermonix.png" alt="Kermonix" style={{ width: "100%", maxHeight: 40, objectFit: "contain" }} />
             )}
           </div>
           {!isCollapsed && (

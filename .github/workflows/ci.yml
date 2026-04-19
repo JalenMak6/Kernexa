@@ -1,4 +1,4 @@
-name: Kernexa CI pipeline
+name: Kermonix CI pipeline
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
     branches: [main]
 
 env:
-  IMAGE_NAME: jalenmakdocker/kernexa
+  IMAGE_NAME: jalenmakdocker/kermonix
 
 concurrency:
   group: my-workflow
@@ -140,13 +140,13 @@ jobs:
 
           if critical == 0:
               status  = f"PASSED - No CRITICAL CVEs found ({high} HIGH found, non-blocking)"
-              subject = f"Kernexa Trivy Scan Passed -- {branch} #{run_number}"
+              subject = f"Kermonix Trivy Scan Passed -- {branch} #{run_number}"
           else:
               status  = f"FAILED - {critical} CRITICAL CVEs found (pipeline blocked)"
-              subject = f"Kernexa Trivy Scan Failed -- {branch} #{run_number}"
+              subject = f"Kermonix Trivy Scan Failed -- {branch} #{run_number}"
 
           lines = []
-          lines.append("Kernexa Trivy Security Scan Result")
+          lines.append("Kermonix Trivy Security Scan Result")
           lines.append("-" * 60)
           lines.append(f"Status:   {status}")
           lines.append(f"Branch:   {branch}")
@@ -215,8 +215,8 @@ jobs:
           IMAGE=${{ needs.build.outputs.image_local_tag }}
           ENABLE_DOCS=true
           JWT_SECRET=${{ secrets.JWT_SECRET }}
-          KERNEXA_ADMIN_USER=${{ secrets.KERNEXA_ADMIN_USER }}
-          KERNEXA_ADMIN_PASS=${{ secrets.KERNEXA_ADMIN_PASS }}
+          KERMONIX_ADMIN_USER=${{ secrets.KERMONIX_ADMIN_USER }}
+          KERMONIX_ADMIN_PASS=${{ secrets.KERMONIX_ADMIN_PASS }}
           CI_TEST_USER=ci_runner
           CI_TEST_PASS=${{ secrets.CI_TEST_PASS }}
           CI_TEST_ROLE=reader
@@ -260,8 +260,8 @@ jobs:
           CI_TEST_USER: ci_runner
           CI_TEST_PASS: ${{ secrets.CI_TEST_PASS }}
           CI_TEST_ROLE: reader
-          KERNEXA_ADMIN_USER: ${{ secrets.KERNEXA_ADMIN_USER }}
-          KERNEXA_ADMIN_PASS: ${{ secrets.KERNEXA_ADMIN_PASS }}
+          KERMONIX_ADMIN_USER: ${{ secrets.KERMONIX_ADMIN_USER }}
+          KERMONIX_ADMIN_PASS: ${{ secrets.KERMONIX_ADMIN_PASS }}
         run: |
           /home/jalen/.local/bin/pytest tests/test_api.py \
             --tb=short \
@@ -317,9 +317,9 @@ jobs:
           run_url           = os.environ['RUN_URL']
           image_name        = os.environ['IMAGE_NAME']
 
-          subject = f"Kernexa Dev Image Pushed -- latest"
+          subject = f"Kermonix Dev Image Pushed -- latest"
           body = "\n".join([
-              "Kernexa Dev Image Published",
+              "Kermonix Dev Image Published",
               "-" * 60,
               f"Image:    {image_name}:latest",
               f"Branch:   dev",
@@ -433,9 +433,9 @@ jobs:
           run_url           = os.environ['RUN_URL']
           image_name        = os.environ['IMAGE_NAME']
 
-          subject = f"Kernexa Release Image Pushed -- {version}"
+          subject = f"Kermonix Release Image Pushed -- {version}"
           body = "\n".join([
-              "Kernexa Release Image Published",
+              "Kermonix Release Image Published",
               "-" * 60,
               f"Version:  {version}",
               f"Image:    {image_name}:{version}",
@@ -493,9 +493,9 @@ jobs:
           run_number        = os.environ['RUN_NUMBER']
           run_url           = os.environ['RUN_URL']
 
-          subject = f"Kernexa CI Failed -- {branch}"
+          subject = f"Kermonix CI Failed -- {branch}"
           body = "\n".join([
-              "Kernexa CI pipeline failed.",
+              "Kermonix CI pipeline failed.",
               "-" * 60,
               f"Branch: {branch}",
               f"Run:    #{run_number}",

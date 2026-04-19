@@ -213,7 +213,7 @@ function NotificationSettings() {
           <input style={inputStyle} type="password" value={form.smtp_password} onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} placeholder="App password or SMTP password" />
         </Field>
         <Field label="From Address" hint="Displayed as the sender — defaults to username if blank">
-          <input style={inputStyle} value={form.smtp_from} onChange={e => setForm(f => ({ ...f, smtp_from: e.target.value }))} placeholder="kernexa@yourdomain.com" />
+          <input style={inputStyle} value={form.smtp_from} onChange={e => setForm(f => ({ ...f, smtp_from: e.target.value }))} placeholder="kermonix@yourdomain.com" />
         </Field>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -487,7 +487,7 @@ function LdapSettings() {
         {/* Service Account */}
         <LdapSection title="Service Account">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>{lbl("Bind DN")}{inp("bind_dn", "text", "CN=svc-kernexa,OU=ServiceAccounts,DC=corp,DC=com")}</div>
+            <div>{lbl("Bind DN")}{inp("bind_dn", "text", "CN=svc-kermonix,OU=ServiceAccounts,DC=corp,DC=com")}</div>
             <div>{lbl("Bind Password (blank = keep existing)")}{inp("bind_password", "password", "••••••••")}</div>
           </div>
         </LdapSection>
@@ -509,11 +509,11 @@ function LdapSettings() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[
               { field: "admin_group",    label: "Admin Group DN",    color: "#f59e0b",
-                placeholder: "CN=kernexa-admins-role,OU=role-group,DC=corp,DC=com" },
+                placeholder: "CN=kermonix-admins-role,OU=role-group,DC=corp,DC=com" },
               { field: "operator_group", label: "Operator Group DN", color: "#8b5cf6",
-                placeholder: "CN=kernexa-operators-role,OU=role-group,DC=corp,DC=com" },
+                placeholder: "CN=kermonix-operators-role,OU=role-group,DC=corp,DC=com" },
               { field: "reader_group",   label: "Reader Group DN",   color: "#22c55e",
-                placeholder: "CN=kernexa-readers-role,OU=role-group,DC=corp,DC=com" },
+                placeholder: "CN=kermonix-readers-role,OU=role-group,DC=corp,DC=com" },
             ].map(({ field, label, color, placeholder }) => (
               <div key={field} style={{ display: "grid", gridTemplateColumns: "160px 1fr", alignItems: "center", gap: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

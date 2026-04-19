@@ -1,5 +1,5 @@
 # =============================================================================
-# Kernexa — Dockerfile
+# Kermonix — Dockerfile
 # Stage 1: Build React frontend
 # Stage 2: Python Builder (Compiles C extensions, no app code)
 # Stage 3: Python/FastAPI Runner (Secure, no compilers, non-root)

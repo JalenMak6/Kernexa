@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Kernexa Design Tokens
+   Kermonix Design Tokens
    Import this file once in main.jsx: import "./styles/theme.css"
    All components reference var(--token) instead of hardcoded hex values.
 ───────────────────────────────────────────────────────────────────────────── */

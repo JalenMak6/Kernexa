@@ -1,6 +1,6 @@
-# Kernexa API Tests
+# Kermonix API Tests
 
-Integration tests for the Kernexa API. Tests run against a live container and verify that all endpoints return the correct status codes, response shapes, and behaviour.
+Integration tests for the Kermonix API. Tests run against a live container and verify that all endpoints return the correct status codes, response shapes, and behaviour.
 
 ---
 

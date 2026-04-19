@@ -1010,9 +1010,9 @@ async def test_notification(background_tasks: BackgroundTasks):
         msg["From"]    = settings["smtp_from"] or settings["smtp_user"]
         msg["To"]      = ", ".join(settings["recipients"])
         msg["Date"]    = formatdate(localtime=True)
-        msg["Subject"] = "Kernexa — Test Email"
+        msg["Subject"] = "Kermonix — Test Email"
         msg.attach(MIMEText(
-            "This is a test email from Kernexa.\n\n"
+            "This is a test email from Kermonix.\n\n"
             "If you received this, your SMTP settings are working correctly.",
             "plain"
         ))

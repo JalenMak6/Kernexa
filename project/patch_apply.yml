@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# Kernexa — Security Patch Applicator (Multi-OS)
+# Kermonix — Security Patch Applicator (Multi-OS)
 # gather_facts: false — works on Python 3.8 and older targets
 #
 # Primary path: execute the exact remediation command shown in the UI.

@@ -1,6 +1,6 @@
 """
 ldap_auth.py
-LDAP / Active Directory authentication for Kernexa.
+LDAP / Active Directory authentication for Kermonix.
 
 Enabled by setting LDAP_HOST in environment variables.
 If LDAP_HOST is not set, all functions return None and LDAP is skipped entirely.
@@ -13,7 +13,7 @@ Flow:
     2. Search for user by sAMAccountName (or configured LDAP_USER_ATTR)
     3. Attempt bind with user's own credentials to verify password
     4. Search user's group memberships
-    5. Map groups to Kernexa role (admin > operator > reader)
+    5. Map groups to Kermonix role (admin > operator > reader)
     6. Return (user_dn, display_name, role) or None on failure
 """
 
@@ -170,7 +170,7 @@ def _get_user_groups(conn, user_dn: str) -> list[str]:
 
 def _map_groups_to_role(group_dns: list[str]) -> Optional[str]:
     """
-    Map a list of group DNs to a Kernexa role.
+    Map a list of group DNs to a Kermonix role.
     Priority: admin > operator > reader.
     Returns None if user is not in any mapped group.
     """

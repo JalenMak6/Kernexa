@@ -199,7 +199,7 @@ export function RegisterPage({ onBackToLogin }) {
             </svg>
           </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", letterSpacing: "-0.1px" }}>Kernexa</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", letterSpacing: "-0.1px" }}>Kermonix</div>
             <div style={{ fontSize: 9, color: "#374151", letterSpacing: "0.08em", fontFamily: "monospace", textTransform: "uppercase" }}>Security Platform</div>
           </div>
         </div>
@@ -374,7 +374,7 @@ export function RegisterPage({ onBackToLogin }) {
           fontSize: 10, color: "#1a2438", fontFamily: "monospace",
         }}>
           <span>TLS 1.3 encrypted</span>
-          <span>kernexa · v2.4.1</span>
+          <span>kermonix · v2.4.1</span>
         </div>
       </div>
     </div>

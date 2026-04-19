@@ -818,7 +818,7 @@ export default function App() {
               <Icon d={Icons.host} size={16} color="#fff" />
             </div>
             <div>
-              <div style={{ color: "#f8fafc", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>Kernexa</div>
+              <div style={{ color: "#f8fafc", fontWeight: 800, fontSize: 14, lineHeight: 1.2 }}>Kermonix</div>
               <div style={{ color: "#475569", fontSize: 10, letterSpacing: "0.05em" }}>The Security Compliance Platform</div>
             </div>
           </div>

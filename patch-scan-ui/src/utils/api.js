@@ -1,6 +1,6 @@
 /**
  * utils/api.js
- * Central API client for Kernexa.
+ * Central API client for Kermonix.
  *
  * - Attaches Bearer token from memory to every request
  * - On 401: attempts token refresh via httpOnly cookie

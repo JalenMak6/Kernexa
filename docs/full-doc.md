@@ -1,4 +1,4 @@
-# Kernexa - Patch Scan Platform
+# Kermonix - Patch Scan Platform
 
 A web application for scanning Linux hosts for pending security patches using Ansible, with CVE enrichment and CVSS scoring from vendor security APIs.
 
@@ -111,11 +111,11 @@ Initialized by `init_db.py` (safe to re-run — uses `CREATE IF NOT EXISTS` + `A
 - `HostRow.jsx` — renders per-host row with inline tag editor and host detail panel
 - `CveTab.jsx` — CVE table with CVSS badge (score + version + RH/NVD source pill), sort by CVSS, severity filter
 - Recharts (`^3.8.0`) for kernel compliance donut and top packages bar chart
-- Built output served by FastAPI from `dist/` as a SPA; root static files (e.g. `kernexa.png`) served via `FileResponse`
+- Built output served by FastAPI from `dist/` as a SPA; root static files (e.g. `kermonix.png`) served via `FileResponse`
 
 ## Docker
 
 - **Dockerfile**: Multi-stage build — Node 20-alpine (React build) → Python 3.10-slim (runtime + Ansible)
 - **docker-compose.yml**: `app` (FastAPI :8000), `db` (PostgreSQL 16 :5432), `adminer` (web DB admin :8080)
 - Shared `patch-net` network; persistent volume for PostgreSQL data
-- Static assets: `patch-scan-ui/public/kernexa.png` must be present before build — Vite copies it to `dist/`; Cloudflare cache purge required after updates
+- Static assets: `patch-scan-ui/public/kermonix.png` must be present before build — Vite copies it to `dist/`; Cloudflare cache purge required after updates

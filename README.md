@@ -1,8 +1,8 @@
-# Kernexa
+# Kermonix
 
-An Security Patch Compliance Platform for Linux infrastructure. Kernexa uses Ansible to scan remote hosts for pending security patches, outdated kernels, opening ports and CVE advisories — all surfaced in a clean web dashboard.
+An Security Patch Compliance Platform for Linux infrastructure. Kermonix uses Ansible to scan remote hosts for pending security patches, outdated kernels, opening ports and CVE advisories — all surfaced in a clean web dashboard.
 
-![Kernexa Dashboard1](images/dashboard1.png)
+![Kermonix Dashboard1](images/dashboard1.png)
 
 ## Stack
 
@@ -34,7 +34,7 @@ An Security Patch Compliance Platform for Linux infrastructure. Kernexa uses Ans
 
 ## Deployment
 
-There are two ways to run Kernexa — using the pre-built image from Docker Hub (recommended) or building from source.
+There are two ways to run Kermonix — using the pre-built image from Docker Hub (recommended) or building from source.
 
 ### Option 1 — Pre-built Image (Recommended)
 
@@ -42,8 +42,8 @@ The easiest way to get started. No build step required — pulls the latest stab
 
 **1. Clone the repo to get the compose file and env template:**
 ``` bash
-git clone https://github.com/JalenMak6/Kernexa.git
-cd Kernexa
+git clone https://github.com/JalenMak6/Kermonix.git
+cd Kermonix
 ```
 
 **2. Set up your environment:**
@@ -79,8 +79,8 @@ Use this if you want to run a modified version or contribute to development.
 
 **1. Clone and configure:**
 ```bash
-git clone https://github.com/JalenMak6/Kernexa.git
-cd kernexa
+git clone https://github.com/JalenMak6/Kermonix.git
+cd kermonix
 cp env-example .env        # edit with your preferred credentials
 ```
 
@@ -101,7 +101,7 @@ Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://local
 
 ## Docker Hub
 
-The Kernexa image is published at [hub.docker.com/r/jalenmakdocker/kernexa](https://hub.docker.com/r/jalenmakdocker/kernexa).
+The Kermonix image is published at [hub.docker.com/r/jalenmakdocker/kermonix](https://hub.docker.com/r/jalenmakdocker/kermonix).
 
 | Tag | Description |
 |---|---|
@@ -111,7 +111,7 @@ The Kernexa image is published at [hub.docker.com/r/jalenmakdocker/kernexa](http
 
 To pin to a specific version, update `IMAGE` in your `.env`:
 ```env
-IMAGE=jalenmakdocker/kernexa:v0.0.1
+IMAGE=jalenmakdocker/kermonix:v0.0.1
 ```
 
 ---
@@ -123,8 +123,8 @@ IMAGE=jalenmakdocker/kernexa:v0.0.1
 Copy `env-example` to `.env` and set your own values. This file is never committed.
 
 ```env
-POSTGRES_DB=kernexa
-POSTGRES_USER=kernexa_user
+POSTGRES_DB=kermonix
+POSTGRES_USER=kermonix_user
 POSTGRES_PASSWORD=supersecret
 POSTGRES_PORT=5432
 NVD_API_KEY=5fcxxxxxx
@@ -242,7 +242,7 @@ The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 2
 
 ## CI/CD
 
-Kernexa uses GitHub Actions with a self-hosted runner for the full CI/CD pipeline.
+Kermonix uses GitHub Actions with a self-hosted runner for the full CI/CD pipeline.
 
 | Trigger | Pipeline |
 |---|---|

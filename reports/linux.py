@@ -136,10 +136,10 @@ def send_scan_report(scan_data: dict, scan_id: str):
         msg["From"]    = settings["smtp_from"] or settings["smtp_user"]
         msg["To"]      = ", ".join(settings["recipients"])
         msg["Date"]    = formatdate(localtime=True)
-        msg["Subject"] = f"Kernexa Scan Report — {host_count} hosts, {pct}% compliant"
+        msg["Subject"] = f"Kermonix Scan Report — {host_count} hosts, {pct}% compliant"
 
         body = (
-            f"Kernexa Linux scan completed.\n\n"
+            f"Kermonix Linux scan completed.\n\n"
             f"  Scan ID:    {scan_id}\n"
             f"  Scanned at: {scanned_at}\n"
             f"  Hosts:      {host_count}\n"
@@ -154,7 +154,7 @@ def send_scan_report(scan_data: dict, scan_id: str):
         encoders.encode_base64(attachment)
         attachment.add_header(
             "Content-Disposition",
-            f'attachment; filename="kernexa-scan-{scan_id[:8]}.xlsx"'
+            f'attachment; filename="kermonix-scan-{scan_id[:8]}.xlsx"'
         )
         msg.attach(attachment)
 

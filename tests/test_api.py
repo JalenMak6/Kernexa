@@ -1,5 +1,5 @@
 """
-Kernexa API Integration Tests
+Kermonix API Integration Tests
 Runs against a live container spun up by the CI pipeline.
 Base URL is read from the TEST_BASE_URL env var (default: http://localhost:8000)
 

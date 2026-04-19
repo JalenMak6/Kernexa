@@ -1,7 +1,7 @@
 services:
   app:
-    image: ${IMAGE:-jalenmakdocker/kernexa:stable}
-    container_name: kernexa-app
+    image: jalenmakdocker/kermonix:latest
+    container_name: kermonix-app
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8000}:8000"
@@ -17,11 +17,11 @@ services:
       db:
         condition: service_healthy
     networks:
-      - kernexa-net
+      - kermonix-net
 
   db:
     image: postgres:16
-    container_name: kernexa-db
+    container_name: kermonix-db
     restart: unless-stopped
     ports:
       - "${DB_PORT:-5432}:5432"
@@ -30,18 +30,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - kernexa-data:/var/lib/postgresql/data
+      - kermonix-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - kernexa-net
+      - kermonix-net
 
   adminer:
     image: adminer
-    container_name: kernexa-db-adminer
+    container_name: kermonix-db-adminer
     restart: unless-stopped
     ports:
       - "${ADMINER_PORT:-8060}:8080"
@@ -49,10 +49,10 @@ services:
       db:
         condition: service_healthy
     networks:
-      - kernexa-net
+      - kermonix-net
 
 networks:
-  kernexa-net:
+  kermonix-net:
 
 volumes:
-  kernexa-data:
+  kermonix-data:
