@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 
-const WELCOME = "Hi! I'm Kernexa Assistant. Ask me anything about your infrastructure — host compliance, CVEs, Windows patches, or general security questions.";
+const WELCOME = "Hi! I'm Kermonix Assistant. Ask me anything about your infrastructure — host compliance, CVEs, Windows patches, or general security questions.";
 
 function Message({ role, content, streaming }) {
   const isUser = role === "user";
@@ -178,7 +178,7 @@ export function ChatWidget() {
                 🤖
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#f8fafc" }}>Kernexa Assistant</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#f8fafc" }}>Kermonix Assistant</div>
                 <div style={{ fontSize: 11, color: "#475569" }}>Powered by GPT-4o mini</div>
               </div>
             </div>
@@ -263,7 +263,7 @@ export function ChatWidget() {
       {/* ── Floating bubble — clicking opens/minimises panel ── */}
       <button
         onClick={() => setOpen(o => !o)}
-        title={open ? "Minimise chat" : "Open Kernexa Assistant"}
+        title={open ? "Minimise chat" : "Open Kermonix Assistant"}
         style={{
           position: "fixed", bottom: 24, right: 24,
           zIndex: 99999,

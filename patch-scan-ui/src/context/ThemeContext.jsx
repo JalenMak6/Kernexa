@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 const ThemeContext = createContext(null);
 
-const STORAGE_KEY = "kernexa-theme";
+const STORAGE_KEY = "kermonix-theme";
 
 export function ThemeProvider({ children }) {
   const [darkMode, setDarkMode] = useState(() => {

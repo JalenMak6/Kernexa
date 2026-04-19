@@ -11,8 +11,8 @@ from cryptography.fernet import Fernet, InvalidToken
 DB_CONFIG = {
     'host':     os.environ.get('DB_HOST', 'db'),
     'port':     int(os.environ.get('DB_PORT', 5432)),
-    'dbname':   os.environ.get('DB_NAME', 'kernexa'),
-    'user':     os.environ.get('DB_USER', 'kernexa_user'),
+    'dbname':   os.environ.get('DB_NAME', 'kermonix'),
+    'user':     os.environ.get('DB_USER', 'kermonix_user'),
     'password': os.environ.get('DB_PASSWORD', 'supersecret'),
 }
 

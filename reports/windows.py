@@ -128,7 +128,7 @@ def send_windows_scan_report(records: list, scan_id: str, scanned_at: str):
         msg["From"]    = settings["smtp_from"] or settings["smtp_user"]
         msg["To"]      = ", ".join(settings["recipients"])
         msg["Date"]    = formatdate(localtime=True)
-        msg["Subject"] = f"Kernexa Windows Scan Report — {host_count} hosts, {total_kbs} pending KBs"
+        msg["Subject"] = f"Kermonix Windows Scan Report — {host_count} hosts, {total_kbs} pending KBs"
 
         host_map: dict[str, list] = {}
         for r in records:
@@ -158,7 +158,7 @@ def send_windows_scan_report(records: list, scan_id: str, scanned_at: str):
             )
 
         body = (
-            f"Kernexa Windows patch compliance scan completed.\n\n"
+            f"Kermonix Windows patch compliance scan completed.\n\n"
             f"  Scan ID:           {scan_id}\n"
             f"  Scanned at:        {scanned_at}\n"
             f"  Windows Hosts:     {host_count}\n"
@@ -179,7 +179,7 @@ def send_windows_scan_report(records: list, scan_id: str, scanned_at: str):
         encoders.encode_base64(attachment)
         attachment.add_header(
             "Content-Disposition",
-            f'attachment; filename="kernexa-windows-{scan_id[:8]}.xlsx"'
+            f'attachment; filename="kermonix-windows-{scan_id[:8]}.xlsx"'
         )
         msg.attach(attachment)
 

@@ -1,6 +1,6 @@
 """
 conftest.py
-Pytest configuration and shared fixtures for Kernexa API tests.
+Pytest configuration and shared fixtures for Kermonix API tests.
 
 Required environment variables:
     TEST_BASE_URL   — base URL of the running app (default: http://localhost:8000)
@@ -52,7 +52,7 @@ def auth_headers():
         pytest.fail(
             f"Auth login failed with HTTP {r.status_code}: {r.text}\n"
             f"Make sure CI_TEST_USER='{ci_user}' exists in the DB. "
-            f"Check that KERNEXA_ADMIN_USER/PASS and CI_TEST_USER/PASS are set "
+            f"Check that KERMONIX_ADMIN_USER/PASS and CI_TEST_USER/PASS are set "
             f"and that init_db.py ran on container startup."
         )
 
@@ -70,13 +70,13 @@ def auth_headers():
 def admin_headers():
     """
     Log in as admin for tests that need admin-only endpoints.
-    Skips if KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS are not set.
+    Skips if KERMONIX_ADMIN_USER / KERMONIX_ADMIN_PASS are not set.
     """
-    admin_user = os.environ.get("KERNEXA_ADMIN_USER", "").strip()
-    admin_pass = os.environ.get("KERNEXA_ADMIN_PASS", "").strip()
+    admin_user = os.environ.get("KERMONIX_ADMIN_USER", "").strip()
+    admin_pass = os.environ.get("KERMONIX_ADMIN_PASS", "").strip()
 
     if not admin_user or not admin_pass:
-        pytest.skip("KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS not set — skipping admin tests")
+        pytest.skip("KERMONIX_ADMIN_USER / KERMONIX_ADMIN_PASS not set — skipping admin tests")
 
     r = requests.post(
         url("/api/auth/login"),

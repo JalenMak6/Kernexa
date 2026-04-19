@@ -1,6 +1,6 @@
 """
 chat.py
-Tool calling implementation for the Kernexa AI chatbot.
+Tool calling implementation for the Kermonix AI chatbot.
 
 The system prompt is tiny — just role + instructions.
 Data is only fetched when the model explicitly calls a tool.
@@ -38,9 +38,9 @@ from database import (
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are Kernexa Assistant, an expert in IT security and patch compliance.
+You are Kermonix Assistant, an expert in IT security and patch compliance.
 You have access to tools that query live infrastructure data from the user's \
-Kernexa deployment. Use them to answer questions accurately.
+Kermonix deployment. Use them to answer questions accurately.
 
 You can answer:
 - Linux host compliance, kernel status, pending packages

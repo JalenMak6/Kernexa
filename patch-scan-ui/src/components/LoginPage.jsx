@@ -205,7 +205,7 @@ export function LoginPage({ onLogin, onRegister }) {
             </svg>
           </div>
           <span style={{ fontSize: 17, fontWeight: 700, color: "#f8fafc", letterSpacing: "-0.2px", fontFamily: "'Outfit', sans-serif" }}>
-            Kernexa
+            Kermonix
           </span>
         </div>
 
@@ -269,7 +269,7 @@ export function LoginPage({ onLogin, onRegister }) {
           fontSize: 12, color: "rgba(100,116,139,0.45)", letterSpacing: "0.02em",
           animation: "fadeUp 0.4s ease 0.15s both",
         }}>
-          © {new Date().getFullYear()} Kernexa. All rights reserved.
+          © {new Date().getFullYear()} Kermonix. All rights reserved.
         </div>
       </div>
 
@@ -290,7 +290,7 @@ export function LoginPage({ onLogin, onRegister }) {
                 <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", fontFamily: "'Outfit', sans-serif" }}>Kernexa</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", fontFamily: "'Outfit', sans-serif" }}>Kermonix</span>
           </div>
         </div>
 
@@ -418,7 +418,7 @@ export function LoginPage({ onLogin, onRegister }) {
             <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
             <path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
-          Secured with TLS · Kernexa Security Compliance Platform
+          Secured with TLS · Kermonix Security Compliance Platform
         </div>
       </div>
     </div>

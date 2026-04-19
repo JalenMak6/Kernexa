@@ -279,11 +279,11 @@ def _seed_users():
     All operations are idempotent — existing users are never overwritten.
 
     Required:
-        KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS   — admin account
+        KERMONIX_ADMIN_USER / KERMONIX_ADMIN_PASS   — admin account
 
     Optional demo accounts:
-        KERNEXA_OPERATOR_USER / KERNEXA_OPERATOR_PASS  — operator role
-        KERNEXA_READER_USER  / KERNEXA_READER_PASS     — reader role
+        KERMONIX_OPERATOR_USER / KERMONIX_OPERATOR_PASS  — operator role
+        KERMONIX_READER_USER  / KERMONIX_READER_PASS     — reader role
 
     Optional CI account:
         CI_TEST_USER / CI_TEST_PASS / CI_TEST_ROLE (default: reader)
@@ -310,24 +310,24 @@ def _seed_users():
         print(f"Created {label or role} user '{username}'")
 
     # Admin — warn if not set
-    admin_user = os.environ.get("KERNEXA_ADMIN_USER", "").strip()
-    admin_pass = os.environ.get("KERNEXA_ADMIN_PASS", "").strip()
+    admin_user = os.environ.get("KERMONIX_ADMIN_USER", "").strip()
+    admin_pass = os.environ.get("KERMONIX_ADMIN_PASS", "").strip()
     if admin_user and admin_pass:
         _seed(admin_user, admin_pass, "admin", "admin")
     else:
-        print("WARNING: KERNEXA_ADMIN_USER / KERNEXA_ADMIN_PASS not set — no admin created")
+        print("WARNING: KERMONIX_ADMIN_USER / KERMONIX_ADMIN_PASS not set — no admin created")
 
     # Optional operator demo account
     _seed(
-        os.environ.get("KERNEXA_OPERATOR_USER", "").strip(),
-        os.environ.get("KERNEXA_OPERATOR_PASS", "").strip(),
+        os.environ.get("KERMONIX_OPERATOR_USER", "").strip(),
+        os.environ.get("KERMONIX_OPERATOR_PASS", "").strip(),
         "operator", "operator",
     )
 
     # Optional reader demo account
     _seed(
-        os.environ.get("KERNEXA_READER_USER", "").strip(),
-        os.environ.get("KERNEXA_READER_PASS", "").strip(),
+        os.environ.get("KERMONIX_READER_USER", "").strip(),
+        os.environ.get("KERMONIX_READER_PASS", "").strip(),
         "reader", "reader",
     )
 

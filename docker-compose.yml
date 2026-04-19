@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    container_name: internal-kernexa-app
+    container_name: internal-kermonix-app
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -17,11 +17,11 @@ services:
       db:
         condition: service_healthy
     networks:
-      - kernexa-net
+      - kermonix-net
 
   db:
     image: postgres:16
-    container_name: internal-kernexa-db
+    container_name: internal-kermonix-db
     restart: unless-stopped
     ports:
       - "5432:5432"
@@ -30,18 +30,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - kernexa-data1:/var/lib/postgresql/data
+      - kermonix-data1:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - kernexa-net
+      - kermonix-net
 
   adminer:
     image: adminer
-    container_name: internal-kernexa-db-adminer
+    container_name: internal-kermonix-db-adminer
     restart: unless-stopped
     command: php -S 0.0.0.0:8080 -t /var/www/html   
     ports:
@@ -50,11 +50,11 @@ services:
       db:
         condition: service_healthy
     networks:
-      - kernexa-net
+      - kermonix-net
 
 networks:
-  kernexa-net:
+  kermonix-net:
 
 volumes:
-  kernexa-data1:
+  kermonix-data1:
 

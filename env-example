@@ -1,10 +1,10 @@
-POSTGRES_DB=kernexa
-POSTGRES_USER=kernexa_user
+POSTGRES_DB=kermonix
+POSTGRES_USER=kermonix_user
 POSTGRES_PASSWORD=supersecret
 POSTGRES_PORT=5432
 NVD_API_KEY=5fc9cf5d-ece9-4773-8513-9a5d07dfd984
 CREDENTIALS_KEY=NLraLITQ0OOwVlResg19ajhtR5NYdnWB2-CDrsqMAUw=
-IMAGE=jalenmakdocker/kernexa:stable
+IMAGE=jalenmakdocker/kermonix:stable
 APP_PORT=8000
 DB_PORT=5432
 ADMINER_PORT=8080
@@ -16,19 +16,19 @@ OPENAI_API_KEY=sk-xxxxxxx
 #AZURE_OPENAI_API_VERSION=2024-12-01-preview
 
 # Required — seeds the first admin on startup
-KERNEXA_ADMIN_USER=admin
-KERNEXA_ADMIN_PASS=password
+KERMONIX_ADMIN_USER=admin
+KERMONIX_ADMIN_PASS=password
 
 # JWT signing key — generate with: openssl rand -hex 32
 JWT_SECRET=833bf6342e875069e7db474e0b7cd29bd639bfce3fdd482227840e3029c6b
 
 
 # Optional demo accounts (remove in production)
-KERNEXA_OPERATOR_USER: operator
-KERNEXA_OPERATOR_PASS: password
+KERMONIX_OPERATOR_USER: operator
+KERMONIX_OPERATOR_PASS: password
 
-KERNEXA_READER_USER: reader
-KERNEXA_READER_PASS: password
+KERMONIX_READER_USER: reader
+KERMONIX_READER_PASS: password
 
 
 # CI test user — created automatically if set
