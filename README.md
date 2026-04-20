@@ -16,7 +16,7 @@ Kermonix scans remote hosts for pending security patches, outdated kernels, open
 
 ---
 
-![Dashboard](images/Dashboard11.png)
+![Dashboard](images/kermonix.png)
 
 <details>
 <summary>More screenshots</summary>
@@ -83,6 +83,41 @@ Key design decisions:
 - Patch remediation — apply patches directly from the CVE tab with dry-run support
 
 </details>
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                              │
+│              React + Vite (served as static files)          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP / REST
+┌──────────────────────────▼──────────────────────────────────┐
+│                     FastAPI (main.py)                        │
+│  ┌──────────┐  ┌─────────────┐  ┌────────────────────────┐  │
+│  │ auth.py  │  │ scheduler.py│  │      enricher.py       │  │
+│  │ JWT/LDAP │  │ APScheduler │  │ RHSA·RLSA·ALSA·Ubuntu  │  │
+│  └──────────┘  └──────┬──────┘  └────────────────────────┘  │
+│                       │                                      │
+│              ┌────────▼────────┐                             │
+│              │  scan_tasks.py  │                             │
+│              │ run_and_save()  │                             │
+│              └────────┬────────┘                             │
+│                       │                                      │
+│         ┌─────────────▼──────────────┐                      │
+│         │        scanner.py           │                      │
+│         │  ansible-runner wrappers    │                      │
+│         └─────────────┬──────────────┘                      │
+└───────────────────────┼─────────────────────────────────────┘
+                        │ SSH / WinRM
+         ┌──────────────▼──────────────┐
+         │       Remote Hosts           │
+         │  Linux (raw SSH / /bin/sh)   │
+         │  Windows (WinRM / NTLM)      │
+         └─────────────────────────────┘
+```
 
 <details open>
 <summary><strong>Dashboard & Reporting</strong></summary>
@@ -287,41 +322,7 @@ To pin to a specific version, set `IMAGE` in your `.env`:
 ```env
 IMAGE=jalenmakdocker/kermonix:v0.0.1
 ```
-
 ---
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Browser                              │
-│              React + Vite (served as static files)          │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP / REST
-┌──────────────────────────▼──────────────────────────────────┐
-│                     FastAPI (main.py)                        │
-│  ┌──────────┐  ┌─────────────┐  ┌────────────────────────┐  │
-│  │ auth.py  │  │ scheduler.py│  │      enricher.py       │  │
-│  │ JWT/LDAP │  │ APScheduler │  │ RHSA·RLSA·ALSA·Ubuntu  │  │
-│  └──────────┘  └──────┬──────┘  └────────────────────────┘  │
-│                       │                                      │
-│              ┌────────▼────────┐                             │
-│              │  scan_tasks.py  │                             │
-│              │ run_and_save()  │                             │
-│              └────────┬────────┘                             │
-│                       │                                      │
-│         ┌─────────────▼──────────────┐                      │
-│         │        scanner.py           │                      │
-│         │  ansible-runner wrappers    │                      │
-│         └─────────────┬──────────────┘                      │
-└───────────────────────┼─────────────────────────────────────┘
-                        │ SSH / WinRM
-         ┌──────────────▼──────────────┐
-         │       Remote Hosts           │
-         │  Linux (raw SSH / /bin/sh)   │
-         │  Windows (WinRM / NTLM)      │
-         └─────────────────────────────┘
-```
 
 The backend is split by responsibility:
 

@@ -353,16 +353,16 @@ export default function App() {
         style={{ width: currentSidebarWidth, background: "#0f172a", borderColor: "#1e293b" }}>
 
         {/* Logo */}
-        <div className="px-4 py-5 relative" style={{ borderBottom: "1px solid #1e293b" }}>
-          <div className="rounded-[10px] flex items-center justify-center h-11 bg-white transition-[padding] duration-200"
-            style={{ padding: isCollapsed ? "8px" : "8px 12px" }}>
+        <div className="px-3 py-3 relative" style={{ borderBottom: "1px solid #1e293b" }}>
+          <div className="rounded-[10px] overflow-hidden flex items-center justify-center transition-all duration-200"
+            style={{ height: isCollapsed ? "40px" : "48px", background: "#eaebec", padding: isCollapsed ? "6px" : "0" }}>
             {isCollapsed
               ? <span className="font-extrabold text-xl text-blue-900">K</span>
-              : <img src="/kermonix.png" alt="Kermonix" className="w-full max-h-10 object-contain" />
+              : <img src="/kermonix.png" alt="Kermonix" className="w-full h-full object-contain" />
             }
           </div>
           {!isCollapsed && (
-            <div className="text-center text-slate-500 text-[10px] tracking-[0.05em] mt-2 whitespace-nowrap">Security Compliance Platform</div>
+            <div className="text-center text-slate-500 text-[10px] tracking-[0.05em] mt-1.5 whitespace-nowrap">Security Compliance Platform</div>
           )}
           <button onClick={() => setIsCollapsed(!isCollapsed)}
             className="absolute top-8 -right-3 bg-blue-500 border-none text-white rounded-full w-6 h-6 flex items-center justify-center cursor-pointer z-[60]"
