@@ -2,8 +2,6 @@
 
 <img src="images/kermonix-logo.png" alt="Kermonix" width="500" />
 
-# Kermonix
-
 **Security Patch Compliance Platform for Linux & Windows Infrastructure**
 
 Kermonix scans remote hosts for pending security patches, outdated kernels, open ports, and CVE advisories using Ansible — surfacing everything in a real-time web dashboard backed by FastAPI and PostgreSQL.
