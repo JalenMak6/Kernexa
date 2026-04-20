@@ -105,15 +105,15 @@ Key design decisions:
 │              └────────┬────────┘                            │
 │                       │                                     │
 │         ┌─────────────▼──────────────┐                      │
-│         │        scanner.py           │                     │
-│         │  ansible-runner wrappers    │                     │
+│         │        scanner.py          │                      │
+│         │  ansible-runner wrappers   │                      │
 │         └─────────────┬──────────────┘                      │
 └───────────────────────┼─────────────────────────────────────┘
                         │ SSH / WinRM
          ┌──────────────▼──────────────┐
-         │       Remote Hosts           │
-         │  Linux (raw SSH / /bin/sh)   │
-         │  Windows (WinRM / NTLM)      │
+         │       Remote Hosts          │
+         │  Linux (raw SSH / /bin/sh)  │
+         │  Windows (WinRM / NTLM)     │
          └─────────────────────────────┘
 ```
 
