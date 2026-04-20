@@ -10,23 +10,17 @@ export function fmtDate(iso) {
   });
 }
 
+const BADGE_CLASSES = {
+  green:  "bg-[#d1fae5] text-[#065f46] border border-[#6ee7b7]",
+  red:    "bg-[#fee2e2] text-[#991b1b] border border-[#fca5a5]",
+  yellow: "bg-[#fef9c3] text-[#854d0e] border border-[#fde047]",
+  blue:   "bg-[#dbeafe] text-[#1e40af] border border-[#93c5fd]",
+  gray:   "bg-bg-subtle text-text-muted border border-border-muted",
+};
+
 export function badge(text, color) {
-  const colors = {
-    green:  "background:#d1fae5;color:#065f46;border:1px solid #6ee7b7",
-    red:    "background:#fee2e2;color:#991b1b;border:1px solid #fca5a5",
-    yellow: "background:#fef9c3;color:#854d0e;border:1px solid #fde047",
-    blue:   "background:#dbeafe;color:#1e40af;border:1px solid #93c5fd",
-    gray:   "background:#f1f5f9;color:#475569;border:1px solid #cbd5e1",
-  };
   return (
-    <span style={{
-      ...Object.fromEntries((colors[color] || colors.gray).split(";").map(s => {
-        const [k, v] = s.split(":");
-        return [k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v?.trim()];
-      })),
-      padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
-      letterSpacing: "0.04em", whiteSpace: "nowrap", fontFamily: "inherit"
-    }}>
+    <span className={`${BADGE_CLASSES[color] ?? BADGE_CLASSES.gray} px-2.5 py-0.5 rounded-pill text-xs font-bold tracking-wide whitespace-nowrap`}>
       {text}
     </span>
   );

@@ -2,14 +2,20 @@ POSTGRES_DB=kermonix
 POSTGRES_USER=kermonix_user
 POSTGRES_PASSWORD=supersecret
 POSTGRES_PORT=5432
-NVD_API_KEY=5fc9cf5d-ece9-4773-8513-9a5d07dfd984
-CREDENTIALS_KEY=NLraLITQ0OOwVlResg19ajhtR5NYdnWB2-CDrsqMAUw=
+NVD_API_KEY=5fc9cxxbxbbxbx
+CREDENTIALS_KEY=NLraLITQ0Oabababb
 IMAGE=jalenmakdocker/kermonix:stable
 APP_PORT=8000
 DB_PORT=5432
 ADMINER_PORT=8080
 ENABLE_DOCS=false
 OPENAI_API_KEY=sk-xxxxxxx
+# For Azure OpenAI, use the following variables instead of OPENAI_API_KEY
+AZURE_OPENAI_API_KEY=abccbcbc
+AZURE_OPENAI_ENDPOINT=https://abc.cognitiveservices.azure.com/
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+#AZURE_OPENAI_API_KEY=C3ixxxxxbxxxxxxx
 
 #AZURE_OPENAI_ENDPOINT=https://xxxxxx.cognitiveservices.azure.com/
 #AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
@@ -20,7 +26,7 @@ KERMONIX_ADMIN_USER=admin
 KERMONIX_ADMIN_PASS=password
 
 # JWT signing key — generate with: openssl rand -hex 32
-JWT_SECRET=833bf6342e875069e7db474e0b7cd29bd639bfce3fdd482227840e3029c6b
+JWT_SECRET=83abcccccccccc
 
 
 # Optional demo accounts (remove in production)
@@ -34,3 +40,16 @@ KERMONIX_READER_PASS: password
 # CI test user — created automatically if set
 CI_TEST_USER=ci_runner
 CI_TEST_PASS=ci_password
+CI_TEST_ROLE=reader
+
+
+
+LDAP_BIND_DN=CN=adjoin,OU=ServiceAccount,DC=abc,DC=com
+LDAP_BIND_PASSWORD='abc!'
+LDAP_BASE_DN=DC=abc,DC=com
+LDAP_USER_ATTR=sAMAccountName          # AD=sAMAccountName, OpenLDAP=uid
+
+# Group DN → role mapping
+LDAP_ADMIN_GROUP=CN=kermonix-admins-role,OU=role-group,DC=abc,DC=com
+LDAP_OPERATOR_GROUP=CN=kermonix-operators-role,OU=role-group,DC=abc,DC=com
+LDAP_READER_GROUP=CN=kermonix-readers-role,OU=role-group,DC=abc,DC=com

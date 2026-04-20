@@ -1,24 +1,50 @@
+<div align="center">
+
+<img src="images/kermonix.png" alt="Kermonix" width="80" />
+
 # Kermonix
 
-An Security Patch Compliance Platform for Linux infrastructure. Kermonix uses Ansible to scan remote hosts for pending security patches, outdated kernels, opening ports and CVE advisories — all surfaced in a clean web dashboard.
+**Security Patch Compliance Platform for Linux & Windows Infrastructure**
 
-![Kermonix Dashboard1](images/dashboard1.png)
+Kermonix scans remote hosts for pending security patches, outdated kernels, open ports, and CVE advisories using Ansible — surfacing everything in a real-time web dashboard backed by FastAPI and PostgreSQL.
 
-## Stack
+[![CI](https://github.com/JalenMak6/Kermonix/actions/workflows/ci.yml/badge.svg)](https://github.com/JalenMak6/Kermonix/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/docker/pulls/jalenmakdocker/kermonix?logo=docker)](https://hub.docker.com/r/jalenmakdocker/kermonix)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3 / FastAPI |
-| Scanner | Ansible + ansible-runner |
-| Database | PostgreSQL 16 |
-| Frontend | React + Vite |
-| Deployment | Docker Compose |
+</div>
 
+---
 
-## Supported OS and CVE Advisories
+![Dashboard](images/Dashboard11.png)
+
+<details>
+<summary>More screenshots</summary>
+
+![CVE View](images/Dashboard2.png)
+![Host Drill-Down](images/Dashboard3.png)
+![Windows View](images/Dashboard4.png)
+
+</details>
+
+---
+
+## Overview
+
+Kermonix gives infrastructure and security teams a single pane of glass for patch compliance across heterogeneous environments. Upload an Ansible inventory, configure credentials once, and let Kermonix do the rest — scheduled scans, CVE enrichment from upstream advisory APIs, CVSS scoring, and formatted Excel reports delivered to your inbox after every run.
+
+Key design decisions:
+- **Agentless** — raw SSH scanning via `/bin/sh`; no Python or agent required on remote hosts
+- **CVE-enriched** — advisory data fetched directly from RHSA, RLSA, ALSA, Ubuntu CVE Tracker, and NVD
+- **Encrypted at rest** — SSH credentials AES-256 encrypted before DB write; decrypted in memory only at scan time
+- **Self-hostable** — single `docker compose up -d`; no external services required beyond SMTP (optional)
+
+---
+
+## Supported Platforms
 
 | Distribution | Versions | CVE Source |
-| --- | --- | --- |
+|---|---|---|
 | RHEL | 7, 8, 9, 10 | Red Hat Security API (RHSA) |
 | Rocky Linux | 8, 9, 10 | Rocky Errata API (RLSA) |
 | AlmaLinux | 8, 9, 10 | AlmaLinux Errata API (ALSA) |
@@ -27,45 +53,130 @@ An Security Patch Compliance Platform for Linux infrastructure. Kermonix uses An
 | Windows Server | 2012, 2016, 2019, 2022 | Microsoft WSUS / Windows Update (KB-based) |
 | Windows | 10, 11 | Microsoft WSUS / Windows Update (KB-based) |
 
-> Other distributions are scanned for kernel/package status but CVE enrichment will not be available.
+> Other distributions are scanned for kernel/package status but CVE enrichment is not available.  
 > Windows hosts report pending KBs with MSRC severity ratings (Critical / Important / Moderate / Low) rather than CVE advisory IDs.
 
 ---
 
-## Deployment
+## Features
 
-There are two ways to run Kermonix — using the pre-built image from Docker Hub (recommended) or building from source.
+<details open>
+<summary><strong>Scanning & Compliance</strong></summary>
+
+- Kernel compliance — running kernel vs. latest available security kernel per host, sourced from upstream errata (not all available repo kernels)
+- Pending security packages per host with per-package CVE linkage
+- Raw SSH scanning via `/bin/sh` — compatible with Python 2.6, 3.x, or no Python at all
+- Windows scanning over WinRM (NTLM) — pending KBs with MSRC severity ratings
+- Open port detection per host
+- Per-host Ansible failure capture — unreachable hosts surfaced with full Ansible log viewer
+- Manual scan trigger or auto-scheduler (configurable interval — minutes/hours/days, persists across restarts)
+
+</details>
+
+<details open>
+<summary><strong>CVE Advisories</strong></summary>
+
+- Enriched from RHSA, RLSA, ALSA, Ubuntu CVE Tracker, and Debian Security Tracker
+- CVSS scores fetched automatically after every scan — Red Hat scores preferred, NVD as fallback
+- Score badge shows source (`RH` or `NVD`) so you know whether the score reflects RHEL-specific context
+- Sortable by CVSS score, filterable by severity (Critical / Important / Moderate / Low)
+- Patch remediation — apply patches directly from the CVE tab with dry-run support
+
+</details>
+
+<details open>
+<summary><strong>Dashboard & Reporting</strong></summary>
+
+- Compliance trend chart across recent scans with KPI strip (compliance %, host counts, delta vs previous scan)
+- Kernel compliance donut chart and top pending packages bar chart
+- CVE severity summary cards linking directly to the CVE detail tab
+- Per-host drill-down modal with three tabs: Overview · CVE Advisories · Kernel History
+- Kernel history timeline showing compliance status across past scans with change detection
+- Post-scan Excel report (.xlsx) emailed automatically — one sheet per OS group plus an All Hosts summary
+
+</details>
+
+<details open>
+<summary><strong>Host Management</strong></summary>
+
+- Tag hosts with labels (`production`, `staging`, `dmz`, `web`, `db`, `infra`, or any custom tag)
+- Filter dashboard and host inventory by OS, kernel status, patch status, and tag
+- Tags persist across scans and are managed inline from the host table
+- Windows inventory managed independently from Linux inventory
+
+</details>
+
+<details open>
+<summary><strong>Access Control</strong></summary>
+
+- Three-role hierarchy: `admin` → `operator` → `reader`
+- JWT authentication (short-lived access token + long-lived refresh token; stored for revocation)
+- Optional LDAP / Active Directory integration — group-to-role mapping configured from the UI
+- All users and roles managed from the Users tab
+
+</details>
+
+<details open>
+<summary><strong>AI Assistant</strong></summary>
+
+- Optional AI chat widget for querying scan results in natural language
+- Supports OpenAI API or Azure OpenAI — configured via environment variables
+
+</details>
+
+---
+
+## Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python 3 · FastAPI · APScheduler |
+| Scanner | Ansible · ansible-runner · pywinrm |
+| Database | PostgreSQL 16 |
+| Frontend | React 18 · Vite · Tailwind CSS |
+| Deployment | Docker · Docker Compose |
+| Security | AES-256 (Fernet) · JWT (HS256) · bcrypt |
+
+---
+
+## Quick Start
 
 ### Option 1 — Pre-built Image (Recommended)
 
-The easiest way to get started. No build step required — pulls the latest stable image directly from Docker Hub.
+The fastest path to a running instance. No build step required.
 
-**1. Clone the repo to get the compose file and env template:**
-``` bash
+**1. Clone the repository:**
+```bash
 git clone https://github.com/JalenMak6/Kermonix.git
 cd Kermonix
 ```
 
-**2. Set up your environment:**
+**2. Create your environment file:**
 ```bash
-cp env.example .env
-vi .env   # fill in your values
+cp env-example .env
 ```
 
-**3. Generate a credentials encryption key:**
+**3. Generate required secrets:**
 ```bash
+# AES-256 credential encryption key (required)
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-Add the output to your `.env` as `CREDENTIALS_KEY`.
 
-**4. Deploy using the stable compose file:**
+# JWT signing key (required)
+openssl rand -hex 32
+```
+Add the outputs to `.env` as `CREDENTIALS_KEY` and `JWT_SECRET`.
+
+**4. Start the stack:**
 ```bash
 docker compose -f docker-compose-stable.yml up -d
 ```
 
-Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://localhost:8080](http://localhost:8080).
+- App: [http://localhost:8000](http://localhost:8000)
+- Adminer (DB UI): [http://localhost:8080](http://localhost:8080)
 
-**To update to the latest stable release:**
+Default admin credentials: `admin` / `password` — **change these immediately** via the Users tab.
+
+**Updating to the latest stable release:**
 ```bash
 docker compose -f docker-compose-stable.yml pull app
 docker compose -f docker-compose-stable.yml up -d --force-recreate app
@@ -75,27 +186,90 @@ docker compose -f docker-compose-stable.yml up -d --force-recreate app
 
 ### Option 2 — Build from Source
 
-Use this if you want to run a modified version or contribute to development.
+Use this for development or to run a modified version.
 
-**1. Clone and configure:**
 ```bash
 git clone https://github.com/JalenMak6/Kermonix.git
-cd kermonix
-cp env-example .env        # edit with your preferred credentials
-```
-
-**2. Generate a credentials encryption key:**
-```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-Add the output to your `.env` as `CREDENTIALS_KEY`.
-
-**3. Build and start:**
-```bash
+cd Kermonix
+cp env-example .env   # fill in your values
 docker compose up --build -d
 ```
 
-Open [http://localhost:8000](http://localhost:8000) — Adminer at [http://localhost:8080](http://localhost:8080).
+---
+
+## Configuration
+
+### Environment Variables
+
+Copy `env-example` to `.env`. This file is never committed to source control.
+
+```env
+# ── Database ──────────────────────────────────────────────────────────────────
+POSTGRES_DB=kermonix
+POSTGRES_USER=kermonix_user
+POSTGRES_PASSWORD=change_me
+
+# ── Ports ─────────────────────────────────────────────────────────────────────
+APP_PORT=8000
+DB_PORT=5432
+ADMINER_PORT=8080
+
+# ── Required secrets ──────────────────────────────────────────────────────────
+CREDENTIALS_KEY=          # Fernet key — generate: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+JWT_SECRET=               # 32-byte hex — generate: openssl rand -hex 32
+
+# ── Default admin account (seeded on first start) ─────────────────────────────
+KERMONIX_ADMIN_USER=admin
+KERMONIX_ADMIN_PASS=change_me
+
+# ── Optional: NVD API (raises rate limits for CVE scoring) ───────────────────
+NVD_API_KEY=
+
+# ── Optional: AI assistant ────────────────────────────────────────────────────
+OPENAI_API_KEY=
+# — or Azure OpenAI —
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+
+# ── Optional: LDAP / Active Directory ────────────────────────────────────────
+# Set LDAP_HOST to enable LDAP authentication. Additional settings are
+# configured from the UI (Settings → Active Directory / LDAP).
+LDAP_HOST=
+
+# ── Development only ──────────────────────────────────────────────────────────
+ENABLE_DOCS=false         # Set true to expose /docs, /redoc, /openapi.json
+```
+
+#### Variable reference
+
+| Variable | Required | Description |
+|---|---|---|
+| `CREDENTIALS_KEY` | **Yes** | Fernet AES-256 key used to encrypt SSH credentials at rest. Losing this key means stored credentials must be re-entered. |
+| `JWT_SECRET` | **Yes** | HMAC-SHA256 signing key for access and refresh tokens. |
+| `KERMONIX_ADMIN_USER` / `KERMONIX_ADMIN_PASS` | **Yes** | Seeded on first startup. Change immediately after first login. |
+| `NVD_API_KEY` | No | Raises NVD API rate limits significantly. Get one free at [nvd.nist.gov](https://nvd.nist.gov/developers/request-an-api-key). |
+| `OPENAI_API_KEY` | No | Enables the AI chat widget using OpenAI. |
+| `AZURE_OPENAI_*` | No | Enables the AI chat widget using Azure OpenAI (takes precedence over `OPENAI_API_KEY`). |
+| `LDAP_HOST` | No | Enables LDAP/AD authentication when set. Full config in the UI. |
+| `ENABLE_DOCS` | No | Exposes `/docs`, `/redoc`, `/openapi.json`. **Never enable on public-facing instances.** |
+
+### SSH Credentials
+
+SSH credentials are entered through the UI per inventory. They are encrypted with AES-256 (Fernet) before being written to the database and decrypted in memory only at scan time. No plaintext credentials are written to disk or stored in the database.
+
+### LDAP / Active Directory
+
+LDAP integration is configured entirely from the UI (Settings → Active Directory / LDAP). When `LDAP_HOST` is set, users can authenticate with their AD credentials. Groups are mapped to Kermonix roles (`admin` / `operator` / `reader`) from the UI — no config file changes required.
+
+### Email Notifications
+
+Post-scan reports are emailed automatically after every scan completes. Configure SMTP in Settings → Email Notifications:
+
+- Supports Gmail (App Password), Office 365, and any STARTTLS or SMTP relay
+- Recipients managed from the UI — no config file changes needed
+- Report attached as a formatted **Excel workbook (.xlsx)** with one sheet per OS group plus an All Hosts summary
 
 ---
 
@@ -105,144 +279,109 @@ The Kermonix image is published at [hub.docker.com/r/jalenmakdocker/kermonix](ht
 
 | Tag | Description |
 |---|---|
-| `latest` | Newest dev build — updated on every push to dev |
-| `stable` | Last promoted production release |
-| `v0.0.1` | Pinned release — never changes |
+| `stable` | Latest promoted production release |
+| `latest` | Most recent dev build — updated on every push to `dev` |
+| `v0.x.x` | Pinned release — never changes |
 
-To pin to a specific version, update `IMAGE` in your `.env`:
+To pin to a specific version, set `IMAGE` in your `.env`:
 ```env
 IMAGE=jalenmakdocker/kermonix:v0.0.1
 ```
 
 ---
 
-## Configuration
+## Architecture
 
-### .env
-
-Copy `env-example` to `.env` and set your own values. This file is never committed.
-
-```env
-POSTGRES_DB=kermonix
-POSTGRES_USER=kermonix_user
-POSTGRES_PASSWORD=supersecret
-POSTGRES_PORT=5432
-NVD_API_KEY=5fcxxxxxx
-CREDENTIALS_KEY=cmuxxxxxxx
-OPENAI_API_KEY=sk-proj-xxxxxxx
-AZURE_OPENAI_API_KEY=Cxxxxxxxxxxx
-AZURE_OPENAI_ENDPOINT=https://xxxx.cognitiveservices.azure.com/
-AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                              │
+│              React + Vite (served as static files)          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ HTTP / REST
+┌──────────────────────────▼──────────────────────────────────┐
+│                     FastAPI (main.py)                        │
+│  ┌──────────┐  ┌─────────────┐  ┌────────────────────────┐  │
+│  │ auth.py  │  │ scheduler.py│  │      enricher.py       │  │
+│  │ JWT/LDAP │  │ APScheduler │  │ RHSA·RLSA·ALSA·Ubuntu  │  │
+│  └──────────┘  └──────┬──────┘  └────────────────────────┘  │
+│                       │                                      │
+│              ┌────────▼────────┐                             │
+│              │  scan_tasks.py  │                             │
+│              │ run_and_save()  │                             │
+│              └────────┬────────┘                             │
+│                       │                                      │
+│         ┌─────────────▼──────────────┐                      │
+│         │        scanner.py           │                      │
+│         │  ansible-runner wrappers    │                      │
+│         └─────────────┬──────────────┘                      │
+└───────────────────────┼─────────────────────────────────────┘
+                        │ SSH / WinRM
+         ┌──────────────▼──────────────┐
+         │       Remote Hosts           │
+         │  Linux (raw SSH / /bin/sh)   │
+         │  Windows (WinRM / NTLM)      │
+         └─────────────────────────────┘
 ```
 
-**NVD_API_KEY** is optional but recommended — it raises the NVD rate limit significantly when scoring CVEs. Get one free at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
+The backend is split by responsibility:
 
-**CREDENTIALS_KEY** is required. Generate a valid Fernet key with:
+| Module | Responsibility |
+|---|---|
+| `main.py` | Routes only — thin API layer |
+| `scanner.py` | Ansible-runner wrappers; executes playbooks in `project/` |
+| `scan_tasks.py` | Orchestrates scan → DB save → CVE enrichment → email |
+| `enricher.py` | CVE enrichment from RHSA, RLSA, ALSA, Ubuntu CVE Tracker, NVD |
+| `scheduler.py` | APScheduler background job on a configurable interval |
+| `auth.py` | JWT creation/validation, bcrypt hashing, FastAPI dependency injection |
+| `ldap_auth.py` | Optional LDAP/AD auth; enabled only when `LDAP_HOST` is set |
+| `database/` | Subpackage; each file owns a logical domain (scans, hosts, inventories, users, settings) |
+| `reports/linux.py` | Excel workbook builder + SMTP email for Linux scans |
+| `reports/windows.py` | Windows equivalent |
+
+---
+
+## Development
+
+**Backend (without Docker):**
 ```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+pip install -r requirements.txt
+cp env-example .env
+ENABLE_DOCS=true uvicorn main:app --reload
 ```
-Keep this key safe — losing it means existing encrypted credentials in the DB can no longer be decrypted and will need to be re-entered in the UI.
 
-**OPENAI_API_KEY** is optional
-**AZURE_OPENAI_API_KEY** is optional
-**AZURE_OPENAI_ENDPOINT** is optional
-**AZURE_OPENAI_DEPLOYMENT** is optional
-**AZURE_OPENAI_API_VERSION** is optional
-
-**ENABLE_DOCS** controls whether the `/docs`, `/redoc`, and `/openapi.json` endpoints are exposed. Defaults to `false`. Set to `true` only in local development — never expose these on a public-facing instance as they allow anyone to browse and call your API directly.
-
-### SSH Credentials
-
-SSH credentials are entered through the UI per inventory. They are encrypted with AES-256 (Fernet) before being written to the database, and decrypted at scan time before being passed to ansible-runner. No plaintext credentials are ever written to disk or stored in the database.
-
-### Email Notifications
-
-Scan reports can be emailed automatically after every scan completes. Configure SMTP settings in the **Settings** tab of the UI.
-
-- Supports Gmail (App Password), Office 365, or any STARTTLS/SMTP relay
-- Recipients are managed from the UI — no config file changes needed
-- The report is attached as a formatted **Excel workbook (.xlsx)**
-
-#### Report Format
-
-The workbook contains one sheet per OS group (e.g. `RHEL 7`, `RHEL 8`, `Ubuntu 22.04`, `Rocky 9`) plus an **All Hosts** summary sheet. Each pending security package is expanded to its own row for easy filtering and sorting in Excel.
-
-| Column | Description |
-|--------|-------------|
-| Host | Hostname |
-| OS | Full OS version string |
-| Kernel Status | `Up to date` or `Outdated` |
-| Current Kernel | Running kernel version |
-| Latest Kernel | Latest available security kernel |
-| Pending Pkg Count | Total number of pending security packages |
-| Pending Security Package | One package per row |
-| Last Reboot | Last system reboot time |
-| Advisory Count | Number of security advisories |
+**Frontend dev server:**
+```bash
+cd patch-scan-ui
+npm install
+npm run dev   # Vite on :5173 — proxies /api/* to :8000
+```
 
 ---
 
-## How It Works
+## Testing
 
-1. Upload an Ansible inventory and set SSH credentials in the UI
-2. Trigger a scan manually or let the auto-scheduler run (configurable interval from the dashboard)
-3. Ansible collects kernel versions and pending security packages from each host using raw SSH — no Python version requirement on remote hosts
-4. Results are saved to PostgreSQL and CVE data is enriched from upstream security APIs
-5. CVSS scores are fetched automatically — Red Hat Security Data API as primary source, NVD as fallback
-6. The dashboard shows compliance status, outdated kernels, CVE advisories, and CVSS scores per host
-7. A formatted Excel report is emailed to configured recipients after every scan
+Tests are integration tests — they run against a live container, not mocks.
 
----
+```bash
+pip install -r requirements-test.txt
 
-## Features
+# Run the full suite
+TEST_BASE_URL=http://localhost:8000 pytest tests/test_api.py --tb=short --verbose
 
-**Scanning**
-- Kernel compliance — current vs latest available security kernel per host, based on security advisories (RHSA/RLSA) rather than all available repo kernels
-- Pending security packages per host
-- Raw SSH scanning — works on any Python version including Python 2.6, 3.6, or no Python at all; uses `/bin/sh` to skip `.bashrc` and avoid shell noise from tools like conda
-- Configurable auto-scan interval from the dashboard (minutes / hours / days) — persists across restarts
-- Manual scan trigger available from the UI
-- Scan failure capture — per-host Ansible errors and unreachable hosts surfaced in the UI with full Ansible log viewer
+# Run a specific class
+pytest tests/test_api.py::TestScans --tb=short --verbose
 
-**CVE Advisories**
-- Enriched from Red Hat (RHSA), Rocky Linux (RLSA), and Ubuntu CVE Tracker
-- CVSS scores fetched automatically after every scan — Red Hat scores preferred, NVD fallback for unscored CVEs
-- Score badge shows source (`RH` or `NVD`) so you know whether the score reflects RHEL-specific context
-- Sortable by CVSS score; filterable by severity
+# Run a single test
+pytest tests/test_api.py::TestScheduler::test_get_interval --tb=short --verbose
+```
 
-**Dashboard**
-- Compliance trend chart across recent scans with KPI strip (current %, compliant count, outdated count, delta vs previous scan)
-- Kernel compliance donut chart and top pending packages bar chart
-- CVE severity summary cards (Critical / Important / Moderate / Low) linking directly to the CVE tab
-- Host table with OS, kernel status, pending patches, and per-host drill-down modal
-
-**Host Drill-Down**
-- Per-host modal with three tabs: Overview, CVE Advisories, Kernel History
-- Kernel history timeline showing compliance status across past scans with change detection
-
-**Host Management**
-- Tag hosts with labels like `production`, `staging`, `dmz`, `web`, `db`, `infra` or any custom tag
-- Filter the dashboard and VM Inventory by OS, kernel status, patch status, and tag
-- Tags persist across scans and are managed inline from the host table
-
-**Email Reports**
-- Formatted Excel workbook (.xlsx) attached to post-scan email
-- One sheet per OS group — RHEL 7/8/9/10, Rocky 8/9, Ubuntu 20.04/22.04/24.04, etc.
-- All Hosts summary sheet included
-- Each pending package on its own row for easy filtering in Excel
-- SMTP configured entirely from the UI — no config file changes needed
-
-**Security**
-- SSH credentials encrypted at rest using AES-256 (Fernet symmetric encryption)
-- Encryption key stored separately in `.env`, never in the database
-- Credentials decrypted in memory only at scan time — never written to disk
-- `/docs`, `/redoc`, and `/openapi.json` endpoints disabled by default — enable only for local development via `ENABLE_DOCS=true` in `.env`
+See [tests/readme.md](tests/readme.md) for full setup, coverage map, and CI integration details.
 
 ---
 
 ## CI/CD
 
-Kermonix uses GitHub Actions with a self-hosted runner for the full CI/CD pipeline.
+Kermonix uses GitHub Actions with a self-hosted runner for the full pipeline.
 
 | Trigger | Pipeline |
 |---|---|
@@ -251,39 +390,41 @@ Kermonix uses GitHub Actions with a self-hosted runner for the full CI/CD pipeli
 | Merge to `main` | Build → Trivy scan → push `:stable` |
 | `git tag v*.*.*` | Build → Trivy scan → push `:vX.X.X` + `:stable` |
 
-Trivy blocks on CRITICAL CVEs only. HIGH CVEs are reported in the scan email but do not block the pipeline.
+Trivy blocks on CRITICAL CVEs. The image is not pushed if any test fails.
 
 ---
 
-## Testing
+## API Reference
 
-See [tests/README.md](tests/README.md) for full setup and usage.
+Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`.
 
-```bash
-pip install -r requirements-test.txt
-TEST_BASE_URL=http://localhost:8000 pytest tests/test_api.py --tb=short --verbose
-```
+> **Never enable `ENABLE_DOCS` on a public-facing instance** — it exposes your full API surface with no additional auth barrier.
 
 ---
 
-## API Docs
+## Security
 
-Interactive API docs are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `ENABLE_DOCS=true` is set in `.env`. Never enable this on a public-facing instance.
+- SSH credentials encrypted at rest with AES-256 (Fernet); encryption key stored in `.env`, never in the database
+- Credentials decrypted in memory only at scan time — never written to disk
+- JWT access tokens (15 min) + refresh tokens (7 days) stored for server-side revocation
+- Three-role RBAC (`admin` / `operator` / `reader`) enforced at the API layer
+- `/docs`, `/redoc`, and `/openapi.json` disabled by default
 
 ---
 
-## Development
+## Contributing
 
-**Backend without Docker:**
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-ENABLE_DOCS=true uvicorn main:app --reload
-```
+Pull requests are welcome. For larger changes, open an issue first to discuss the approach.
 
-**Frontend dev server:**
-```bash
-cd patch-scan-ui
-npm install
-npm run dev    # Vite on :5173 — proxies API calls to :8000
-```
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes with a clear message
+4. Push to your fork and open a pull request against `dev`
+
+Please ensure tests pass (`pytest tests/test_api.py`) before submitting.
+
+---
+
+## License
+
+[MIT](LICENSE) © Kermonix Contributors

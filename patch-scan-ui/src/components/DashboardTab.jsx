@@ -2,34 +2,35 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieCha
 import { StatCard } from "./StatCard.jsx";
 import { HostRow } from "./HostRow.jsx";
 import { FilterBar } from "./FilterBar.jsx";
-import { fmtDate, kernelOutdated } from "../utils/helpers.jsx";
-import { osFamily, FilterChip } from "../utils/filters.jsx";
-import { Icon, Icons } from "../utils/icons.jsx";
+import { fmtDate } from "../utils/helpers.jsx";
+import { osFamily } from "../utils/filters.jsx";
+
+const CVE_CFG = {
+  Critical:  { cardCls: "bg-red-tint border-red-border text-red-dark",         dotCls: "bg-red" },
+  Important: { cardCls: "bg-orange-tint border-orange-border text-orange-dark", dotCls: "bg-orange" },
+  Moderate:  { cardCls: "bg-amber-tint border-yellow-border text-amber",        dotCls: "bg-amber" },
+  Low:       { cardCls: "bg-green-tint border-green-border text-green-dark",    dotCls: "bg-green-bright" },
+};
+const CVE_INACTIVE = { cardCls: "bg-bg-subtle border-border-muted text-text-ghost", dotCls: "bg-border-muted" };
 
 export function DashboardTab({
-  // Linux data
-  hosts, totalHosts, compliantHosts, outdatedHosts, compliancePct,
+  hosts, totalHosts, compliantHosts,
   complianceData, topPackages,
   filteredHosts, activeFilterCount, clearFilters,
   filterOS, setFilterOS, filterKernelStatus, setFilterKernelStatus,
   filterPatchStatus, setFilterPatchStatus, filterTag, setFilterTag,
   search, setSearch, sortCol, sortDir, sortBy,
-  // Windows data
   winRecords,
-  // CVEs
   cves, changeTab,
-  // inventory state
-  showInventoryManager, setShowInventoryManager,
 }) {
   const osOptions = ["all", ...Array.from(new Set(hosts.map(h => osFamily(h.os_version)).filter(f => f !== "Unknown"))).sort()];
   const allTags   = ["all", ...Array.from(new Set(hosts.flatMap(h => h.tags || []))).sort()];
 
-  const thStyle = (col) => ({
-    padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700,
-    letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)",
-    cursor: col ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap",
-    background: sortCol === col ? "var(--bg-subtle)" : "transparent",
-  });
+  const thCls = (col) => [
+    "px-4 py-3 text-left text-xs font-bold tracking-[0.06em] uppercase whitespace-nowrap select-none text-text-muted-c",
+    col ? "cursor-pointer" : "cursor-default",
+    sortCol === col ? "bg-bg-subtle" : "bg-transparent",
+  ].join(" ");
 
   // ── Windows derived data ───────────────────────────────────────────────────
   const winHostMap = {};
@@ -49,8 +50,8 @@ export function DashboardTab({
     <>
       {/* ── Top stat cards ── */}
       {(hasLinuxData || hasWinData) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
-          <StatCard icon="host"    label="Linux Hosts"     value={totalHosts}     sub="in latest scan"    accent="#3b82f6" />
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <StatCard icon="host"    label="Linux Hosts"     value={totalHosts}    sub="in latest scan"    accent="#3b82f6" />
           <StatCard icon="check"   label="Linux Compliant" value={compliantHosts} sub="kernel up to date" accent="#10b981" />
           <StatCard icon="host"    label="Windows Hosts"   value={winTotalHosts}  sub="in latest scan"    accent="#0ea5e9" />
           <StatCard icon="warning" label="Windows Pending" value={winTotalKBs}    sub="total pending KBs" accent="#f59e0b" />
@@ -59,30 +60,25 @@ export function DashboardTab({
 
       {/* ── CVE severity cards ── */}
       {(() => {
-        const cveCounts = (cves || []).reduce((acc, c) => { const sev = c.severity || "Unknown"; acc[sev] = (acc[sev] || 0) + 1; return acc; }, {});
-        const CFG = {
-          Critical:  { bg: "#fef2f2", color: "#991b1b", border: "#fca5a5", dot: "#ef4444" },
-          Important: { bg: "#fff7ed", color: "#9a3412", border: "#fdba74", dot: "#f97316" },
-          Moderate:  { bg: "#fefce8", color: "#854d0e", border: "#fde047", dot: "#eab308" },
-          Low:       { bg: "#f0fdf4", color: "#166534", border: "#86efac", dot: "#22c55e" },
-        };
+        const cveCounts = (cves || []).reduce((acc, c) => {
+          const sev = c.severity || "Unknown"; acc[sev] = (acc[sev] || 0) + 1; return acc;
+        }, {});
         return (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 16, marginBottom: 24 }}>
+          <div className="grid grid-cols-4 gap-4 mb-6">
             {["Critical", "Important", "Moderate", "Low"].map(sev => {
               const count = cveCounts[sev] || 0;
-              const cfg   = count > 0 ? CFG[sev] : { bg: "#f8fafc", color: "#94a3b8", border: "#e2e8f0", dot: "#cbd5e1" };
+              const cfg   = count > 0 ? CVE_CFG[sev] : CVE_INACTIVE;
               return (
                 <div key={sev} onClick={() => changeTab("cves")}
-                  style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 12, padding: "16px 20px", cursor: "pointer", transition: "all 0.15s", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
-                  onMouseEnter={e => e.currentTarget.style.transform = "translateY(-1px)"}
-                  onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+                  className={`border rounded-xl px-5 py-4 cursor-pointer transition-transform hover:-translate-y-px ${cfg.cardCls}`}
+                  style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color, letterSpacing: "0.05em", textTransform: "uppercase" }}>{sev}</span>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${cfg.dotCls}`} />
+                    <span className="text-xs font-bold tracking-[0.05em] uppercase">{sev}</span>
                   </div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: cfg.color, lineHeight: 1 }}>{count}</div>
-                  <div style={{ fontSize: 11, color: cfg.color, marginTop: 4, opacity: 0.7 }}>CVE{count !== 1 ? "s" : ""}</div>
+                  <div className="text-[28px] font-extrabold leading-none">{count}</div>
+                  <div className="text-xs mt-1 opacity-70">CVE{count !== 1 ? "s" : ""}</div>
                 </div>
               );
             })}
@@ -91,10 +87,10 @@ export function DashboardTab({
       })()}
 
       {/* ── Charts row ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 24, boxShadow: "var(--shadow-card)" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>Kernel Compliance</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>{compliancePct}% of hosts up to date</div>
+      <div className="grid grid-cols-[1fr_2fr] gap-4 mb-6">
+        <div className="bg-bg-card border border-border-base rounded-2xl p-6 shadow-card">
+          <div className="font-bold text-base text-text-primary mb-1">Kernel Compliance</div>
+          <div className="text-sm text-text-muted-c mb-4">{(complianceData.find(d => d.name === "Compliant")?.value ?? 0)} of {totalHosts} hosts up to date</div>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
               <Pie data={complianceData} cx="50%" cy="50%" innerRadius={50} outerRadius={75} paddingAngle={3} dataKey="value">
@@ -104,11 +100,11 @@ export function DashboardTab({
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 24, boxShadow: "var(--shadow-card)" }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)", marginBottom: 4 }}>Top Packages Pending</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 16 }}>Most common security updates across all hosts</div>
+        <div className="bg-bg-card border border-border-base rounded-2xl p-6 shadow-card">
+          <div className="font-bold text-base text-text-primary mb-1">Top Packages Pending</div>
+          <div className="text-sm text-text-muted-c mb-4">Most common security updates across all hosts</div>
           {topPackages.length === 0
-            ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 180, color: "var(--text-muted)", fontSize: 13 }}>No pending packages</div>
+            ? <div className="flex items-center justify-center h-[180px] text-text-muted-c text-md">No pending packages</div>
             : <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={topPackages} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
@@ -124,18 +120,25 @@ export function DashboardTab({
       </div>
 
       {/* ── Linux Host Summary ── */}
-      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", boxShadow: "var(--shadow-card)", marginBottom: hasWinData ? 24 : 0 }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6" }} />
-              <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
+      <div className={`bg-bg-card border border-border-base rounded-2xl overflow-hidden shadow-card ${hasWinData ? "mb-6" : ""}`}>
+        <div className="px-5 py-4 border-b border-border-subtle">
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full bg-blue" />
+              <div className="font-bold text-base text-text-primary">
                 🐧 Linux Host Summary — {filteredHosts.length} of {totalHosts} hosts
-                {activeFilterCount > 0 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 500, color: "#3b82f6" }}>{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active</span>}
+                {activeFilterCount > 0 && (
+                  <span className="ml-2 text-xs font-medium text-blue">
+                    {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active
+                  </span>
+                )}
               </div>
             </div>
             {(activeFilterCount > 0 || search) && (
-              <button onClick={clearFilters} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid var(--red-border)", background: "var(--red-tint)", cursor: "pointer", fontSize: 12, color: "var(--red)", fontFamily: "inherit" }}>Clear all ×</button>
+              <button onClick={clearFilters}
+                className="px-3 py-[5px] rounded-md border border-red-border bg-red-tint cursor-pointer text-sm text-red font-[inherit]">
+                Clear all ×
+              </button>
             )}
           </div>
           <FilterBar
@@ -148,29 +151,39 @@ export function DashboardTab({
           />
         </div>
         {hasLinuxData ? (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead style={{ background: "var(--bg-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
+          <table className="w-full border-collapse">
+            <thead className="bg-bg-subtle border-b border-border-subtle">
               <tr>
-                <th style={thStyle("host")} onClick={() => sortBy("host")}>Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}</th>
-                <th style={{ ...thStyle("os_version"), width: 100 }} onClick={() => sortBy("os_version")}>OS</th>
-                <th style={{ ...thStyle("last_reboot_time"), width: 120 }} onClick={() => sortBy("last_reboot_time")}>Last Reboot</th>
-                <th style={{ ...thStyle("current_kernel_version"), width: 160 }} onClick={() => sortBy("current_kernel_version")}>Current Kernel</th>
-                <th style={{ ...thStyle(null), width: 160 }}>Latest Kernel</th>
-                <th style={{ ...thStyle(null), width: 110 }}>Kernel Status</th>
-                <th style={{ ...thStyle("package_count"), width: 130 }} onClick={() => sortBy("package_count")}>Pending Patches</th>
-                <th style={{ ...thStyle(null), width: 180 }}>Open Ports</th>
-                <th style={{ ...thStyle(null), width: 75 }}></th>
+                <th className={thCls("host")} onClick={() => sortBy("host")}>
+                  Host {sortCol === "host" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className={`${thCls("os_version")} w-[100px]`} onClick={() => sortBy("os_version")}>
+                  OS {sortCol === "os_version" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className={`${thCls("last_reboot_time")} w-[120px]`} onClick={() => sortBy("last_reboot_time")}>
+                  Last Reboot
+                </th>
+                <th className={`${thCls("current_kernel_version")} w-[160px]`} onClick={() => sortBy("current_kernel_version")}>
+                  Current Kernel {sortCol === "current_kernel_version" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className={`${thCls(null)} w-[160px]`}>Latest Kernel</th>
+                <th className={`${thCls(null)} w-[110px]`}>Kernel Status</th>
+                <th className={`${thCls("package_count")} w-[130px]`} onClick={() => sortBy("package_count")}>
+                  Pending Patches {sortCol === "package_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className={`${thCls(null)} w-[180px]`}>Open Ports</th>
+                <th className={`${thCls(null)} w-[75px]`}></th>
               </tr>
             </thead>
             <tbody>
               {filteredHosts.length === 0
-                ? <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No hosts match your filters</td></tr>
+                ? <tr><td colSpan={9} className="p-8 text-center text-text-muted-c text-md">No hosts match your filters</td></tr>
                 : filteredHosts.map(h => <HostRow key={h.host} host={h} />)
               }
             </tbody>
           </table>
         ) : (
-          <div style={{ padding: "32px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+          <div className="p-8 text-center text-text-muted-c text-md">
             No Linux scan data — click <strong>Run Scan</strong> with a Linux inventory active.
           </div>
         )}
@@ -178,31 +191,48 @@ export function DashboardTab({
 
       {/* ── Windows Host Summary ── */}
       {hasWinData && (
-        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#0ea5e9" }} />
+        <div className="bg-bg-card border border-border-base rounded-2xl overflow-hidden shadow-card">
+          <div className="px-5 py-4 border-b border-border-subtle flex justify-between items-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full bg-cyan" />
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }}>
+                <div className="font-bold text-base text-text-primary">
                   🪟 Windows Host Summary — {winTotalHosts} hosts · {winTotalKBs} pending KBs
                 </div>
                 {winRecords[0]?.scanned_at && (
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Last scan: {fmtDate(winRecords[0].scanned_at)}</div>
+                  <div className="text-xs text-text-muted-c mt-0.5">Last scan: {fmtDate(winRecords[0].scanned_at)}</div>
                 )}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {winSecHosts > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "3px 10px", borderRadius: 999 }}>⚠ {winSecHosts} with security updates</span>}
-              {winRebootHosts > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe", padding: "3px 10px", borderRadius: 999 }}>🔄 {winRebootHosts} may reboot</span>}
+            <div className="flex gap-2">
+              {winSecHosts > 0 && (
+                <span className="text-xs font-bold bg-red-tint text-red border border-red-border px-2.5 py-[3px] rounded-pill">
+                  ⚠ {winSecHosts} with security updates
+                </span>
+              )}
+              {winRebootHosts > 0 && (
+                <span className="text-xs font-bold bg-purple-tint text-purple border border-purple-border px-2.5 py-[3px] rounded-pill">
+                  🔄 {winRebootHosts} may reboot
+                </span>
+              )}
             </div>
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <thead style={{ background: "var(--bg-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
+          <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
+            <thead className="bg-bg-subtle border-b border-border-subtle">
               <tr>
-                {["Host", "OS", "Patch Status", "Pending By Type", "Reboot", "Last Scan"].map((h, i) => (
-                  <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted)",
-                    width: i === 1 ? 120 : i === 2 ? 110 : i === 3 ? 190 : i === 4 ? 110 : i === 5 ? 150 : undefined }}>{h}</th>
+                {[
+                  { label: "Host",           w: undefined },
+                  { label: "OS",             w: 120 },
+                  { label: "Patch Status",   w: 110 },
+                  { label: "Pending By Type",w: 190 },
+                  { label: "Reboot",         w: 110 },
+                  { label: "Last Scan",      w: 150 },
+                ].map(({ label, w }) => (
+                  <th key={label}
+                    className="px-4 py-3 text-left text-xs font-bold tracking-[0.06em] uppercase text-text-muted-c cursor-default select-none whitespace-nowrap"
+                    style={w ? { width: w } : undefined}
+                  >{label}</th>
                 ))}
               </tr>
             </thead>
@@ -226,52 +256,55 @@ export function DashboardTab({
                 const isIP = /^\d+\.\d+\.\d+\.\d+$/.test(h.hostname);
 
                 return (
-                  <tr key={h.hostname} style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
-                    onMouseLeave={e => e.currentTarget.style.background = ""}>
-                    <td style={{ padding: "13px 16px" }}>
+                  <tr key={h.hostname} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+                    <td className="px-4 py-[13px]">
                       <button onClick={() => changeTab("windows")}
-                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 600, fontSize: 13, color: "var(--text-primary)", fontFamily: "inherit", textAlign: "left", display: "block" }}
-                        onMouseEnter={e => e.currentTarget.style.color = "#0ea5e9"}
-                        onMouseLeave={e => e.currentTarget.style.color = "var(--text-primary)"}
-                      >
+                        className="bg-transparent border-none p-0 cursor-pointer font-semibold text-md text-text-primary font-[inherit] text-left block hover:text-cyan transition-colors">
                         {isIP ? h.hostname : h.hostname.split(".")[0]}
                       </button>
-                      {!isIP && <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace", marginTop: 2 }}>.{h.hostname.split(".").slice(1).join(".")}</div>}
+                      {!isIP && (
+                        <div className="text-xs text-text-muted-c font-mono mt-0.5">
+                          .{h.hostname.split(".").slice(1).join(".")}
+                        </div>
+                      )}
                     </td>
-                    <td style={{ padding: "13px 16px" }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: osBadge.bg, color: osBadge.color, border: `1px solid ${osBadge.border}`, padding: "3px 9px", borderRadius: 999, whiteSpace: "nowrap" }}>{osBadge.label}</span>
+                    <td className="px-4 py-[13px]">
+                      <span className="text-xs font-bold px-[9px] py-[3px] rounded-pill whitespace-nowrap border"
+                        style={{ background: osBadge.bg, color: osBadge.color, borderColor: osBadge.border }}>
+                        {osBadge.label}
+                      </span>
                     </td>
-                    <td style={{ padding: "13px 16px" }}>
+                    <td className="px-4 py-[13px]">
                       {isClean
-                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>✓ Up to date</span>
-                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>{h.updates.length} pending</span>
+                        ? <span className="inline-flex items-center gap-1 bg-green-tint text-green-dark border border-green-border px-2.5 py-[3px] rounded-pill text-xs font-bold">✓ Up to date</span>
+                        : <span className="inline-flex items-center gap-1 bg-red-tint text-red border border-red-border px-2.5 py-[3px] rounded-pill text-xs font-bold">{h.updates.length} pending</span>
                       }
                     </td>
-                    <td style={{ padding: "13px 16px" }}>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        {secCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "2px 7px", borderRadius: 999 }}>🔒 {secCount} Security Updates</span>}
-                        {ruCount  > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", padding: "2px 7px", borderRadius: 999 }}>📦 {ruCount} Rollout Updates</span>}
-                        {defCount > 0 && <span style={{ fontSize: 11, fontWeight: 600, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0", padding: "2px 7px", borderRadius: 999 }}>🛡 {defCount} Definition Updates</span>}
-                        {isClean && <span style={{ fontSize: 11, color: "#94a3b8" }}>—</span>}
+                    <td className="px-4 py-[13px]">
+                      <div className="flex gap-1 flex-wrap">
+                        {secCount > 0 && <span className="text-xs font-bold bg-red-tint text-red border border-red-border px-[7px] py-[2px] rounded-pill">🔒 {secCount} Security Updates</span>}
+                        {ruCount  > 0 && <span className="text-xs font-bold bg-orange-tint text-orange-dark border border-orange-border px-[7px] py-[2px] rounded-pill">📦 {ruCount} Rollout Updates</span>}
+                        {defCount > 0 && <span className="text-xs font-semibold bg-bg-subtle text-text-faint border border-border-base px-[7px] py-[2px] rounded-pill">🛡 {defCount} Definition Updates</span>}
+                        {isClean  && <span className="text-xs text-text-ghost">—</span>}
                       </div>
                     </td>
-                    <td style={{ padding: "13px 16px" }}>
+                    <td className="px-4 py-[13px]">
                       {needsReboot
-                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#fefce8", color: "#a16207", border: "1px solid #fef08a", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>🔄 May Reboot</span>
-                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>✓ No Reboot</span>
+                        ? <span className="inline-flex items-center gap-1 bg-amber-tint text-amber border border-yellow-border px-2.5 py-[3px] rounded-pill text-xs font-bold">🔄 May Reboot</span>
+                        : <span className="inline-flex items-center gap-1 bg-green-tint text-green-dark border border-green-border px-2.5 py-[3px] rounded-pill text-xs font-bold">✓ No Reboot</span>
                       }
                     </td>
-                    <td style={{ padding: "13px 16px", fontSize: 12, color: "var(--text-muted)" }}>
-                      {h.updates[0]?.scanned_at ? fmtDate(h.updates[0].scanned_at) : <span style={{ color: "var(--text-disabled)" }}>—</span>}
+                    <td className="px-4 py-[13px] text-sm text-text-muted-c">
+                      {h.updates[0]?.scanned_at ? fmtDate(h.updates[0].scanned_at) : <span className="text-text-disabled">—</span>}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "flex-end" }}>
-            <button onClick={() => changeTab("windows")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#0ea5e9", fontWeight: 600, fontFamily: "inherit" }}>
+          <div className="px-5 py-2.5 border-t border-border-subtle flex justify-end">
+            <button onClick={() => changeTab("windows")}
+              className="bg-transparent border-none cursor-pointer text-sm text-cyan font-semibold font-[inherit]">
               View full Windows report →
             </button>
           </div>
@@ -280,8 +313,8 @@ export function DashboardTab({
 
       {/* ── No data at all ── */}
       {!hasLinuxData && !hasWinData && (
-        <div style={{ textAlign: "center", padding: "40px 32px", background: "#fff", borderRadius: 16, border: "1px solid #e2e8f0" }}>
-          <div style={{ fontSize: 13, color: "#94a3b8" }}>Run a Linux scan or Windows scan to see host summaries here.</div>
+        <div className="text-center py-10 px-8 bg-bg-card rounded-2xl border border-border-base">
+          <div className="text-md text-text-ghost">Run a Linux scan or Windows scan to see host summaries here.</div>
         </div>
       )}
     </>

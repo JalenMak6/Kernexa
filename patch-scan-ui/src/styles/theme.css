@@ -154,80 +154,208 @@
    Applied when <html data-theme="dark"> is set.
 ───────────────────────────────────────────────────────────────────────────── */
 [data-theme="dark"] {
-  /* ── Surfaces ────────────────────────────────────────────────────────────── */
-  --bg-page:         #0d1117;   /* deepest background                           */
-  --bg-card:         #161b22;   /* card, modal, input background                */
-  --bg-row:          #1a2030;   /* zebra / expanded row background              */
-  --bg-hover:        #1e2736;   /* table row hover                              */
-  --bg-subtle:       #1c2333;   /* dividers, muted section bg, toggle off       */
-  --bg-sidebar:      #090d14;   /* sidebar background (darker in dark mode)     */
-  --bg-sidebar-item: #161b22;   /* sidebar active item                          */
+  /* ── Surfaces (3-level hierarchy: page → card → row/subtle) ─────────────── */
+  --bg-page:         #080c18;   /* deepest navy — creates clear modal contrast  */
+  --bg-card:         #111827;   /* card/modal surface — +25 luminance vs page   */
+  --bg-row:          #182032;   /* zebra / expanded row                         */
+  --bg-hover:        #1e293b;   /* table row hover (slate-800)                  */
+  --bg-subtle:       #1a2236;   /* section dividers, toggle off                 */
+  --bg-sidebar:      #060a14;   /* sidebar — always darkest element             */
+  --bg-sidebar-item: #111827;   /* sidebar active item matches card             */
 
-  /* ── Borders ─────────────────────────────────────────────────────────────── */
-  --border:          #30363d;   /* standard border (cards, inputs, tables)      */
-  --border-subtle:   #21262d;   /* subtle divider (table rows)                  */
-  --border-muted:    #3d4450;   /* muted border (dashed tag btn)                */
-  --border-dark:     #30363d;   /* sidebar / dark-surface border                */
+  /* ── Borders (visible against #111827) ──────────────────────────────────── */
+  --border:          #2d3a4f;   /* standard border — 2.8:1 vs bg-card          */
+  --border-subtle:   #1d2a3e;   /* subtle divider                               */
+  --border-muted:    #3d5068;   /* muted / dashed border                        */
+  --border-dark:     #2d3a4f;   /* sidebar / dark-surface border                */
 
-  /* ── Text ────────────────────────────────────────────────────────────────── */
-  --text-primary:    #e6edf3;   /* headings, strong values                      */
-  --text-secondary:  #c9d1d9;   /* body text                                    */
-  --text-muted:      #8b949e;   /* labels, icon captions                        */
-  --text-faint:      #6e7681;   /* placeholders, sub-labels                     */
-  --text-ghost:      #484f58;   /* empty states, very muted                     */
-  --text-disabled:   #3d444d;   /* disabled / faded                             */
+  /* ── Text (WCAG AA compliant on #111827) ────────────────────────────────── */
+  --text-primary:    #f1f5f9;   /* slate-100 — ~13:1 contrast ✓                 */
+  --text-secondary:  #cbd5e1;   /* slate-300 — ~8:1 contrast ✓                  */
+  --text-muted:      #94a3b8;   /* slate-400 — ~5.2:1 contrast ✓ WCAG AA        */
+  --text-faint:      #7c8fa8;   /* lightened slate-500 — ~3.8:1 readable        */
+  --text-ghost:      #56677d;   /* lightened for ghost states — ~2.5:1          */
+  --text-disabled:   #374151;   /* gray-700 — intentionally low for disabled    */
 
-  /* ── Blue tints (dark-adapted) ───────────────────────────────────────────── */
-  --blue-tint:       #0d1f3c;
-  --blue-border:     #1f3a6e;
-  --indigo-tint:     #0e1128;
-  --indigo-border:   #2d3561;
-  --cyan-tint:       #051f2e;
-  --cyan-border:     #0e4163;
+  /* ── Blue tints (on #111827 card bg) ────────────────────────────────────── */
+  --blue-tint:       #0f2144;   /* #111827 + blue wash                          */
+  --blue-border:     #1e4080;
+  --indigo-tint:     #11163e;
+  --indigo-border:   #2d3480;
+  --cyan-tint:       #082538;
+  --cyan-border:     #0d5880;
 
-  /* ── Green tints (dark-adapted) ──────────────────────────────────────────── */
-  --green-tint:      #051c0f;
-  --green-tint-mid:  #0a2e1a;
-  --green-border:    #1a4731;
-  --green-border-lt: #235c3f;
-  --green-text:      #3fb950;
+  /* ── Green tints (clearly lighter than #111827) ─────────────────────────── */
+  --green-tint:      #0d2e1a;   /* rgb(13,46,26) — visible green wash           */
+  --green-tint-mid:  #15402a;   /* slightly deeper green                        */
+  --green-border:    #1f6338;   /* green border — visible on tint               */
+  --green-border-lt: #287a47;   /* lighter green border for hover states        */
+  --green-text:      #4ade80;   /* bright green — 6:1 on card bg ✓              */
 
-  /* ── Red tints (dark-adapted) ────────────────────────────────────────────── */
-  --red-tint:        #1f0808;
-  --red-tint-mid:    #2d0f0f;
-  --red-border:      #4d1a1a;
-  --red-border-lt:   #6b2020;
-  --red-text:        #f85149;
+  /* ── Red tints (clearly lighter than #111827) ───────────────────────────── */
+  --red-tint:        #2e1111;   /* rgb(46,17,17) — visible red wash             */
+  --red-tint-mid:    #3f1616;
+  --red-border:      #7f2020;   /* red border — visible on tint                 */
+  --red-border-lt:   #9f2828;
+  --red-text:        #f87171;   /* red-400 — 5.5:1 on card bg ✓                 */
 
-  /* ── Orange / Amber tints (dark-adapted) ────────────────────────────────── */
-  --orange-tint:     #1f1008;
-  --amber-tint:      #1f1800;
-  --amber-tint-lt:   #2d2200;
-  --orange-border:   #4d2f0f;
-  --orange-border-lt:#6b3d12;
-  --orange-text:     #e3b341;
+  /* ── Orange / Amber tints ────────────────────────────────────────────────── */
+  --orange-tint:     #2e1c08;
+  --amber-tint:      #2b2108;
+  --amber-tint-lt:   #3c2e0c;
+  --orange-border:   #78430e;
+  --orange-border-lt:#954e10;
+  --orange-text:     #fbbf24;   /* amber-400 — 6.5:1 on card bg ✓               */
 
-  /* ── Purple tints (dark-adapted) ─────────────────────────────────────────── */
-  --purple-tint:     #150a2a;
-  --purple-border:   #3d1f6b;
-  --purple-tint-lt:  #1a1040;
-  --purple-border-lt:#4d2d8a;
+  /* ── Purple tints ────────────────────────────────────────────────────────── */
+  --purple-tint:     #1e1040;
+  --purple-border:   #5b21b6;
+  --purple-tint-lt:  #271450;
+  --purple-border-lt:#6d28d9;
 
-  /* ── Teal tints (dark-adapted) ───────────────────────────────────────────── */
-  --teal-tint:       #051a18;
-  --teal-border:     #0e4040;
+  /* ── Teal tints ──────────────────────────────────────────────────────────── */
+  --teal-tint:       #0b2a28;
+  --teal-border:     #1a5754;
 
-  /* ── Yellow tints (dark-adapted) ─────────────────────────────────────────── */
-  --yellow-tint:     #1a1500;
-  --yellow-border:   #3d3000;
+  /* ── Yellow tints ────────────────────────────────────────────────────────── */
+  --yellow-tint:     #251f08;
+  --yellow-border:   #4e400e;
 
-  /* ── Shadows ─────────────────────────────────────────────────────────────── */
-  --shadow-card:     0 1px 4px rgba(0,0,0,0.4);
-  --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.6);
-  --shadow-modal:    0 20px 60px rgba(0,0,0,0.7);
-  --shadow-modal-lg: 0 24px 64px rgba(0,0,0,0.65);
-  --shadow-toast:    0 4px 16px rgba(0,0,0,0.5);
-  --shadow-tooltip:  0 4px 16px rgba(0,0,0,0.6);
-  --backdrop:        rgba(0,0,0,0.65);
-  --backdrop-dark:   rgba(0,0,0,0.75);
+  /* ── Semantic color overrides for dark surfaces ──────────────────────────── */
+  --green-deeper:    #4ade80;   /* was #15803d — too dark on dark bg            */
+  --green-dark:      #34d468;   /* was #16a34a — bumped for dark readability    */
+  --blue-dark:       #60a5fa;   /* was #2563eb — blue-400, readable on dark     */
+  --orange-dark:     #fb923c;   /* was #c2410c — orange-400, readable on dark   */
+  --red-dark:        #f87171;   /* was #dc2626 — bright for dark bg             */
+  --cyan:            #38bdf8;   /* brighter cyan on dark                        */
+
+  /* ── Shadows (deeper for dark surfaces) ─────────────────────────────────── */
+  --shadow-card:     0 1px 3px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-dropdown: 0 8px 32px rgba(0,0,0,0.7);
+  --shadow-modal:    0 20px 60px rgba(0,0,0,0.8);
+  --shadow-modal-lg: 0 24px 64px rgba(0,0,0,0.75);
+  --shadow-toast:    0 4px 16px rgba(0,0,0,0.6);
+  --shadow-tooltip:  0 4px 16px rgba(0,0,0,0.7);
+  --backdrop:        rgba(0,0,0,0.7);
+  --backdrop-dark:   rgba(0,0,0,0.8);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tailwind CSS Variable Fix
+   Tailwind v3 wraps custom colors in rgb(var(--x) / opacity).
+   When --x is a hex value this produces invalid CSS (ignored by browsers).
+   These rules override those broken declarations via cascade (last rule wins).
+───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Surfaces ────────────────────────────────────────────────────────────── */
+.bg-bg-page         { background-color: var(--bg-page) !important; }
+.bg-bg-card         { background-color: var(--bg-card) !important; }
+.bg-bg-row          { background-color: var(--bg-row) !important; }
+.bg-bg-hover        { background-color: var(--bg-hover) !important; }
+.bg-bg-subtle       { background-color: var(--bg-subtle) !important; }
+.bg-bg-sidebar      { background-color: var(--bg-sidebar) !important; }
+.bg-bg-sidebar-item { background-color: var(--bg-sidebar-item) !important; }
+
+/* ── Text ────────────────────────────────────────────────────────────────── */
+.text-text-primary   { color: var(--text-primary) !important; }
+.text-text-secondary { color: var(--text-secondary) !important; }
+.text-text-muted-c   { color: var(--text-muted) !important; }
+.text-text-faint     { color: var(--text-faint) !important; }
+.text-text-ghost     { color: var(--text-ghost) !important; }
+.text-text-disabled  { color: var(--text-disabled) !important; }
+
+/* ── Borders ─────────────────────────────────────────────────────────────── */
+.border-border-base   { border-color: var(--border) !important; }
+.border-border-subtle { border-color: var(--border-subtle) !important; }
+.border-border-muted  { border-color: var(--border-muted) !important; }
+.border-border-dark   { border-color: var(--border-dark) !important; }
+
+/* ── Blue ────────────────────────────────────────────────────────────────── */
+.bg-blue          { background-color: var(--blue) !important; }
+.bg-blue-dark     { background-color: var(--blue-dark) !important; }
+.bg-blue-tint     { background-color: var(--blue-tint) !important; }
+.text-blue        { color: var(--blue) !important; }
+.text-blue-dark   { color: var(--blue-dark) !important; }
+.text-blue-deep   { color: var(--blue-deep) !important; }
+.text-blue-light  { color: var(--blue-light) !important; }
+.border-blue-border { border-color: var(--blue-border) !important; }
+
+/* ── Indigo ──────────────────────────────────────────────────────────────── */
+.bg-indigo-tint      { background-color: var(--indigo-tint) !important; }
+.text-indigo         { color: var(--indigo) !important; }
+.text-indigo-dark    { color: var(--indigo-dark) !important; }
+.border-indigo-border { border-color: var(--indigo-border) !important; }
+
+/* ── Cyan ────────────────────────────────────────────────────────────────── */
+.bg-cyan-tint      { background-color: var(--cyan-tint) !important; }
+.text-cyan         { color: var(--cyan) !important; }
+.text-cyan-dark    { color: var(--cyan-dark) !important; }
+.border-cyan-border { border-color: var(--cyan-border) !important; }
+
+/* ── Green ───────────────────────────────────────────────────────────────── */
+.bg-green          { background-color: var(--green) !important; }
+.bg-green-dark     { background-color: var(--green-dark) !important; }
+.bg-green-tint     { background-color: var(--green-tint) !important; }
+.bg-green-tint-mid { background-color: var(--green-tint-mid) !important; }
+.text-green        { color: var(--green) !important; }
+.text-green-dark   { color: var(--green-dark) !important; }
+.text-green-deeper { color: var(--green-deeper) !important; }
+.text-green-text   { color: var(--green-text) !important; }
+.text-green-bright { color: var(--green-bright) !important; }
+.text-green-light  { color: var(--green-light) !important; }
+.border-green-border    { border-color: var(--green-border) !important; }
+.border-green-border-lt { border-color: var(--green-border-lt) !important; }
+
+/* ── Red ─────────────────────────────────────────────────────────────────── */
+.bg-red          { background-color: var(--red) !important; }
+.bg-red-dark     { background-color: var(--red-dark) !important; }
+.bg-red-tint     { background-color: var(--red-tint) !important; }
+.bg-red-tint-mid { background-color: var(--red-tint-mid) !important; }
+.text-red        { color: var(--red) !important; }
+.text-red-dark   { color: var(--red-dark) !important; }
+.text-red-text   { color: var(--red-text) !important; }
+.border-red-border    { border-color: var(--red-border) !important; }
+.border-red-border-lt { border-color: var(--red-border-lt) !important; }
+.border-red-tint-mid  { border-color: var(--red-tint-mid) !important; }
+
+/* ── Orange / Amber ──────────────────────────────────────────────────────── */
+.bg-amber         { background-color: var(--amber) !important; }
+.bg-orange        { background-color: var(--orange) !important; }
+.bg-orange-tint   { background-color: var(--orange-tint) !important; }
+.bg-amber-tint    { background-color: var(--amber-tint) !important; }
+.bg-amber-tint-lt { background-color: var(--amber-tint-lt) !important; }
+.text-amber       { color: var(--amber) !important; }
+.text-orange      { color: var(--orange) !important; }
+.text-orange-dark { color: var(--orange-dark) !important; }
+.text-orange-text { color: var(--orange-text) !important; }
+.border-orange-border    { border-color: var(--orange-border) !important; }
+.border-orange-border-lt { border-color: var(--orange-border-lt) !important; }
+.border-yellow-border    { border-color: var(--yellow-border) !important; }
+
+/* ── Purple ──────────────────────────────────────────────────────────────── */
+.bg-purple-tint    { background-color: var(--purple-tint) !important; }
+.bg-purple-tint-lt { background-color: var(--purple-tint-lt) !important; }
+.text-purple       { color: var(--purple) !important; }
+.text-purple-dark  { color: var(--purple-dark) !important; }
+.border-purple-border    { border-color: var(--purple-border) !important; }
+.border-purple-border-lt { border-color: var(--purple-border-lt) !important; }
+
+/* ── Teal ────────────────────────────────────────────────────────────────── */
+.bg-teal-tint    { background-color: var(--teal-tint) !important; }
+.text-teal       { color: var(--teal) !important; }
+.border-teal-border { border-color: var(--teal-border) !important; }
+
+/* ── Yellow ──────────────────────────────────────────────────────────────── */
+.bg-yellow-tint    { background-color: var(--yellow-tint) !important; }
+.text-yellow-dark  { color: var(--yellow-dark) !important; }
+.text-yellow-darker { color: var(--yellow-darker) !important; }
+
+/* ── Semantic overrides (dark mode changes these values) ─────────────────── */
+.text-green-deeper { color: var(--green-deeper) !important; }
+.text-green-dark   { color: var(--green-dark) !important; }
+.bg-green-dark     { background-color: var(--green-dark) !important; }
+.text-blue-dark    { color: var(--blue-dark) !important; }
+.bg-blue-dark      { background-color: var(--blue-dark) !important; }
+.text-orange-dark  { color: var(--orange-dark) !important; }
+.text-red-dark     { color: var(--red-dark) !important; }
+.text-cyan         { color: var(--cyan) !important; }

@@ -14,9 +14,7 @@ export function CredentialsForm({ inventoryId, inventoryName, onClose }) {
   useEffect(() => {
     setLoadingCreds(true);
     apiFetch(`/api/credentials/${inventoryId}`)
-      .then(d => {
-        if (d.has_credentials) setExistingUser(d.username);
-      })
+      .then(d => { if (d.has_credentials) setExistingUser(d.username); })
       .catch(() => {})
       .finally(() => setLoadingCreds(false));
   }, [inventoryId]);
@@ -25,11 +23,7 @@ export function CredentialsForm({ inventoryId, inventoryName, onClose }) {
     if (!username.trim() || !password.trim()) return;
     setSaving(true);
     try {
-      await apiPost("/api/credentials", {
-        inventory_id: inventoryId,
-        username: username.trim(),
-        password: password,
-      });
+      await apiPost("/api/credentials", { inventory_id: inventoryId, username: username.trim(), password });
       setSaved(true);
       setExistingUser(username.trim());
       setTimeout(() => setSaved(false), 2000);
@@ -41,104 +35,95 @@ export function CredentialsForm({ inventoryId, inventoryName, onClose }) {
     }
   };
 
-  return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
-      zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center"
-    }} onClick={onClose}>
-      <div style={{
-        background: "#fff", borderRadius: 16, width: "min(460px,95vw)",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden"
-      }} onClick={e => e.stopPropagation()}>
+  const canSave = username.trim() && password.trim();
 
-        {/* header */}
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#0f172a" }}>
+  return (
+    <div className="fixed inset-0 bg-[var(--backdrop)] z-[200] flex items-center justify-center" onClick={onClose}>
+      <div className="bg-bg-card border border-border-base rounded-3xl w-[min(460px,95vw)] shadow-modal overflow-hidden" onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="px-6 py-5 border-b border-border-subtle flex justify-between items-start bg-bg-sidebar">
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="flex items-center gap-2">
               <Icon d={Icons.key} size={16} color="#93c5fd" />
-              <span style={{ fontWeight: 800, fontSize: 15, color: "#f8fafc" }}>SSH Credentials</span>
+              <span className="font-extrabold text-lg text-[#f8fafc]">SSH Credentials</span>
             </div>
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{inventoryName}</div>
+            <div className="text-sm text-slate-400 mt-0.5">{inventoryName}</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#475569" }}>
+          <button onClick={onClose} className="bg-transparent border-none cursor-pointer text-slate-400 hover:text-slate-200 transition-colors">
             <Icon d={Icons.close} size={18} />
           </button>
         </div>
 
-        {/* existing creds notice */}
+        {/* Existing creds notice */}
         {!loadingCreds && existingUser && (
-          <div style={{ margin: "16px 24px 0", padding: "10px 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="mx-6 mt-4 px-3.5 py-2.5 bg-green-tint border border-green-border rounded-base flex items-center gap-2">
             <Icon d={Icons.check} size={14} color="#16a34a" />
-            <span style={{ fontSize: 12, color: "#15803d" }}>
+            <span className="text-sm text-green-deeper">
               Credentials set for <strong>{existingUser}</strong>. Enter new values below to update.
             </span>
           </div>
         )}
 
-        {/* form */}
-        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Form */}
+        <div className="px-6 py-5 flex flex-col gap-3.5">
           <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-              SSH Username
-            </label>
+            <label className="block text-sm font-semibold text-text-secondary mb-1.5">SSH Username</label>
             <input
               value={username}
               onChange={e => setUsername(e.target.value)}
               placeholder={existingUser ? `Current: ${existingUser}` : "e.g. ansible, ubuntu, root"}
-              style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+              className="w-full px-3 py-2 border border-border-base rounded-base text-md outline-none font-[inherit] bg-bg-card text-text-primary"
             />
           </div>
           <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
-              SSH Password <span style={{ color: "#94a3b8", fontWeight: 400 }}>(also used for sudo/become)</span>
+            <label className="block text-sm font-semibold text-text-secondary mb-1.5">
+              SSH Password <span className="text-text-ghost font-normal">(also used for sudo/become)</span>
             </label>
-            <div style={{ position: "relative" }}>
+            <div className="relative">
               <input
                 type={showPass ? "text" : "password"}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && save()}
                 placeholder="••••••••"
-                style={{ width: "100%", padding: "9px 40px 9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
+                className="w-full pr-10 pl-3 py-2 border border-border-base rounded-base text-md outline-none font-[inherit] bg-bg-card text-text-primary"
               />
               <button
                 onClick={() => setShowPass(s => !s)}
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 2 }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-text-ghost p-0.5"
               >
                 <Icon d={showPass ? Icons.eyeOff : Icons.eye} size={15} />
               </button>
             </div>
           </div>
 
-          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 12px", display: "flex", gap: 8 }}>
+          <div className="bg-amber-tint border border-yellow-border rounded-base px-3 py-2.5 flex gap-2">
             <Icon d={Icons.lock} size={13} color="#d97706" />
-            <span style={{ fontSize: 11, color: "#92400e", lineHeight: 1.5 }}>
+            <span className="text-xs text-orange-text leading-relaxed">
               Credentials are stored in the database and used by Ansible for SSH and sudo access. They are never returned to the UI after saving.
             </span>
           </div>
         </div>
 
-        {/* footer */}
-        <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onClose} style={{ padding: "9px 16px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, fontFamily: "inherit", color: "#475569" }}>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-border-subtle flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-border-base rounded-base bg-bg-card cursor-pointer text-md font-[inherit] text-text-muted-c"
+          >
             Cancel
           </button>
           <button
             onClick={save}
-            disabled={saving || !username.trim() || !password.trim()}
-            style={{
-              padding: "9px 20px", border: "none", borderRadius: 8,
-              background: saved ? "#10b981" : (!username.trim() || !password.trim()) ? "#e2e8f0" : "#0f172a",
-              color: saved ? "#fff" : (!username.trim() || !password.trim()) ? "#94a3b8" : "#fff",
-              cursor: (!username.trim() || !password.trim()) ? "not-allowed" : "pointer",
-              fontSize: 13, fontWeight: 700, fontFamily: "inherit", minWidth: 110,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6
-            }}
+            disabled={saving || !canSave}
+            className={`px-5 py-2 border-none rounded-base text-md font-bold font-[inherit] min-w-[110px] flex items-center justify-center gap-1.5 cursor-pointer transition-colors
+              ${saved ? "bg-green text-white" : canSave ? "bg-bg-sidebar text-white" : "bg-bg-subtle text-text-ghost cursor-not-allowed"}`}
           >
             {saved ? (
               <><Icon d={Icons.check} size={13} color="#fff" /> Saved!</>
             ) : saving ? "Saving..." : (
-              <><Icon d={Icons.key} size={13} color={(!username.trim() || !password.trim()) ? "#94a3b8" : "#fff"} /> Save Credentials</>
+              <><Icon d={Icons.key} size={13} color={canSave ? "#fff" : "var(--text-ghost)"} /> Save Credentials</>
             )}
           </button>
         </div>
