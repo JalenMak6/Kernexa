@@ -1,6 +1,12 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../utils/api";
-import { fmtDate, badge } from "../utils/helpers.jsx";
+import { fmtDate } from "../utils/helpers.jsx";
+
+const REASON_STYLE = {
+  unreachable: { wrap: "bg-orange-tint border-orange-border", dot: "bg-orange", text: "text-orange-dark", badge: "text-orange-darker bg-bg-card border-orange-border" },
+  task_failed: { wrap: "bg-red-tint border-red-border",    dot: "bg-red",    text: "text-red-dark",    badge: "text-red-dark bg-bg-card border-red-border" },
+};
+const DEFAULT_REASON_STYLE = { wrap: "bg-bg-page border-border-base", dot: "bg-text-ghost", text: "text-text-muted", badge: "text-text-muted bg-bg-card border-border-base" };
 
 export function ScanFailuresModal({ scanId, onClose }) {
   const [data, setData]           = useState(null);
@@ -17,99 +23,94 @@ export function ScanFailuresModal({ scanId, onClose }) {
   const failures       = data?.host_failures || {};
   const failureEntries = Object.entries(failures);
 
-  const reasonColor = (reason) => ({
-    unreachable: { bg: "#fff7ed", border: "#fed7aa", text: "#c2410c", dot: "#f97316" },
-    task_failed: { bg: "#fef2f2", border: "#fecaca", text: "#dc2626", dot: "#ef4444" },
-  }[reason] || { bg: "#f8fafc", border: "#e2e8f0", text: "#475569", dot: "#94a3b8" });
-
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, backdropFilter: "blur(2px)" }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 860, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(0,0,0,0.2)", overflow: "hidden" }}>
+    <div className="fixed inset-0 bg-[var(--backdrop-dark)] z-[1000] flex items-center justify-center p-6 backdrop-blur-sm">
+      <div className="bg-bg-card border border-border-base rounded-3xl w-full max-w-[860px] max-h-[85vh] flex flex-col shadow-modal overflow-hidden">
 
         {/* Header */}
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="px-6 py-5 border-b border-border-base flex items-center justify-between">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Scan Details</div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, fontFamily: "monospace" }}>{scanId}</div>
+            <div className="font-extrabold text-xl text-text-primary">Scan Details</div>
+            <div className="text-xs text-text-ghost mt-0.5 mono">{scanId}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="flex items-center gap-3">
             {data && (
-              <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
-                <span style={{ background: "#f1f5f9", padding: "4px 10px", borderRadius: 6, color: "#475569" }}>{fmtDate(data.scanned_at)}</span>
+              <div className="flex gap-2 text-sm">
+                <span className="bg-bg-subtle px-2.5 py-1 rounded-md text-text-muted">{fmtDate(data.scanned_at)}</span>
                 {data.status === "successful"
-                  ? <span style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #86efac", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>Successful</span>
-                  : <span style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: 6, fontWeight: 600 }}>{data.status}</span>
+                  ? <span className="bg-green-tint text-green-dark border border-green-border-lt px-2.5 py-1 rounded-md font-semibold">Successful</span>
+                  : <span className="bg-red-tint text-red-dark border border-red-border px-2.5 py-1 rounded-md font-semibold">{data.status}</span>
                 }
-                <span style={{ background: "#f1f5f9", padding: "4px 10px", borderRadius: 6, color: "#475569", fontFamily: "monospace" }}>rc={data.rc}</span>
+                <span className="bg-bg-subtle px-2.5 py-1 rounded-md text-text-muted mono">rc={data.rc}</span>
               </div>
             )}
-            <button onClick={onClose} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#334155" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#e2e8f0"}
-              onMouseLeave={e => e.currentTarget.style.background = "#f1f5f9"}
+            <button
+              onClick={onClose}
+              className="bg-bg-subtle border border-border-muted rounded-base w-8 h-8 cursor-pointer flex items-center justify-center text-lg text-text-secondary hover:bg-border-base transition-colors"
             >×</button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid #e2e8f0", padding: "0 24px" }}>
+        <div className="flex border-b border-border-base px-6">
           {[
             { id: "failures", label: `Failed Hosts (${failureEntries.length})` },
             { id: "log",      label: "Ansible Log" },
           ].map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-              padding: "12px 16px", border: "none", background: "none", cursor: "pointer",
-              fontSize: 13, fontWeight: activeTab === t.id ? 700 : 500,
-              color: activeTab === t.id ? "#3b82f6" : "#64748b",
-              borderBottom: activeTab === t.id ? "2px solid #3b82f6" : "2px solid transparent",
-              fontFamily: "inherit", marginBottom: -1,
-            }}>{t.label}</button>
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-3 border-none bg-transparent cursor-pointer text-md font-[inherit] -mb-px transition-colors
+                ${activeTab === t.id
+                  ? "font-bold text-blue border-b-2 border-blue"
+                  : "font-medium text-text-faint border-b-2 border-transparent"
+                }`}
+            >{t.label}</button>
           ))}
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+        <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
-              <div style={{ width: 28, height: 28, border: "3px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <div className="flex justify-center py-16">
+              <div className="w-7 h-7 border-[3px] border-border-base border-t-blue rounded-full animate-spin" />
             </div>
           ) : !data ? (
-            <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>Failed to load scan details</div>
+            <div className="text-center py-16 text-text-ghost">Failed to load scan details</div>
           ) : activeTab === "failures" ? (
             failureEntries.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 60 }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
-                <div style={{ fontWeight: 700, color: "#16a34a", fontSize: 15 }}>All hosts completed successfully</div>
-                <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>No failures recorded for this scan</div>
+              <div className="text-center py-16">
+                <div className="text-[32px] mb-3">✅</div>
+                <div className="font-bold text-green-dark text-lg">All hosts completed successfully</div>
+                <div className="text-text-ghost text-md mt-1">No failures recorded for this scan</div>
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="flex flex-col gap-3">
                 {failureEntries.map(([host, failure]) => {
-                  const colors = reasonColor(failure.reason);
+                  const s = REASON_STYLE[failure.reason] ?? DEFAULT_REASON_STYLE;
                   return (
-                    <div key={host} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: colors.dot, flexShrink: 0 }} />
-                          <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", fontFamily: "monospace" }}>{host}</span>
+                    <div key={host} className={`${s.wrap} border rounded-lg p-4`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-2 h-2 rounded-full ${s.dot} shrink-0`} />
+                          <span className={`font-bold text-md text-text-primary mono`}>{host}</span>
                         </div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: colors.text, background: "#fff", border: `1px solid ${colors.border}`, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        <div className="flex gap-1.5">
+                          <span className={`text-xs font-bold ${s.badge} border px-2 py-0.5 rounded-sm uppercase tracking-wide`}>
                             {failure.reason === "unreachable" ? "Unreachable" : "Task Failed"}
                           </span>
                           {failure.task && (
-                            <span style={{ fontSize: 11, color: "#64748b", background: "#fff", border: "1px solid #e2e8f0", padding: "2px 8px", borderRadius: 4 }}>{failure.task}</span>
+                            <span className="text-xs text-text-faint bg-bg-card border border-border-base px-2 py-0.5 rounded-sm">{failure.task}</span>
                           )}
                         </div>
                       </div>
                       {failure.msg && (
-                        <div style={{ fontSize: 12, color: "#334155", background: "#fff", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "10px 12px", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6 }}>
+                        <div className="text-sm text-text-secondary bg-bg-card border border-border-base rounded-md px-3 py-2.5 mono whitespace-pre-wrap break-words leading-relaxed">
                           {failure.msg}
                         </div>
                       )}
                       {failure.stderr && (
-                        <div style={{ marginTop: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>stderr</div>
-                          <div style={{ fontSize: 11, color: "#dc2626", background: "#fff", border: "1px solid #fecaca", borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                        <div className="mt-2">
+                          <div className="text-xxs font-bold text-text-ghost tracking-widest uppercase mb-1">stderr</div>
+                          <div className="text-xs text-red-dark bg-bg-card border border-red-border rounded-md px-3 py-2 mono whitespace-pre-wrap break-words">
                             {failure.stderr}
                           </div>
                         </div>
@@ -122,11 +123,11 @@ export function ScanFailuresModal({ scanId, onClose }) {
           ) : (
             <div>
               {data.ansible_log ? (
-                <pre style={{ fontSize: 11, color: "#e2e8f0", background: "#0f172a", borderRadius: 10, padding: 20, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.7, fontFamily: "JetBrains Mono, monospace", margin: 0 }}>
+                <pre className="text-xs text-text-primary bg-bg-sidebar rounded-lg p-5 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed mono m-0">
                   {data.ansible_log}
                 </pre>
               ) : (
-                <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>No log available for this scan</div>
+                <div className="text-center py-16 text-text-ghost">No log available for this scan</div>
               )}
             </div>
           )}

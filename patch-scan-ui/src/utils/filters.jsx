@@ -13,13 +13,16 @@ export function osFamily(osVersion) {
 
 export function FilterChip({ label, active, onClick, color = "#3b82f6" }) {
   return (
-    <button onClick={onClick} style={{
-      padding: "5px 12px", borderRadius: 6,
-      border: `1px solid ${active ? color : "#e2e8f0"}`,
-      background: active ? `${color}18` : "#fff",
-      cursor: "pointer", fontSize: 12, fontWeight: active ? 700 : 500,
-      color: active ? color : "#475569", fontFamily: "inherit",
-      transition: "all 0.15s", whiteSpace: "nowrap",
-    }}>{label}</button>
+    <button
+      onClick={onClick}
+      style={{
+        border: `1px solid ${active ? color : "var(--border)"}`,
+        background: active ? `${color}18` : "var(--bg-card)",
+        color: active ? color : "var(--text-muted)",
+      }}
+      className="px-3 py-1 rounded-md text-sm font-medium cursor-pointer transition-all duration-150 whitespace-nowrap font-[inherit]"
+    >
+      {label}
+    </button>
   );
 }

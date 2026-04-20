@@ -1,4 +1,8 @@
 @import "./styles/theme.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */

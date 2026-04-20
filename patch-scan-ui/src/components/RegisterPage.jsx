@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-/* ── Icons ─────────────────────────────────────────────────────────────────── */
 const IconUser = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="8" r="4" stroke="#4b5563" strokeWidth="1.5"/>
@@ -31,14 +30,13 @@ const IconEye = ({ off }) => (
   </svg>
 );
 
-/* ── Password strength ─────────────────────────────────────────────────────── */
 function strengthScore(pw) {
   let s = 0;
-  if (pw.length >= 8)       s++;
-  if (pw.length >= 12)      s++;
-  if (/[A-Z]/.test(pw))     s++;
-  if (/[0-9]/.test(pw))     s++;
-  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  if (pw.length >= 8)            s++;
+  if (pw.length >= 12)           s++;
+  if (/[A-Z]/.test(pw))         s++;
+  if (/[0-9]/.test(pw))         s++;
+  if (/[^A-Za-z0-9]/.test(pw))  s++;
   return s;
 }
 const STRENGTH_LABEL = ["—", "weak", "fair", "fair", "good", "strong"];
@@ -48,78 +46,45 @@ function StrengthBar({ password }) {
   if (!password) return null;
   const s = strengthScore(password);
   return (
-    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ display: "flex", gap: 3, flex: 1 }}>
+    <div className="mt-1.5 flex items-center gap-2">
+      <div className="flex gap-0.5 flex-1">
         {[1,2,3,4,5].map(i => (
-          <div key={i} style={{
-            flex: 1, height: 2, borderRadius: 1,
-            background: i <= s ? STRENGTH_COLOR[s] : "#111927",
-            transition: "background 0.2s",
-          }} />
+          <div key={i} className="flex-1 h-0.5 rounded-sm transition-colors duration-200"
+            style={{ background: i <= s ? STRENGTH_COLOR[s] : "#111927" }} />
         ))}
       </div>
-      <span style={{ fontSize: 9, color: STRENGTH_COLOR[s], fontFamily: "monospace", letterSpacing: "0.05em", width: 36, textAlign: "right" }}>
+      <span className="text-[9px] mono tracking-[0.05em] w-9 text-right" style={{ color: STRENGTH_COLOR[s] }}>
         {STRENGTH_LABEL[s]}
       </span>
     </div>
   );
 }
 
-/* ── Input field ───────────────────────────────────────────────────────────── */
 function InputField({ label, type, value, onChange, onKeyDown, placeholder, autoFocus, autoComplete, disabled, hasError, rightSlot, children }) {
   const [focused, setFocused] = useState(false);
   const isLockIcon = type === "password" || autoComplete?.startsWith("new-password");
-  const border = hasError
-    ? "#7f1d1d"
-    : focused
-    ? "#1d4ed8"
-    : "#1a2438";
-  const ring = focused
-    ? hasError ? "0 0 0 2px rgba(127,29,29,0.35)" : "0 0 0 2px rgba(29,78,216,0.3)"
-    : "none";
+  const borderColor = hasError ? "#7f1d1d" : focused ? "#1d4ed8" : "#1a2438";
+  const ringStyle   = focused
+    ? { boxShadow: hasError ? "0 0 0 2px rgba(127,29,29,0.35)" : "0 0 0 2px rgba(29,78,216,0.3)" }
+    : {};
 
   return (
     <div>
-      <label style={{
-        display: "block", fontSize: 10, fontWeight: 600,
-        color: "#4b5563", textTransform: "uppercase",
-        letterSpacing: "0.08em", marginBottom: 6,
-        fontFamily: "monospace",
-      }}>{label}</label>
-      <div style={{ position: "relative" }}>
-        <div style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", display: "flex", pointerEvents: "none" }}>
+      <label className="block text-[10px] font-semibold text-[#4b5563] uppercase tracking-[0.08em] mb-1.5 mono">{label}</label>
+      <div className="relative">
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 flex pointer-events-none">
           {isLockIcon ? <IconLock /> : <IconUser />}
         </div>
         <input
-          type={type}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          autoFocus={autoFocus}
-          autoComplete={autoComplete}
-          disabled={disabled}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          style={{
-            width: "100%",
-            padding: rightSlot ? "10px 40px 10px 36px" : "10px 12px 10px 36px",
-            background: "#070b14",
-            border: `1px solid ${border}`,
-            borderRadius: 5,
-            color: "#d1d5db",
-            fontSize: 13,
-            outline: "none",
-            fontFamily: "inherit",
-            boxSizing: "border-box",
-            transition: "border-color 0.12s, box-shadow 0.12s",
-            boxShadow: ring,
-          }}
+          type={type} value={value} onChange={e => onChange(e.target.value)}
+          onKeyDown={onKeyDown} placeholder={placeholder} autoFocus={autoFocus}
+          autoComplete={autoComplete} disabled={disabled}
+          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+          className="w-full pl-9 py-2.5 bg-[#070b14] rounded-[5px] text-[#d1d5db] text-md outline-none font-[inherit] transition-all duration-[120ms]"
+          style={{ border: `1px solid ${borderColor}`, paddingRight: rightSlot ? "40px" : "12px", ...ringStyle }}
         />
         {rightSlot && (
-          <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)" }}>
-            {rightSlot}
-          </div>
+          <div className="absolute right-2.5 top-1/2 -translate-y-1/2">{rightSlot}</div>
         )}
       </div>
       {children}
@@ -127,7 +92,6 @@ function InputField({ label, type, value, onChange, onKeyDown, placeholder, auto
   );
 }
 
-/* ── RegisterPage ──────────────────────────────────────────────────────────── */
 export function RegisterPage({ onBackToLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -144,13 +108,11 @@ export function RegisterPage({ onBackToLogin }) {
     if (username.trim().length < 3)            { setError("Username must be at least 3 characters"); return; }
     if (password.length < 8)                   { setError("Password must be at least 8 characters"); return; }
     if (password !== confirm)                  { setError("Passwords do not match"); return; }
-
     setLoading(true);
     try {
       const res  = await fetch("/api/auth/register", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ username: username.trim(), password }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim(), password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Registration failed");
@@ -165,153 +127,89 @@ export function RegisterPage({ onBackToLogin }) {
   const onKey = e => e.key === "Enter" && handleSubmit();
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "#08111e",
-      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
-      padding: "32px 24px",
-    }}>
+    <div className="min-h-screen flex items-center justify-center bg-[#08111e] font-[Inter,system-ui,-apple-system,sans-serif] px-6 py-8">
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         input::placeholder { color: #1e2d45; }
         .pw-toggle { background:none; border:none; cursor:pointer; padding:2px; display:flex; align-items:center; opacity:0.5; }
         .pw-toggle:hover { opacity:1; }
         .reg-btn:not(:disabled):hover { background: #1d4ed8 !important; }
-        .reg-btn { transiton: background 0.15s !important; }
       `}</style>
 
-      <div style={{ width: "100%", maxWidth: 340 }}>
-
+      <div className="w-full max-w-[340px]">
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 28 }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: 6,
-            background: "#1a2540", border: "1px solid #253354",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
+        <div className="flex items-center gap-2.5 mb-7">
+          <div className="w-[30px] h-[30px] rounded-[6px] bg-[#1a2540] border border-[#253354] flex items-center justify-center">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V6L12 2z"
-                fill="#253354" stroke="#4b6cb7" strokeWidth="1.5" strokeLinejoin="round"/>
+              <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V6L12 2z" fill="#253354" stroke="#4b6cb7" strokeWidth="1.5" strokeLinejoin="round"/>
               <path d="M9 12l2 2 4-4" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", letterSpacing: "-0.1px" }}>Kermonix</div>
-            <div style={{ fontSize: 9, color: "#374151", letterSpacing: "0.08em", fontFamily: "monospace", textTransform: "uppercase" }}>Security Platform</div>
+            <div className="text-[14px] font-bold text-[#e2e8f0] tracking-[-0.1px]">Kermonix</div>
+            <div className="text-[9px] text-[#374151] tracking-[0.08em] mono uppercase">Security Platform</div>
           </div>
         </div>
 
         {/* Heading */}
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0", margin: 0, marginBottom: 3, letterSpacing: "-0.2px" }}>
+        <div className="mb-5">
+          <h2 className="text-[18px] font-bold text-[#e2e8f0] m-0 mb-0.5 tracking-[-0.2px]">
             {success ? "Request received" : "Request access"}
           </h2>
-          <p style={{ fontSize: 11, color: "#374151", margin: 0, fontFamily: "monospace" }}>
+          <p className="text-xs text-[#374151] m-0 mono">
             {success ? "Pending administrator approval" : "Admin approval required · accounts are not self-serve"}
           </p>
         </div>
 
         {/* Card */}
-        <div style={{
-          background: "#060a12",
-          border: "1px solid #111927",
-          borderRadius: 6,
-          padding: "22px 20px",
-        }}>
+        <div className="bg-[#060a12] border border-[#111927] rounded-[6px] p-[22px_20px]">
           {success ? (
             <div>
-              <div style={{
-                display: "flex", alignItems: "center", gap: 10,
-                background: "rgba(34,197,94,0.08)",
-                border: "1px solid #14532d",
-                borderRadius: 4, padding: "10px 12px",
-                marginBottom: 16,
-              }}>
+              <div className="flex items-center gap-2.5 bg-[rgba(34,197,94,0.08)] border border-[#14532d] rounded-[4px] px-3 py-2.5 mb-4">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                   <path d="M5 13l4 4L19 7" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                <span style={{ fontSize: 12, color: "#4ade80", fontFamily: "monospace" }}>
-                  Request queued for {username}
-                </span>
+                <span className="text-sm text-[#4ade80] mono">Request queued for {username}</span>
               </div>
-              <p style={{ fontSize: 12, color: "#374151", fontFamily: "monospace", lineHeight: 1.6, marginBottom: 16, marginTop: 0 }}>
+              <p className="text-sm text-[#374151] mono leading-relaxed mb-4 mt-0">
                 An admin will review and activate your account. You will be able to sign in once approved.
               </p>
               <button
                 onClick={onBackToLogin}
-                style={{
-                  width: "100%", padding: "10px",
-                  background: "#1d4ed8", border: "1px solid #1e40af",
-                  borderRadius: 5, color: "#e2e8f0",
-                  fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
+                className="w-full py-2.5 bg-[#1d4ed8] border border-[#1e40af] rounded-[5px] text-[#e2e8f0] text-md font-semibold cursor-pointer font-[inherit]"
               >
                 Back to sign in
               </button>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <InputField
-                label="Username"
-                type="text"
-                value={username}
-                onChange={setUsername}
-                onKeyDown={onKey}
-                placeholder="choose a username"
-                autoFocus
-                autoComplete="username"
-                disabled={loading}
-              />
+            <div className="flex flex-col gap-3.5">
+              <InputField label="Username" type="text" value={username} onChange={setUsername}
+                onKeyDown={onKey} placeholder="choose a username" autoFocus autoComplete="username" disabled={loading} />
 
-              <InputField
-                label="Password"
-                type={showPw ? "text" : "password"}
-                value={password}
-                onChange={setPassword}
-                onKeyDown={onKey}
-                placeholder="min 8 characters"
-                autoComplete="new-password"
-                disabled={loading}
+              <InputField label="Password" type={showPw ? "text" : "password"} value={password}
+                onChange={setPassword} onKeyDown={onKey} placeholder="min 8 characters"
+                autoComplete="new-password" disabled={loading}
                 rightSlot={
                   <button className="pw-toggle" type="button" onClick={() => setShowPw(v => !v)} tabIndex={-1}>
                     <IconEye off={showPw} />
                   </button>
-                }
-              >
+                }>
                 <StrengthBar password={password} />
               </InputField>
 
-              <InputField
-                label="Confirm Password"
-                type={showCf ? "text" : "password"}
-                value={confirm}
-                onChange={setConfirm}
-                onKeyDown={onKey}
-                placeholder="re-enter password"
-                autoComplete="new-password"
-                disabled={loading}
+              <InputField label="Confirm Password" type={showCf ? "text" : "password"} value={confirm}
+                onChange={setConfirm} onKeyDown={onKey} placeholder="re-enter password"
+                autoComplete="new-password" disabled={loading}
                 hasError={confirm.length > 0 && confirm !== password}
                 rightSlot={
                   <button className="pw-toggle" type="button" onClick={() => setShowCf(v => !v)} tabIndex={-1}>
                     <IconEye off={showCf} />
                   </button>
-                }
-              />
+                } />
 
               {error && (
-                <div style={{
-                  background: "rgba(127,29,29,0.2)",
-                  border: "1px solid #7f1d1d",
-                  borderRadius: 4, padding: "9px 12px",
-                  fontSize: 12, color: "#fca5a5",
-                  display: "flex", alignItems: "flex-start", gap: 8,
-                  fontFamily: "monospace",
-                }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+                <div className="bg-[rgba(127,29,29,0.2)] border border-[#7f1d1d] rounded-[4px] px-3 py-2 text-sm text-[#fca5a5] flex items-start gap-2 mono">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="shrink-0 mt-0.5">
                     <circle cx="12" cy="12" r="10" stroke="#ef4444" strokeWidth="1.5"/>
                     <path d="M12 8v4m0 4h.01" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
@@ -320,24 +218,17 @@ export function RegisterPage({ onBackToLogin }) {
               )}
 
               <button
-                className="reg-btn"
-                onClick={handleSubmit}
-                disabled={loading}
+                className="reg-btn w-full py-2.5 mt-0.5 border border-[#1e40af] rounded-[5px] text-md font-semibold font-[inherit] flex items-center justify-center gap-1.5 transition-colors"
+                onClick={handleSubmit} disabled={loading}
                 style={{
-                  width: "100%", padding: "10px", marginTop: 2,
                   background: loading ? "#1e3a5f" : "#1d4ed8",
-                  border: "1px solid #1e40af",
-                  borderRadius: 5,
                   color: loading ? "#4b5563" : "#e2e8f0",
-                  fontSize: 13, fontWeight: 600,
                   cursor: loading ? "not-allowed" : "pointer",
-                  fontFamily: "inherit",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
                 }}
               >
                 {loading ? (
                   <>
-                    <div style={{ width: 12, height: 12, border: "1.5px solid #374151", borderTopColor: "#60a5fa", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                    <div className="w-3 h-3 border-[1.5px] border-[#374151] border-t-[#60a5fa] rounded-full animate-spin" />
                     Submitting...
                   </>
                 ) : "Submit request"}
@@ -348,18 +239,10 @@ export function RegisterPage({ onBackToLogin }) {
 
         {/* Back link */}
         {!success && (
-          <div style={{ marginTop: 14, textAlign: "center" }}>
+          <div className="mt-3.5 text-center">
             <button
               onClick={onBackToLogin}
-              style={{
-                background: "none", border: "none",
-                color: "#374151", fontSize: 11,
-                cursor: "pointer", fontFamily: "monospace",
-                letterSpacing: "0.02em", padding: 0,
-                transition: "color 0.12s",
-              }}
-              onMouseEnter={e => e.currentTarget.style.color = "#60a5fa"}
-              onMouseLeave={e => e.currentTarget.style.color = "#374151"}
+              className="bg-transparent border-none text-[#374151] text-xs cursor-pointer mono tracking-[0.02em] p-0 transition-colors duration-[120ms] hover:text-[#60a5fa]"
             >
               ← Back to sign in
             </button>
@@ -367,12 +250,7 @@ export function RegisterPage({ onBackToLogin }) {
         )}
 
         {/* Footer */}
-        <div style={{
-          marginTop: 28, paddingTop: 18,
-          borderTop: "1px solid #0d1a2a",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          fontSize: 10, color: "#1a2438", fontFamily: "monospace",
-        }}>
+        <div className="mt-7 pt-[18px] border-t border-[#0d1a2a] flex items-center justify-between text-[10px] text-[#1a2438] mono">
           <span>TLS 1.3 encrypted</span>
           <span>kermonix · v2.4.1</span>
         </div>

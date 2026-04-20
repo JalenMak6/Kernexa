@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Icon, Icons } from "../utils/icons.jsx";
-import { apiFetch, apiPost, apiDelete, apiUpload, API_BASE } from "../utils/api";
+import { apiFetch, apiPost, apiDelete, apiUpload } from "../utils/api";
 import { fmtDate, badge } from "../utils/helpers.jsx";
 import { CredentialsForm } from "./CredentialsForm";
 import { WindowsCredentialsForm } from "./WindowsCredentialsForm";
@@ -32,9 +32,7 @@ export function InventoryManager({ onClose, onActivated }) {
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file);
-      form.append("name", invName.trim());
-      form.append("inventory_type", invType);
+      form.append("file", file); form.append("name", invName.trim()); form.append("inventory_type", invType);
       await apiUpload("/api/inventories/upload", form);
       setFile(null); setInvName(""); setInvType("linux"); load();
     } catch (e) { alert("Upload failed: " + e.message); }
@@ -61,67 +59,58 @@ export function InventoryManager({ onClose, onActivated }) {
     if (dropped) setFile(dropped);
   };
 
-  const TypeToggle = () => (
-    <div style={{ display: "flex", background: "var(--bg-subtle)", borderRadius: "var(--radius-base)", padding: 3, gap: 2, alignSelf: "flex-start" }}>
-      {[
-        { value: "linux",   label: "🐧 Linux / SSH"    },
-        { value: "windows", label: "🪟 Windows / WinRM" },
-      ].map(opt => (
-        <button key={opt.value} onClick={() => setInvType(opt.value)} style={{
-          padding: "6px 14px", borderRadius: "var(--radius-md)", border: "none",
-          background: invType === opt.value ? "var(--bg-card)" : "transparent",
-          color:      invType === opt.value ? "var(--text-primary)" : "var(--text-ghost)",
-          fontSize: "var(--text-base)", fontWeight: invType === opt.value ? 700 : 500,
-          cursor: "pointer", fontFamily: "inherit",
-          boxShadow: invType === opt.value ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-          transition: "all 0.15s", whiteSpace: "nowrap",
-        }}>
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
+  const canUpload = file && invName.trim();
 
   return (
     <>
-      <div style={{ position: "fixed", inset: 0, background: "var(--backdrop)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
-        <div style={{ background: "var(--bg-card)", borderRadius: "var(--radius-3xl)", width: "min(680px,95vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-modal)" }} onClick={e => e.stopPropagation()}>
+      <div className="fixed inset-0 bg-[var(--backdrop)] z-[100] flex items-center justify-center" onClick={onClose}>
+        <div className="bg-bg-card border border-border-base rounded-3xl w-[min(680px,95vw)] max-h-[88vh] flex flex-col shadow-modal" onClick={e => e.stopPropagation()}>
 
-          {/* header */}
-          <div style={{ padding: "var(--space-5) var(--space-6)", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          {/* Header */}
+          <div className="px-6 py-5 border-b border-border-subtle flex justify-between items-start">
             <div>
-              <div style={{ fontWeight: 800, fontSize: "var(--text-2xl)", color: "var(--text-primary)" }}>Inventory Files</div>
-              <div style={{ fontSize: "var(--text-base)", color: "var(--text-faint)", marginTop: 2 }}>
+              <div className="font-extrabold text-xl text-text-primary">Inventory Files</div>
+              <div className="text-sm text-text-faint mt-0.5">
                 Upload Ansible inventory files — activate one, then set its credentials.
                 Linux and Windows inventories can both be active simultaneously.
               </div>
             </div>
-            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-ghost)" }}>
+            <button onClick={onClose} className="bg-transparent border-none cursor-pointer text-text-ghost">
               <Icon d={Icons.close} size={20} />
             </button>
           </div>
 
-          {/* upload form */}
-          <div style={{ padding: "var(--space-4) var(--space-6)", borderBottom: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 10 }}>
-            <TypeToggle />
+          {/* Upload form */}
+          <div className="px-6 py-4 border-b border-border-subtle flex flex-col gap-2.5">
+            {/* Type toggle */}
+            <div className="flex bg-bg-subtle rounded-base p-0.5 gap-0.5 self-start">
+              {[
+                { value: "linux",   label: "🐧 Linux / SSH" },
+                { value: "windows", label: "🪟 Windows / WinRM" },
+              ].map(opt => (
+                <button key={opt.value} onClick={() => setInvType(opt.value)}
+                  className={`px-3.5 py-1.5 rounded-md border-none text-sm font-[inherit] cursor-pointer whitespace-nowrap transition-all duration-150
+                    ${invType === opt.value ? "bg-bg-card text-text-primary font-bold shadow-sm" : "bg-transparent text-text-ghost font-medium"}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
 
             {invType === "windows" && (
-              <div style={{
-                padding: "10px 14px",
-                background: winCredsReady ? "var(--green-tint)" : "var(--orange-tint)",
-                border: `1px solid ${winCredsReady ? "var(--green-border)" : "var(--orange-border)"}`,
-                borderRadius: "var(--radius-base)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: winCredsReady ? "var(--green)" : "var(--amber)", flexShrink: 0 }} />
-                  <span style={{ fontSize: "var(--text-base)", color: winCredsReady ? "var(--green-deeper)" : "var(--orange-text)" }}>
+              <div className={`px-3.5 py-2.5 rounded-base flex items-center justify-between gap-2 border
+                ${winCredsReady ? "bg-green-tint border-green-border" : "bg-orange-tint border-orange-border"}`}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${winCredsReady ? "bg-green" : "bg-amber"}`} />
+                  <span className={`text-sm ${winCredsReady ? "text-green-deeper" : "text-orange-text"}`}>
                     {winCredsReady
                       ? "WinRM credentials are configured — this inventory will use them automatically."
                       : "WinRM credentials are not set yet. Configure them before scanning."}
                   </span>
                 </div>
                 {!winCredsReady && (
-                  <button onClick={() => setShowWinCreds(true)} style={{ padding: "5px 12px", border: "none", borderRadius: "var(--radius-md)", background: "var(--amber)", color: "var(--bg-card)", fontSize: "var(--text-sm)", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                  <button onClick={() => setShowWinCreds(true)}
+                    className="px-3 py-1 border-none rounded-md bg-amber text-bg-card text-xs font-bold cursor-pointer font-[inherit] whitespace-nowrap">
                     Set WinRM Creds
                   </button>
                 )}
@@ -130,7 +119,7 @@ export function InventoryManager({ onClose, onActivated }) {
 
             <input value={invName} onChange={e => setInvName(e.target.value)}
               placeholder={invType === "windows" ? "Inventory name (e.g. Windows Servers)" : "Inventory name (e.g. Production Servers)"}
-              style={{ padding: "9px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", outline: "none", fontFamily: "inherit" }}
+              className="px-3 py-2 border border-border-base rounded-base text-md outline-none font-[inherit] bg-bg-card text-text-primary"
             />
 
             <div
@@ -138,108 +127,87 @@ export function InventoryManager({ onClose, onActivated }) {
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               onClick={() => document.getElementById("inv-file-input").click()}
-              style={{
-                border: `2px dashed ${dragOver ? "var(--blue)" : "var(--border-muted)"}`,
-                borderRadius: "var(--radius-lg)", padding: "var(--space-5)", textAlign: "center",
-                background: dragOver ? "var(--blue-tint)" : "var(--bg-hover)",
-                transition: "all 0.2s", cursor: "pointer",
-              }}
+              className={`border-2 border-dashed rounded-lg p-5 text-center transition-all duration-200 cursor-pointer
+                ${dragOver ? "border-blue bg-blue-tint" : "border-border-muted bg-bg-hover"}`}
             >
               <Icon d={Icons.upload} size={24} color={dragOver ? "var(--blue)" : "var(--text-ghost)"} />
-              <div style={{ marginTop: "var(--space-2)", fontSize: "var(--text-md)", color: "var(--text-faint)", fontWeight: 500 }}>
+              <div className="mt-2 text-md text-text-faint font-medium">
                 {file
-                  ? <span style={{ color: "var(--blue)", fontWeight: 600 }}>📄 {file.name}</span>
-                  : <>Drag & drop your inventory file, or <span style={{ color: "var(--blue)", textDecoration: "underline" }}>browse</span></>
+                  ? <span className="text-blue font-semibold">📄 {file.name}</span>
+                  : <>Drag & drop your inventory file, or <span className="text-blue underline">browse</span></>
                 }
               </div>
-              <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginTop: 4 }}>Accepts .txt or .ini Ansible inventory files</div>
-              <input id="inv-file-input" type="file" accept=".txt,.ini" onChange={e => setFile(e.target.files[0])} style={{ display: "none" }} />
+              <div className="text-xs text-text-ghost mt-1">Accepts .txt or .ini Ansible inventory files</div>
+              <input id="inv-file-input" type="file" accept=".txt,.ini" onChange={e => setFile(e.target.files[0])} className="hidden" />
             </div>
 
-            <button onClick={upload} disabled={!file || !invName.trim() || uploading} style={{
-              padding: 10, border: "none", borderRadius: "var(--radius-base)",
-              background: !file || !invName.trim() ? "var(--bg-subtle)" : "var(--bg-sidebar)",
-              color:      !file || !invName.trim() ? "var(--text-ghost)" : "var(--bg-card)",
-              cursor: !file || !invName.trim() ? "not-allowed" : "pointer",
-              fontSize: "var(--text-md)", fontWeight: 700, fontFamily: "inherit",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "var(--space-2)",
-            }}>
-              <Icon d={Icons.upload} size={14} color={!file || !invName.trim() ? "var(--text-ghost)" : "var(--bg-card)"} />
+            <button onClick={upload} disabled={!canUpload || uploading}
+              className={`py-2.5 border-none rounded-base text-md font-bold font-[inherit] flex items-center justify-center gap-2 transition-colors
+                ${canUpload ? "bg-bg-sidebar text-bg-card cursor-pointer" : "bg-bg-subtle text-text-ghost cursor-not-allowed"}`}
+            >
+              <Icon d={Icons.upload} size={14} color={canUpload ? "var(--bg-card)" : "var(--text-ghost)"} />
               {uploading ? "Uploading..." : "Upload Inventory"}
             </button>
           </div>
 
-          {/* inventory list */}
-          <div style={{ overflowY: "auto", flex: 1 }}>
+          {/* Inventory list */}
+          <div className="overflow-y-auto flex-1">
             {inventories.length === 0 ? (
-              <div style={{ padding: "40px 32px", textAlign: "center" }}>
+              <div className="px-8 py-10 text-center">
                 <Icon d={Icons.file} size={36} color="var(--border)" />
-                <div style={{ marginTop: "var(--space-3)", fontSize: "var(--text-lg)", fontWeight: 600, color: "var(--text-secondary)" }}>No inventories uploaded yet</div>
-                <div style={{ fontSize: "var(--text-base)", color: "var(--text-ghost)", marginTop: 4 }}>Upload your first inventory file above</div>
+                <div className="mt-3 text-base font-semibold text-text-secondary">No inventories uploaded yet</div>
+                <div className="text-sm text-text-ghost mt-1">Upload your first inventory file above</div>
               </div>
             ) : inventories.map((inv, i) => {
               const isWin   = isWindowsInventory(inv);
               const credsOk = isWin ? winCredsReady : inv.has_credentials;
               return (
-                <div key={inv.id} style={{
-                  padding: "14px var(--space-6)", display: "flex", alignItems: "center", justifyContent: "space-between",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  background: inv.is_active ? "var(--green-tint)" : i % 2 === 0 ? "var(--bg-card)" : "var(--bg-hover)",
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", minWidth: 0, flex: 1 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "var(--radius-base)", flexShrink: 0, background: inv.is_active ? "var(--green-tint-mid)" : "var(--bg-subtle)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>
+                <div key={inv.id} className={`px-6 py-3.5 flex items-center justify-between border-b border-border-subtle
+                  ${inv.is_active ? "bg-green-tint" : i % 2 === 0 ? "bg-bg-card" : "bg-bg-hover"}`}>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className={`w-9 h-9 rounded-base shrink-0 flex items-center justify-center text-base
+                      ${inv.is_active ? "bg-green-tint-mid" : "bg-bg-subtle"}`}>
                       {isWin ? "🪟" : <Icon d={Icons.file} size={16} color={inv.is_active ? "var(--green-dark)" : "var(--text-faint)"} />}
                     </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: "var(--text-md)", color: "var(--text-primary)" }}>{inv.name}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-md text-text-primary">{inv.name}</span>
                         {inv.is_active && badge("Active", "green")}
                         {credsOk
                           ? badge(isWin ? "WinRM set" : "Credentials set", "blue")
-                          : <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--orange-tint)", color: "var(--orange-dark)", border: "1px solid var(--orange-border)", padding: "2px 8px", borderRadius: "var(--radius-pill)", fontSize: "var(--text-sm)", fontWeight: 700 }}>
+                          : <span className="inline-flex items-center gap-1 bg-orange-tint text-orange-dark border border-orange-border px-2 py-0.5 rounded-pill text-xs font-bold">
                               <Icon d={Icons.warning} size={10} color="var(--orange-dark)" /> {isWin ? "No WinRM creds" : "No credentials"}
                             </span>
                         }
                       </div>
-                      <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginTop: 2 }}>
+                      <div className="text-xs text-text-ghost mt-0.5">
                         {inv.host_count} host{inv.host_count !== 1 ? "s" : ""} · uploaded {fmtDate(inv.uploaded_at)}
-                        {isWin && <span style={{ marginLeft: 6, color: "var(--cyan)", fontWeight: 600 }}>· Windows / WinRM</span>}
+                        {isWin && <span className="ml-1.5 text-cyan font-semibold">· Windows / WinRM</span>}
                       </div>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: "var(--space-1)", flexShrink: 0, marginLeft: "var(--space-3)" }}>
+                  <div className="flex gap-1 shrink-0 ml-3">
                     <button
                       onClick={() => isWin ? setShowWinCreds(true) : setCredFormFor({ id: inv.id, name: inv.name })}
-                      style={{
-                        padding: "6px 12px",
-                        border: `1px solid ${credsOk ? "var(--border)" : "var(--orange-border-lt)"}`,
-                        borderRadius: "var(--radius-md)",
-                        background: credsOk ? "var(--bg-hover)" : "var(--orange-tint)",
-                        color:      credsOk ? "var(--text-muted)" : "var(--orange-dark)",
-                        cursor: "pointer", fontSize: "var(--text-base)", fontWeight: 600, fontFamily: "inherit",
-                        display: "flex", alignItems: "center", gap: 5,
-                      }}
+                      className={`px-3 py-1.5 rounded-md text-sm font-semibold font-[inherit] flex items-center gap-1 cursor-pointer border transition-colors
+                        ${credsOk ? "border-border-base bg-bg-hover text-text-muted-c" : "border-orange-border-lt bg-orange-tint text-orange-dark"}`}
                     >
                       <Icon d={Icons.key} size={12} color={credsOk ? "var(--text-muted)" : "var(--orange-dark)"} />
                       {credsOk ? (isWin ? "Edit WinRM" : "Edit Creds") : (isWin ? "Set WinRM" : "Set Creds")}
                     </button>
 
                     {!inv.is_active && (
-                      <button onClick={() => activate(inv.id)} disabled={activating === inv.id} style={{
-                        padding: "6px 14px", border: "1px solid var(--blue-border)", borderRadius: "var(--radius-md)",
-                        background: "var(--blue-tint)", color: "var(--blue-dark)",
-                        cursor: "pointer", fontSize: "var(--text-base)", fontWeight: 600, fontFamily: "inherit",
-                      }}>
+                      <button onClick={() => activate(inv.id)} disabled={activating === inv.id}
+                        className="px-3.5 py-1.5 border border-blue-border rounded-md bg-blue-tint text-blue-dark text-sm font-semibold font-[inherit] cursor-pointer">
                         {activating === inv.id ? "..." : "Use This"}
                       </button>
                     )}
 
-                    <button onClick={() => remove(inv.id, inv.is_active)} style={{
-                      padding: "6px 8px", border: "1px solid var(--red-tint-mid)", borderRadius: "var(--radius-md)",
-                      background: "var(--bg-card)", color: inv.is_active ? "var(--red-border-lt)" : "var(--red)",
-                      cursor: "pointer",
-                    }} title={inv.is_active ? "Cannot delete active inventory" : "Delete"}>
+                    <button onClick={() => remove(inv.id, inv.is_active)}
+                      className={`px-2 py-1.5 border rounded-md bg-bg-card cursor-pointer
+                        ${inv.is_active ? "border-red-tint-mid text-red-border-lt" : "border-red-tint-mid text-red"}`}
+                      title={inv.is_active ? "Cannot delete active inventory" : "Delete"}>
                       <Icon d={Icons.close} size={13} color={inv.is_active ? "var(--red-border-lt)" : "var(--red)"} />
                     </button>
                   </div>
@@ -248,10 +216,10 @@ export function InventoryManager({ onClose, onActivated }) {
             })}
           </div>
 
-          {/* footer */}
-          <div style={{ padding: "12px var(--space-6)", borderTop: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+          {/* Footer note */}
+          <div className="px-6 py-3 border-t border-border-subtle flex items-center gap-2">
             <Icon d={Icons.warning} size={13} color="var(--text-ghost)" />
-            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>
+            <span className="text-xs text-text-ghost">
               Linux and Windows inventories can both be active at the same time.
               Windows inventories use the global WinRM credentials set in Settings.
             </span>

@@ -4,9 +4,9 @@ import { WindowsCredentialsForm } from "./WindowsCredentialsForm.jsx";
 
 function Field({ label, hint, children }) {
   return (
-    <div style={{ marginBottom: "var(--space-5)" }}>
-      <label style={{ display: "block", fontSize: "var(--text-base)", fontWeight: 700, color: "var(--text-secondary)", marginBottom: 6 }}>{label}</label>
-      {hint && <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", marginBottom: 6 }}>{hint}</div>}
+    <div className="mb-5">
+      <label className="block text-base font-bold text-text-secondary mb-1.5">{label}</label>
+      {hint && <div className="text-sm text-text-ghost mb-1.5">{hint}</div>}
       {children}
     </div>
   );
@@ -20,18 +20,13 @@ const SettingsTabInner = React.memo(function SettingsTab({ onWinCredsSaved, onSh
     { id: "ldap",  label: "🔒 Active Directory / LDAP" },
   ];
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto" }}>
-      <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 12, padding: 4, gap: 2, marginBottom: 24 }}>
+    <div className="max-w-[720px] mx-auto">
+      <div className="flex bg-bg-subtle rounded-xl p-1 gap-0.5 mb-6">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
-            flex: 1, padding: "9px 12px", borderRadius: 9, border: "none",
-            background: tab === t.id ? "#fff" : "transparent",
-            color: tab === t.id ? "#0f172a" : "#64748b",
-            fontSize: 13, fontWeight: tab === t.id ? 700 : 500,
-            cursor: "pointer", fontFamily: "inherit",
-            boxShadow: tab === t.id ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-            transition: "all 0.15s",
-          }}>{t.label}</button>
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`flex-1 px-3 py-[9px] rounded-[9px] border-none text-md font-[inherit] cursor-pointer transition-all duration-150
+              ${tab === t.id ? "bg-bg-card text-text-primary font-bold shadow-sm" : "bg-transparent text-text-ghost font-medium"}`}
+          >{t.label}</button>
         ))}
       </div>
       {tab === "winrm" && <WinRMSettings onWinCredsSaved={onWinCredsSaved} onShowWinCreds={onShowWinCreds} />}
@@ -56,26 +51,30 @@ function WinRMSettings({ onWinCredsSaved, onShowWinCreds }) {
   }, []);
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+    <div className="bg-bg-card border border-border-base rounded-2xl p-6 shadow-card">
+      <div className="flex justify-between items-start mb-4">
         <div>
-          <div style={{ fontWeight: 700, fontSize: 16, color: "#0f172a" }}>Windows WinRM Credentials</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>Used by the Windows patch compliance scanner to connect to hosts via WinRM</div>
+          <div className="font-bold text-xl text-text-primary">Windows WinRM Credentials</div>
+          <div className="text-md text-text-ghost mt-[3px]">Used by the Windows patch compliance scanner to connect to hosts via WinRM</div>
         </div>
         <button onClick={() => onShowWinCreds && onShowWinCreds()}
-          style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: winCredsExist ? "#f1f5f9" : "#0f172a", color: winCredsExist ? "#475569" : "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", flexShrink: 0, marginLeft: 16 }}>
+          className={`px-4 py-2 rounded-base border-none text-md font-semibold cursor-pointer font-[inherit] whitespace-nowrap shrink-0 ml-4
+            ${winCredsExist ? "bg-bg-subtle text-text-secondary" : "bg-bg-sidebar text-bg-card"}`}>
           🔑 {winCredsExist ? "Update Credentials" : "Set Credentials"}
         </button>
       </div>
-      <div style={{ padding: "12px 14px", borderRadius: 8, border: `1px solid ${winCredsExist ? "#bbf7d0" : "#fed7aa"}`, background: winCredsExist ? "#f0fdf4" : "#fff7ed", display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: winCredsExist ? "#22c55e" : "#f59e0b", flexShrink: 0 }} />
-        <span style={{ fontSize: 13, color: winCredsExist ? "#166534" : "#92400e" }}>
-          {winCredsExist ? <>Credentials configured for <strong>{winCredsUser}</strong> — Windows scan ready</> : "No WinRM credentials set — click Set Credentials to enable Windows scanning"}
+      <div className={`px-[14px] py-3 rounded-base border flex items-center gap-2
+        ${winCredsExist ? "bg-green-tint border-green-border" : "bg-orange-tint border-orange-border"}`}>
+        <div className={`w-2 h-2 rounded-full shrink-0 ${winCredsExist ? "bg-green-bright" : "bg-amber"}`} />
+        <span className={`text-md ${winCredsExist ? "text-green-dark" : "text-orange-text"}`}>
+          {winCredsExist
+            ? <>Credentials configured for <strong>{winCredsUser}</strong> — Windows scan ready</>
+            : "No WinRM credentials set — click Set Credentials to enable Windows scanning"}
         </span>
       </div>
-      <div style={{ marginTop: 20, padding: "14px 16px", borderRadius: 8, background: "#0f172a", border: "1px solid #1e293b" }}>
-        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>WinRM Setup — run in elevated PowerShell on each Windows host</div>
-        <pre style={{ fontSize: 12, color: "#7dd3fc", lineHeight: 1.8, fontFamily: "monospace", margin: 0, whiteSpace: "pre-wrap" }}>{[
+      <div className="mt-5 px-4 py-[14px] rounded-base border border-[#1e293b]" style={{ background: "#0f172a" }}>
+        <div className="text-xs text-slate-400 font-bold mb-2.5 uppercase tracking-[0.06em]">WinRM Setup — run in elevated PowerShell on each Windows host</div>
+        <pre className="text-sm text-sky-300 leading-[1.8] font-mono m-0 whitespace-pre-wrap">{[
           "# Enable WinRM",
           "winrm quickconfig -q",
           "",
@@ -100,17 +99,19 @@ function WinRMSettings({ onWinCredsSaved, onShowWinCreds }) {
 
 // ── Email Notifications Tab ───────────────────────────────────────────────────
 
+const inputCls = "w-full px-3 py-[9px] border border-border-base rounded-base text-md font-[inherit] outline-none bg-bg-card text-text-primary box-border";
+
 function NotificationSettings() {
   const [form, setForm] = useState({
     smtp_host: "", smtp_port: 587, smtp_user: "", smtp_password: "",
     smtp_from: "", tls_enabled: true, recipients: [],
   });
-  const [newRecipient,  setNewRecipient]  = useState("");
-  const [loading,       setLoading]       = useState(true);
-  const [saving,        setSaving]        = useState(false);
-  const [testing,       setTesting]       = useState(false);
-  const [toast,         setToast]         = useState(null);
-  
+  const [newRecipient, setNewRecipient] = useState("");
+  const [loading,      setLoading]      = useState(true);
+  const [saving,       setSaving]       = useState(false);
+  const [testing,      setTesting]      = useState(false);
+  const [toast,        setToast]        = useState(null);
+
   const showToast = (msg, ok = true) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 4000);
@@ -161,105 +162,85 @@ function NotificationSettings() {
   const removeRecipient = (email) =>
     setForm(f => ({ ...f, recipients: f.recipients.filter(r => r !== email) }));
 
-  const inputStyle = {
-    width: "100%", padding: "9px 12px",
-    border: "1px solid var(--border)", borderRadius: "var(--radius-base)",
-    fontSize: "var(--text-md)", fontFamily: "inherit", outline: "none",
-    boxSizing: "border-box", background: "var(--bg-card)", color: "var(--text-primary)",
-  };
-
-  if (loading) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
-        <div style={{ width: 28, height: 28, border: "3px solid var(--border)", borderTopColor: "var(--blue)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-[300px]">
+      <div className="w-7 h-7 border-[3px] border-border-base border-t-blue rounded-full animate-spin" />
+    </div>
+  );
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto" }}>
-
+    <div className="max-w-[680px] mx-auto">
       {toast && (
-        <div style={{
-          marginBottom: "var(--space-4)", padding: "12px 16px", borderRadius: "var(--radius-lg)",
-          fontSize: "var(--text-md)", fontWeight: 600,
-          background: toast.ok ? "var(--green-tint)"  : "var(--red-tint)",
-          color:      toast.ok ? "var(--green-dark)"  : "var(--red-dark)",
-          border: `1px solid ${toast.ok ? "var(--green-border)" : "var(--red-border)"}`,
-        }}>
+        <div className={`mb-4 px-4 py-3 rounded-lg text-md font-semibold border
+          ${toast.ok ? "bg-green-tint border-green-border text-green-dark" : "bg-red-tint border-red-border text-red-dark"}`}>
           {toast.ok ? "✓" : "✗"} {toast.msg}
         </div>
       )}
 
-
       {/* ── SMTP Configuration ── */}
-      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-2xl)", padding: "var(--space-6)", marginBottom: "var(--space-4)", boxShadow: "var(--shadow-card)" }}>
-        <div style={{ fontWeight: 700, fontSize: "var(--text-xl)", color: "var(--text-primary)", marginBottom: 4 }}>SMTP Configuration</div>
-        <div style={{ fontSize: "var(--text-base)", color: "var(--text-ghost)", marginBottom: "var(--space-5)" }}>Configure the mail server used to send scan reports</div>
+      <div className="bg-bg-card border border-border-base rounded-2xl p-6 mb-4 shadow-card">
+        <div className="font-bold text-xl text-text-primary mb-1">SMTP Configuration</div>
+        <div className="text-base text-text-ghost mb-5">Configure the mail server used to send scan reports</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "var(--space-3)" }}>
+        <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field label="SMTP Host">
-            <input style={inputStyle} value={form.smtp_host} onChange={e => setForm(f => ({ ...f, smtp_host: e.target.value }))} placeholder="smtp.gmail.com" />
+            <input className={inputCls} value={form.smtp_host} onChange={e => setForm(f => ({ ...f, smtp_host: e.target.value }))} placeholder="smtp.gmail.com" />
           </Field>
           <Field label="Port">
-            <input style={{ ...inputStyle, width: 90 }} type="number" value={form.smtp_port} onChange={e => setForm(f => ({ ...f, smtp_port: parseInt(e.target.value) || 587 }))} />
+            <input className={`${inputCls} w-[90px]`} type="number" value={form.smtp_port} onChange={e => setForm(f => ({ ...f, smtp_port: parseInt(e.target.value) || 587 }))} />
           </Field>
         </div>
 
         <Field label="Username" hint="Leave blank if your relay doesn't require authentication">
-          <input style={inputStyle} value={form.smtp_user} onChange={e => setForm(f => ({ ...f, smtp_user: e.target.value }))} placeholder="you@gmail.com" />
+          <input className={inputCls} value={form.smtp_user} onChange={e => setForm(f => ({ ...f, smtp_user: e.target.value }))} placeholder="you@gmail.com" />
         </Field>
         <Field label="Password">
-          <input style={inputStyle} type="password" value={form.smtp_password} onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} placeholder="App password or SMTP password" />
+          <input className={inputCls} type="password" value={form.smtp_password} onChange={e => setForm(f => ({ ...f, smtp_password: e.target.value }))} placeholder="App password or SMTP password" />
         </Field>
         <Field label="From Address" hint="Displayed as the sender — defaults to username if blank">
-          <input style={inputStyle} value={form.smtp_from} onChange={e => setForm(f => ({ ...f, smtp_from: e.target.value }))} placeholder="kermonix@yourdomain.com" />
+          <input className={inputCls} value={form.smtp_from} onChange={e => setForm(f => ({ ...f, smtp_from: e.target.value }))} placeholder="kermonix@yourdomain.com" />
         </Field>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            onClick={() => setForm(f => ({ ...f, tls_enabled: !f.tls_enabled }))}
-            style={{ width: 36, height: 20, borderRadius: "var(--radius-pill)", background: form.tls_enabled ? "var(--indigo)" : "var(--border-muted)", cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}
-          >
-            <div style={{ position: "absolute", top: 2, left: form.tls_enabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "var(--bg-card)", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+        <div className="flex items-center gap-2.5">
+          <div onClick={() => setForm(f => ({ ...f, tls_enabled: !f.tls_enabled }))}
+            className="w-9 h-5 rounded-pill cursor-pointer relative transition-colors duration-200 shrink-0"
+            style={{ background: form.tls_enabled ? "var(--indigo)" : "var(--border-muted)" }}>
+            <div className="absolute top-[2px] w-4 h-4 rounded-full bg-bg-card transition-all duration-200"
+              style={{ left: form.tls_enabled ? 18 : 2, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
           </div>
-          <span style={{ fontSize: "var(--text-md)", color: "var(--text-secondary)", fontWeight: 500 }}>Use STARTTLS (recommended — port 587)</span>
+          <span className="text-md text-text-secondary font-medium">Use STARTTLS (recommended — port 587)</span>
         </div>
       </div>
 
       {/* ── Recipients ── */}
-      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-2xl)", padding: "var(--space-6)", marginBottom: "var(--space-4)", boxShadow: "var(--shadow-card)" }}>
-        <div style={{ fontWeight: 700, fontSize: "var(--text-xl)", color: "var(--text-primary)", marginBottom: 4 }}>Recipients</div>
-        <div style={{ fontSize: "var(--text-base)", color: "var(--text-ghost)", marginBottom: "var(--space-5)" }}>Scan reports will be sent to all addresses below after every scan completes</div>
+      <div className="bg-bg-card border border-border-base rounded-2xl p-6 mb-4 shadow-card">
+        <div className="font-bold text-xl text-text-primary mb-1">Recipients</div>
+        <div className="text-base text-text-ghost mb-5">Scan reports will be sent to all addresses below after every scan completes</div>
 
-        <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
-          <input
-            style={{ ...inputStyle, flex: 1 }}
-            value={newRecipient}
+        <div className="flex gap-2 mb-3">
+          <input className={`${inputCls} flex-1`} value={newRecipient}
             onChange={e => setNewRecipient(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") addRecipient(); }}
-            placeholder="email@example.com"
-          />
-          <button onClick={addRecipient} style={{ padding: "9px 16px", background: "var(--bg-sidebar)", color: "var(--bg-card)", border: "none", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            placeholder="email@example.com" />
+          <button onClick={addRecipient}
+            className="px-4 py-[9px] bg-bg-sidebar text-bg-card border-none rounded-base text-md font-semibold cursor-pointer font-[inherit] whitespace-nowrap">
             Add
           </button>
         </div>
 
         {form.recipients.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-ghost)", fontSize: "var(--text-md)", border: "1px dashed var(--border)", borderRadius: "var(--radius-base)" }}>
+          <div className="text-center py-5 text-text-ghost text-md border border-dashed border-border-base rounded-base">
             No recipients added yet
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div className="flex flex-col gap-1">
             {form.recipients.map(email => (
-              <div key={email} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "var(--bg-hover)", border: "1px solid var(--border)", borderRadius: "var(--radius-base)" }}>
-                <span style={{ fontSize: "var(--text-md)", color: "var(--text-secondary)", fontFamily: "monospace" }}>{email}</span>
-                <button
-                  onClick={() => removeRecipient(email)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-ghost)", fontSize: 16, lineHeight: 1, padding: "0 4px" }}
-                  onMouseEnter={e => { e.currentTarget.style.color = "var(--red-dark)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-ghost)"; }}
-                >×</button>
+              <div key={email} className="flex justify-between items-center px-3 py-2 bg-bg-hover border border-border-base rounded-base">
+                <span className="text-md text-text-secondary font-mono">{email}</span>
+                <button onClick={() => removeRecipient(email)}
+                  className="bg-transparent border-none cursor-pointer text-text-ghost text-base leading-none px-1 hover:text-red-dark transition-colors">
+                  ×
+                </button>
               </div>
             ))}
           </div>
@@ -267,32 +248,27 @@ function NotificationSettings() {
       </div>
 
       {/* ── Actions ── */}
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button
-          onClick={sendTest} disabled={testing || !form.smtp_host}
-          style={{ padding: "10px 20px", border: "1px solid var(--border)", background: "var(--bg-hover)", color: "var(--text-muted)", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", fontWeight: 600, cursor: form.smtp_host ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: form.smtp_host ? 1 : 0.5 }}
-        >
+      <div className="flex gap-2.5 justify-end">
+        <button onClick={sendTest} disabled={testing || !form.smtp_host}
+          className={`px-5 py-[10px] border border-border-base bg-bg-hover text-text-muted-c rounded-base text-md font-semibold font-[inherit] transition-opacity
+            ${form.smtp_host ? "cursor-pointer opacity-100" : "cursor-not-allowed opacity-50"}`}>
           {testing ? "Sending..." : "Send Test Email"}
         </button>
-        <button
-          onClick={save} disabled={saving}
-          style={{ padding: "10px 20px", background: "var(--bg-sidebar)", color: "var(--bg-card)", border: "none", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-        >
+        <button onClick={save} disabled={saving}
+          className="px-5 py-[10px] bg-bg-sidebar text-bg-card border-none rounded-base text-md font-semibold cursor-pointer font-[inherit]">
           {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
-
     </div>
   );
 }
 
-
-// ── LDAP Components Extracted for Stability ───────────────────────────────────
+// ── LDAP Components ───────────────────────────────────────────────────────────
 
 function LdapSection({ title, children }) {
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 14, paddingBottom: 8, borderBottom: "1px solid #f1f5f9" }}>
+      <div className="text-md font-bold text-text-primary mb-3.5 pb-2 border-b border-bg-subtle">
         {title}
       </div>
       {children}
@@ -302,20 +278,24 @@ function LdapSection({ title, children }) {
 
 function LdapToggle({ checked, onChange, label }) {
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
+    <label className="flex items-center gap-2.5 cursor-pointer select-none">
       <div onClick={onChange}
-        style={{ width: 38, height: 22, borderRadius: 11, background: checked ? "#6366f1" : "#e2e8f0", position: "relative", transition: "background 0.2s", cursor: "pointer", flexShrink: 0 }}>
-        <div style={{ position: "absolute", top: 3, left: checked ? 19 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+        className="w-[38px] h-[22px] rounded-pill relative cursor-pointer shrink-0 transition-colors duration-200"
+        style={{ background: checked ? "var(--indigo)" : "var(--border-muted)" }}>
+        <div className="absolute top-[3px] w-4 h-4 rounded-full bg-bg-card transition-all duration-200"
+          style={{ left: checked ? 19 : 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
       </div>
-      <span style={{ fontSize: 13, color: "#475569" }}>{label}</span>
+      <span className="text-md text-text-secondary">{label}</span>
     </label>
   );
 }
 
 // ── LDAP / Active Directory Settings ─────────────────────────────────────────
 
+const ldapInputCls = "w-full px-3 py-[9px] border border-border-base rounded-base text-md outline-none font-[inherit] bg-bg-card text-text-primary box-border";
+
 function LdapSettings() {
-  const [cfg, setCfg]           = useState({
+  const [cfg, setCfg] = useState({
     enabled: false, host: "", port: 389, use_ssl: false, use_starttls: false,
     tls_verify: true, bind_dn: "", bind_password: "", base_dn: "",
     user_attr: "sAMAccountName", admin_group: "", operator_group: "",
@@ -367,7 +347,6 @@ function LdapSettings() {
     reader.readAsText(file);
   };
 
-  // Build payload — treat "••••••••" as "keep existing" sentinel
   const getPayload = () => ({
     ...cfg,
     bind_password: cfg.bind_password === "••••••••" ? "" : cfg.bind_password,
@@ -379,11 +358,11 @@ function LdapSettings() {
       const result = await apiPost("/api/ldap/settings", getPayload());
       setCfg(prev => ({
         ...prev,
-        enabled:        !!result.enabled,
-        use_ssl:        !!result.use_ssl,
-        use_starttls:   !!result.use_starttls,
-        tls_verify:     result.tls_verify !== false,
-        bind_password:  result.has_password ? "••••••••" : "",
+        enabled:       !!result.enabled,
+        use_ssl:       !!result.use_ssl,
+        use_starttls:  !!result.use_starttls,
+        tls_verify:    result.tls_verify !== false,
+        bind_password: result.has_password ? "••••••••" : "",
       }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -400,29 +379,21 @@ function LdapSettings() {
     finally { setTesting(false); }
   };
 
-  // Safe as functions because they are invoked directly `{inp(...)}`
-  // and not used as React components `<inp />`
   const inp = (field, type = "text", placeholder = "") => (
-    <input
-      type={type}
-      value={cfg[field] ?? ""}
+    <input type={type} value={cfg[field] ?? ""}
       onChange={e => set(field, type === "number" ? (parseInt(e.target.value) || 389) : e.target.value)}
       placeholder={placeholder}
-      style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8,
-               fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box", background: "#fff" }}
+      className={ldapInputCls}
     />
   );
 
   const lbl = (text) => (
-    <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b",
-                    textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
-      {text}
-    </label>
+    <label className="block text-xs font-bold text-text-muted-c uppercase tracking-[0.06em] mb-[5px]">{text}</label>
   );
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200 }}>
-      <div style={{ width: 28, height: 28, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+    <div className="flex items-center justify-center h-[200px]">
+      <div className="w-7 h-7 border-[3px] border-border-base border-t-indigo rounded-full animate-spin" />
     </div>
   );
   if (loadError) return null;
@@ -430,29 +401,26 @@ function LdapSettings() {
   return (
     <div>
       {/* Header with enable toggle */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
+      <div className="flex items-start justify-between mb-5">
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>Active Directory / LDAP</div>
-          <div style={{ fontSize: 13, color: "#64748b", marginTop: 3 }}>
+          <div className="text-xl font-bold text-text-primary">Active Directory / LDAP</div>
+          <div className="text-md text-text-ghost mt-[3px]">
             Allow AD users to log in with their domain credentials. Saved to database — takes effect immediately.
           </div>
         </div>
         <LdapToggle checked={cfg.enabled} onChange={() => tog("enabled")} label={cfg.enabled ? "Enabled" : "Disabled"} />
       </div>
 
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 24,
-                    display: "flex", flexDirection: "column", gap: 24,
-                    opacity: cfg.enabled ? 1 : 0.55,
-                    pointerEvents: cfg.enabled ? "auto" : "none",
-                    transition: "opacity 0.2s" }}>
+      <div className="bg-bg-card border border-border-base rounded-2xl p-6 flex flex-col gap-6 transition-opacity duration-200"
+        style={{ opacity: cfg.enabled ? 1 : 0.55, pointerEvents: cfg.enabled ? "auto" : "none" }}>
 
         {/* Connection */}
         <LdapSection title="Connection">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12, marginBottom: 14 }}>
+          <div className="grid grid-cols-[1fr_120px] gap-3 mb-3.5">
             <div>{lbl("LDAP Host")}{inp("host", "text", "192.168.1.76 or dc.example.com")}</div>
             <div>{lbl("Port")}{inp("port", "number", "389")}</div>
           </div>
-          <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <div className="flex gap-7 flex-wrap">
             <LdapToggle checked={cfg.use_ssl}      onChange={() => tog("use_ssl")}      label="Use LDAPS (SSL, port 636)" />
             <LdapToggle checked={cfg.use_starttls} onChange={() => tog("use_starttls")} label="Use StartTLS (port 389)" />
             <LdapToggle checked={cfg.tls_verify}   onChange={() => tog("tls_verify")}   label="Verify TLS Certificate" />
@@ -461,32 +429,30 @@ function LdapSettings() {
 
         {/* CA Certificate */}
         <LdapSection title="CA Certificate (optional)">
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
+          <div className="text-sm text-text-ghost mb-3">
             Upload your AD root CA certificate (.pem / .cer) to enable LDAPS with certificate verification.
             Leave empty and disable "Verify TLS Certificate" for self-signed certs.
           </div>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <label style={{ padding: "7px 16px", border: "1px solid #e2e8f0", borderRadius: 8,
-                            background: "#f8fafc", cursor: "pointer", fontSize: 12, color: "#475569",
-                            fontFamily: "inherit", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <div className="flex gap-3 items-center">
+            <label className="px-4 py-[7px] border border-border-base rounded-base bg-bg-subtle cursor-pointer text-sm text-text-secondary font-[inherit] font-semibold inline-flex items-center gap-1.5">
               📄 Upload .pem / .cer
-              <input type="file" accept=".pem,.cer,.crt" onChange={handleCertUpload} style={{ display: "none" }} />
+              <input type="file" accept=".pem,.cer,.crt" onChange={handleCertUpload} className="hidden" />
             </label>
             {cfg.ca_cert ? (
-              <div style={{ fontSize: 12, color: "#22c55e", display: "flex", alignItems: "center", gap: 6 }}>
+              <div className="text-sm text-green-bright flex items-center gap-1.5">
                 ✓ Certificate loaded ({(cfg.ca_cert.length / 1024).toFixed(1)} KB)
                 <button onClick={() => set("ca_cert", "")}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#ef4444", fontSize: 14, padding: 0 }}>×</button>
+                  className="bg-transparent border-none cursor-pointer text-red text-base p-0">×</button>
               </div>
             ) : (
-              <span style={{ fontSize: 12, color: "#94a3b8" }}>No certificate uploaded</span>
+              <span className="text-sm text-text-ghost">No certificate uploaded</span>
             )}
           </div>
         </LdapSection>
 
         {/* Service Account */}
         <LdapSection title="Service Account">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>{lbl("Bind DN")}{inp("bind_dn", "text", "CN=svc-kermonix,OU=ServiceAccounts,DC=corp,DC=com")}</div>
             <div>{lbl("Bind Password (blank = keep existing)")}{inp("bind_password", "password", "••••••••")}</div>
           </div>
@@ -494,7 +460,7 @@ function LdapSettings() {
 
         {/* Directory */}
         <LdapSection title="Directory Search">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>{lbl("Base DN")}{inp("base_dn", "text", "DC=corp,DC=com")}</div>
             <div>{lbl("Username Attribute")}{inp("user_attr", "text", "sAMAccountName")}</div>
           </div>
@@ -502,23 +468,23 @@ function LdapSettings() {
 
         {/* Group → Role Mapping */}
         <LdapSection title="Group → Role Mapping">
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+          <div className="text-sm text-text-ghost mb-3.5">
             Users get the <strong>highest</strong> matching role: Admin &gt; Operator &gt; Reader.
             Leave blank to disable that role from AD login.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="flex flex-col gap-2.5">
             {[
-              { field: "admin_group",    label: "Admin Group DN",    color: "#f59e0b",
+              { field: "admin_group",    label: "Admin Group DN",    dotCls: "bg-amber",
                 placeholder: "CN=kermonix-admins-role,OU=role-group,DC=corp,DC=com" },
-              { field: "operator_group", label: "Operator Group DN", color: "#8b5cf6",
+              { field: "operator_group", label: "Operator Group DN", dotCls: "bg-purple",
                 placeholder: "CN=kermonix-operators-role,OU=role-group,DC=corp,DC=com" },
-              { field: "reader_group",   label: "Reader Group DN",   color: "#22c55e",
+              { field: "reader_group",   label: "Reader Group DN",   dotCls: "bg-green-bright",
                 placeholder: "CN=kermonix-readers-role,OU=role-group,DC=corp,DC=com" },
-            ].map(({ field, label, color, placeholder }) => (
-              <div key={field} style={{ display: "grid", gridTemplateColumns: "160px 1fr", alignItems: "center", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#475569" }}>{label}</span>
+            ].map(({ field, label, dotCls, placeholder }) => (
+              <div key={field} className="grid grid-cols-[160px_1fr] items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+                  <span className="text-sm font-bold text-text-secondary">{label}</span>
                 </div>
                 {inp(field, "text", placeholder)}
               </div>
@@ -528,20 +494,18 @@ function LdapSettings() {
 
         {/* Test result */}
         {testResult && (
-          <div style={{ background: testResult.success ? "#f0fdf4" : "#fef2f2",
-                        border: `1px solid ${testResult.success ? "#bbf7d0" : "#fecaca"}`,
-                        borderRadius: 10, padding: "14px 16px" }}>
-            <div style={{ fontSize: 13, fontWeight: 700,
-                          color: testResult.success ? "#166534" : "#dc2626", marginBottom: 4 }}>
+          <div className={`border rounded-lg px-4 py-[14px]
+            ${testResult.success ? "bg-green-tint border-green-border" : "bg-red-tint border-red-border"}`}>
+            <div className={`text-md font-bold mb-1 ${testResult.success ? "text-green-dark" : "text-red-dark"}`}>
               {testResult.success ? "✓ Connection successful" : "✗ Connection failed"}
             </div>
-            <div style={{ fontSize: 12, color: testResult.success ? "#166534" : "#dc2626" }}>
+            <div className={`text-sm ${testResult.success ? "text-green-dark" : "text-red-dark"}`}>
               {testResult.message}
             </div>
             {testResult.config && (
-              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: "4px 20px" }}>
+              <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1">
                 {Object.entries(testResult.config).map(([k, v]) => (
-                  <span key={k} style={{ fontSize: 11, color: "#64748b" }}>
+                  <span key={k} className="text-xs text-text-muted-c">
                     <strong>{k}:</strong> {String(v)}
                   </span>
                 ))}
@@ -551,26 +515,21 @@ function LdapSettings() {
         )}
 
         {error && (
-          <div style={{ background: "#fef2f2", border: "1px solid #fecaca",
-                        borderRadius: 8, padding: "10px 14px", color: "#dc2626", fontSize: 13 }}>
+          <div className="bg-red-tint border border-red-border rounded-base px-[14px] py-2.5 text-red-dark text-md">
             {error}
           </div>
         )}
 
         {/* Actions */}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", paddingTop: 4 }}>
+        <div className="flex gap-2.5 justify-end pt-1">
           <button onClick={handleTest} disabled={testing}
-            style={{ padding: "9px 20px", border: "1px solid #e2e8f0", borderRadius: 8,
-                     background: "#f8fafc", cursor: testing ? "not-allowed" : "pointer",
-                     fontSize: 13, color: "#475569", fontFamily: "inherit", fontWeight: 600,
-                     opacity: testing ? 0.5 : 1 }}>
+            className={`px-5 py-[9px] border border-border-base rounded-base bg-bg-subtle text-md text-text-secondary font-[inherit] font-semibold transition-opacity
+              ${testing ? "opacity-50 cursor-not-allowed" : "cursor-pointer opacity-100"}`}>
             {testing ? "Testing..." : "🔌 Test Connection"}
           </button>
           <button onClick={handleSave} disabled={saving}
-            style={{ padding: "9px 20px", border: "none", borderRadius: 8,
-                     background: saved ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                     color: "#fff", cursor: saving ? "not-allowed" : "pointer",
-                     fontSize: 13, fontWeight: 700, fontFamily: "inherit", transition: "background 0.2s" }}>
+            className="px-5 py-[9px] border-none rounded-base text-white text-md font-bold font-[inherit] transition-colors duration-200"
+            style={{ background: saved ? "linear-gradient(135deg,#22c55e,#16a34a)" : "linear-gradient(135deg,#6366f1,#8b5cf6)", cursor: saving ? "not-allowed" : "pointer" }}>
             {saving ? "Saving..." : saved ? "✓ Saved" : "Save LDAP Settings"}
           </button>
         </div>

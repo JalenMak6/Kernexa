@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
+function pctColor(pct) {
+  return pct >= 80 ? "#16a34a" : pct >= 50 ? "#d97706" : "#dc2626";
+}
+
 export function ComplianceTrendChart({ history }) {
   const [nScans, setNScans] = useState(20);
 
@@ -19,14 +23,14 @@ export function ComplianceTrendChart({ history }) {
     }));
 
   if (data.length < 2) return (
-    <div style={{ padding: "40px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+    <div className="py-10 text-center text-text-ghost text-md">
       Not enough scan history to show a trend. Run at least 2 scans.
     </div>
   );
 
-  const latest    = data[data.length - 1];
-  const prev      = data[data.length - 2];
-  const pctDelta  = latest.pct - prev.pct;
+  const latest   = data[data.length - 1];
+  const prev     = data[data.length - 2];
+  const pctDelta = latest.pct - prev.pct;
   const improving = pctDelta > 0;
   const same      = pctDelta === 0;
 
@@ -34,66 +38,75 @@ export function ComplianceTrendChart({ history }) {
     if (!active || !payload?.length) return null;
     const d = payload[0]?.payload;
     return (
-      <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 16px", fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: 180 }}>
-        <div style={{ fontWeight: 700, color: "#0f172a", marginBottom: 8, fontSize: 13 }}>{d.label}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: "#22c55e" }} />
-              <span style={{ color: "#64748b" }}>Compliant</span>
+      <div className="bg-bg-card border border-border-base rounded-lg px-4 py-3 text-sm shadow-dropdown min-w-[180px]">
+        <div className="font-bold text-text-primary mb-2 text-md">{d.label}</div>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex justify-between items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm bg-[#22c55e]" />
+              <span className="text-text-faint">Compliant</span>
             </div>
-            <span style={{ fontWeight: 700, color: "#16a34a" }}>{d.compliant}</span>
+            <span className="font-bold text-green-dark">{d.compliant}</span>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: "#f97316" }} />
-              <span style={{ color: "#64748b" }}>Outdated</span>
+          <div className="flex justify-between items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-sm bg-[#f97316]" />
+              <span className="text-text-faint">Outdated</span>
             </div>
-            <span style={{ fontWeight: 700, color: "#ea580c" }}>{d.outdated}</span>
+            <span className="font-bold text-orange">{d.outdated}</span>
           </div>
-          <div style={{ borderTop: "1px solid #f1f5f9", marginTop: 4, paddingTop: 6, display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#64748b" }}>Compliance</span>
-            <span style={{ fontWeight: 700, color: d.pct >= 80 ? "#16a34a" : d.pct >= 50 ? "#d97706" : "#dc2626" }}>{d.pct}%</span>
+          <div className="border-t border-border-subtle mt-1 pt-1.5 flex justify-between">
+            <span className="text-text-faint">Compliance</span>
+            <span className="font-bold" style={{ color: pctColor(d.pct) }}>{d.pct}%</span>
           </div>
         </div>
       </div>
     );
   };
 
+  const kpis = [
+    {
+      label: "Current Compliance", value: latest.pct + "%",
+      color: pctColor(latest.pct),
+      cls: latest.pct >= 80 ? "bg-green-tint border-green-border" : latest.pct >= 50 ? "bg-amber-tint border-yellow-border" : "bg-red-tint border-red-border",
+    },
+    { label: "Compliant Hosts",    value: latest.compliant, color: "#16a34a", cls: "bg-green-tint border-green-border" },
+    { label: "Outdated Hosts",     value: latest.outdated,  color: "#ea580c", cls: "bg-orange-tint border-orange-border" },
+    {
+      label: "Trend vs prev scan",
+      value: same ? "—" : (improving ? "▲ " : "▼ ") + Math.abs(pctDelta) + "%",
+      color: same ? "var(--text-faint)" : improving ? "#16a34a" : "#dc2626",
+      cls:   same ? "bg-bg-page border-border-base" : improving ? "bg-green-tint border-green-border" : "bg-red-tint border-red-border",
+    },
+  ];
+
   return (
-    <div style={{ padding: "24px 24px 16px" }}>
+    <div className="px-6 pt-6 pb-4">
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+      <div className="flex justify-between items-start mb-5">
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>Compliance Trend</div>
-          <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>Kernel compliance across recent scans</div>
+          <div className="font-bold text-lg text-text-primary">Compliance Trend</div>
+          <div className="text-sm text-text-faint mt-0.5">Kernel compliance across recent scans</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>Last</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-text-ghost">Last</span>
           {[10, 20, 50].map(n => (
-            <button key={n} onClick={() => setNScans(n)} style={{
-              padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              border: "1px solid " + (nScans === n ? "#6366f1" : "#e2e8f0"),
-              background: nScans === n ? "#6366f1" : "#fff",
-              color: nScans === n ? "#fff" : "#64748b",
-              fontFamily: "inherit", transition: "all 0.15s",
-            }}>{n}</button>
+            <button key={n} onClick={() => setNScans(n)}
+              className={`px-3 py-1 rounded-md text-sm font-semibold cursor-pointer font-[inherit] transition-all duration-150
+                ${nScans === n ? "bg-indigo border-indigo text-white" : "bg-bg-card border-border-base text-text-faint"}
+                border`}
+            >{n}</button>
           ))}
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>scans</span>
+          <span className="text-sm text-text-ghost">scans</span>
         </div>
       </div>
 
       {/* KPI strip */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-        {[
-          { label: "Current Compliance", value: latest.pct + "%",  color: latest.pct >= 80 ? "#16a34a" : latest.pct >= 50 ? "#d97706" : "#dc2626", bg: latest.pct >= 80 ? "#f0fdf4" : latest.pct >= 50 ? "#fffbeb" : "#fef2f2", border: latest.pct >= 80 ? "#bbf7d0" : latest.pct >= 50 ? "#fde68a" : "#fecaca" },
-          { label: "Compliant Hosts",    value: latest.compliant,  color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0" },
-          { label: "Outdated Hosts",     value: latest.outdated,   color: "#ea580c", bg: "#fff7ed", border: "#fed7aa" },
-          { label: "Trend vs prev scan", value: same ? "—" : (improving ? "▲ " : "▼ ") + Math.abs(pctDelta) + "%", color: same ? "#64748b" : improving ? "#16a34a" : "#dc2626", bg: same ? "#f8fafc" : improving ? "#f0fdf4" : "#fef2f2", border: same ? "#e2e8f0" : improving ? "#bbf7d0" : "#fecaca" },
-        ].map(k => (
-          <div key={k.label} style={{ flex: 1, background: k.bg, border: "1px solid " + k.border, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{k.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.value}</div>
+      <div className="flex gap-3 mb-5">
+        {kpis.map(k => (
+          <div key={k.label} className={`flex-1 ${k.cls} border rounded-lg px-4 py-3`}>
+            <div className="text-xs text-text-faint font-semibold uppercase tracking-wide mb-1">{k.label}</div>
+            <div className="text-3xl font-extrabold" style={{ color: k.color }}>{k.value}</div>
           </div>
         ))}
       </div>
@@ -111,9 +124,9 @@ export function ComplianceTrendChart({ history }) {
               <stop offset="95%" stopColor="#f97316" stopOpacity={0.02} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-          <XAxis dataKey="shortLabel" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+          <XAxis dataKey="shortLabel" tick={{ fontSize: 11, fill: "var(--text-ghost)" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 11, fill: "var(--text-ghost)" }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
           <Tooltip content={<CustomTooltip />} />
           <Area type="monotone" dataKey="compliant" stroke="#22c55e" strokeWidth={2.5} fill="url(#gradCompliant)" dot={data.length <= 10 ? { r: 4, fill: "#22c55e", strokeWidth: 0 } : false} activeDot={{ r: 5, fill: "#22c55e" }} />
           <Area type="monotone" dataKey="outdated"  stroke="#f97316" strokeWidth={2.5} fill="url(#gradOutdated)" dot={data.length <= 10 ? { r: 4, fill: "#f97316", strokeWidth: 0 } : false} activeDot={{ r: 5, fill: "#f97316" }} />
@@ -121,10 +134,10 @@ export function ComplianceTrendChart({ history }) {
       </ResponsiveContainer>
 
       {/* Legend */}
-      <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 12 }}>
+      <div className="flex justify-center gap-6 mt-3">
         {[["#22c55e", "Compliant — kernel up to date"], ["#f97316", "Outdated — kernel needs update"]].map(([color, label]) => (
-          <div key={label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#475569" }}>
-            <div style={{ width: 24, height: 3, background: color, borderRadius: 2 }} />
+          <div key={label} className="flex items-center gap-1.5 text-sm text-text-muted-c">
+            <div className="w-6 h-[3px] rounded-sm" style={{ background: color }} />
             {label}
           </div>
         ))}
