@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="images/kermonix-logo.png" alt="Kermonix" width="80" />
+<img src="images/kermonix-logo.png" alt="Kermonix" width="500" />
 
 # Kermonix
 
