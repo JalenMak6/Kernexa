@@ -2,25 +2,25 @@ import { useState, useEffect } from "react";
 import { apiFetch, apiPost, apiPut, apiDelete } from "../utils/api";
 
 const ROLE_CONFIG = {
-  admin:    { bg: "#fef3c7", color: "#92400e", border: "#fde68a", dot: "#f59e0b" },
-  operator: { bg: "#ede9fe", color: "#5b21b6", border: "#ddd6fe", dot: "#8b5cf6" },
-  reader:   { bg: "#f0fdf4", color: "#166534", border: "#bbf7d0", dot: "#22c55e" },
+  admin:    { bg: "bg-amber-tint-lt",  text: "text-orange-text",  border: "border-yellow-border",    dot: "bg-amber"        },
+  operator: { bg: "bg-purple-tint-lt", text: "text-purple",       border: "border-purple-border-lt", dot: "bg-purple"       },
+  reader:   { bg: "bg-green-tint",     text: "text-green-text",   border: "border-green-border",     dot: "bg-green-bright" },
 };
 
 function RoleBadge({ role }) {
-  const cfg = ROLE_CONFIG[role] || ROLE_CONFIG.reader;
+  const c = ROLE_CONFIG[role] || ROLE_CONFIG.reader;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`, padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, textTransform: "capitalize" }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.dot }} />
-      {role}
+    <span className={`inline-flex items-center gap-1 ${c.bg} ${c.text} border ${c.border} px-2.5 py-0.5 rounded-pill text-xs font-bold capitalize`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />{role}
     </span>
   );
 }
 
 function StatusBadge({ active }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: active ? "#f0fdf4" : "#fef2f2", color: active ? "#166534" : "#dc2626", border: `1px solid ${active ? "#bbf7d0" : "#fecaca"}`, padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: active ? "#22c55e" : "#ef4444" }} />
+    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-pill text-xs font-bold border
+      ${active ? "bg-green-tint text-green-text border-green-border" : "bg-red-tint text-red-dark border-red-border"}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-green-bright" : "bg-red"}`} />
       {active ? "Active" : "Disabled"}
     </span>
   );
@@ -28,20 +28,57 @@ function StatusBadge({ active }) {
 
 function SearchBar({ value, onChange, placeholder }) {
   return (
-    <div style={{ position: "relative", width: 260 }}>
-      <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round">
+    <div className="relative w-64">
+      <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-ghost)" strokeWidth="2.5" strokeLinecap="round">
         <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
       </svg>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder || "Search..."}
-        style={{ width: "100%", padding: "8px 12px 8px 32px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, outline: "none", fontFamily: "inherit", boxSizing: "border-box", background: "#f8fafc", color: "#0f172a" }}
-        onFocus={e => e.target.style.borderColor = "#6366f1"}
-        onBlur={e  => e.target.style.borderColor = "#e2e8f0"}
+        className="w-full pl-8 pr-3 py-2 border border-border-base rounded-base text-md outline-none font-[inherit] bg-bg-page text-text-primary focus:border-indigo transition-colors"
       />
     </div>
   );
 }
 
-// ── Create User Modal ─────────────────────────────────────────────────────────
+function RoleSelector({ role, setRole, disabled, isLdap }) {
+  return (
+    <div className="flex gap-2">
+      {["admin", "operator", "reader"].map(r => {
+        const cfg = ROLE_CONFIG[r];
+        const dis = (disabled && r !== "admin") || isLdap;
+        const active = role === r;
+        return (
+          <button key={r} onClick={() => !dis && setRole(r)}
+            className={`flex-1 py-2 px-3 rounded-base text-md font-bold font-[inherit] capitalize transition-all duration-150 border-2
+              ${active ? `${cfg.bg} ${cfg.text} ${cfg.border}` : "bg-bg-card border-border-base text-text-faint"}
+              ${dis ? "text-text-disabled cursor-not-allowed" : "cursor-pointer"}`}
+          >{r}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ModalShell({ title, subtitle, onClose, children, footer }) {
+  return (
+    <div className="fixed inset-0 bg-[var(--backdrop-dark)] z-[1000] flex items-center justify-center p-6 backdrop-blur-sm">
+      <div className="bg-bg-card border border-border-base rounded-3xl w-full max-w-[440px] shadow-modal overflow-hidden">
+        <div className="px-6 py-5 border-b border-border-base flex justify-between items-center">
+          <div>
+            <div className="font-extrabold text-xl text-text-primary">{title}</div>
+            {subtitle && <div className="text-md text-text-faint mt-0.5">{subtitle}</div>}
+          </div>
+          <button onClick={onClose} className="bg-bg-subtle border border-border-base rounded-base w-8 h-8 cursor-pointer flex items-center justify-center text-lg text-text-secondary hover:bg-border-base transition-colors">×</button>
+        </div>
+        <div className="px-6 py-5 flex flex-col gap-4">{children}</div>
+        <div className="px-6 py-4 border-t border-border-base flex justify-end gap-2">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+const inputCls = "w-full px-3 py-2 border border-border-base rounded-base text-base outline-none font-[inherit] bg-bg-card text-text-primary";
+const labelCls = "block text-xs font-bold text-text-faint uppercase tracking-widest mb-1.5";
+const errCls   = "bg-red-tint border border-red-border rounded-base px-3.5 py-2.5 text-md text-red-dark";
 
 function CreateUserModal({ onClose, onCreated }) {
   const [username, setUsername] = useState("");
@@ -54,63 +91,44 @@ function CreateUserModal({ onClose, onCreated }) {
     if (!username.trim() || !password.trim()) { setError("Username and password are required"); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     setError(null); setLoading(true);
-    try {
-      const user = await apiPost("/api/users", { username: username.trim(), password, role });
-      onCreated(user); onClose();
-    } catch (e) { setError(e.message); }
+    try { const user = await apiPost("/api/users", { username: username.trim(), password, role }); onCreated(user); onClose(); }
+    catch (e) { setError(e.message); }
     finally { setLoading(false); }
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, backdropFilter: "blur(2px)" }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Create New User</div>
-          <button onClick={onClose} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+    <ModalShell title="Create New User" onClose={onClose} footer={
+      <>
+        <button onClick={onClose} className="px-4 py-2 border border-border-base rounded-base bg-bg-card cursor-pointer text-md text-text-muted-c font-[inherit]">Cancel</button>
+        <button onClick={handleCreate} disabled={loading}
+          className={`px-4 py-2 border-none rounded-base text-md font-bold font-[inherit] text-white cursor-pointer ${loading ? "bg-bg-subtle text-text-ghost cursor-not-allowed" : ""}`}
+          style={{ background: loading ? undefined : "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
+          {loading ? "Creating..." : "Create User"}
+        </button>
+      </>
+    }>
+      {[
+        { label: "Username", value: username, set: setUsername, type: "text",     ph: "e.g. jsmith" },
+        { label: "Password", value: password, set: setPassword, type: "password", ph: "Min 8 characters" },
+      ].map(({ label, value, set, type, ph }) => (
+        <div key={label}>
+          <label className={labelCls}>{label}</label>
+          <input type={type} value={value} onChange={e => set(e.target.value)} placeholder={ph} className={inputCls} />
         </div>
-        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {[
-            { label: "Username", value: username, onChange: setUsername, type: "text",     placeholder: "e.g. jsmith" },
-            { label: "Password", value: password, onChange: setPassword, type: "password", placeholder: "Min 8 characters" },
-          ].map(({ label, value, onChange, type, placeholder }) => (
-            <div key={label}>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{label}</label>
-              <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-                style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-            </div>
-          ))}
-          <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              {["admin", "operator", "reader"].map(r => {
-                const cfg = ROLE_CONFIG[r];
-                return (
-                  <button key={r} onClick={() => setRole(r)} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: `2px solid ${role === r ? cfg.dot : "#e2e8f0"}`, background: role === r ? cfg.bg : "#fff", color: role === r ? cfg.color : "#64748b", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", textTransform: "capitalize", transition: "all 0.15s" }}>
-                    {r}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
-              {role === "admin"    && "Full access — can manage users, inventories, scan and patch"}
-              {role === "operator" && "Can scan and patch — cannot manage users"}
-              {role === "reader"   && "View only — cannot scan, patch or modify anything"}
-            </div>
-          </div>
-          {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", color: "#dc2626", fontSize: 13 }}>{error}</div>}
-        </div>
-        <div style={{ padding: "16px 24px", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onClose} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, color: "#64748b", fontFamily: "inherit" }}>Cancel</button>
-          <button onClick={handleCreate} disabled={loading} style={{ padding: "8px 18px", border: "none", borderRadius: 8, background: loading ? "#e2e8f0" : "linear-gradient(135deg,#6366f1,#8b5cf6)", color: loading ? "#94a3b8" : "#fff", cursor: loading ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-            {loading ? "Creating..." : "Create User"}
-          </button>
+      ))}
+      <div>
+        <label className={labelCls}>Role</label>
+        <RoleSelector role={role} setRole={setRole} />
+        <div className="text-xs text-text-ghost mt-1.5">
+          {role === "admin"    && "Full access — can manage users, inventories, scan and patch"}
+          {role === "operator" && "Can scan and patch — cannot manage users"}
+          {role === "reader"   && "View only — cannot scan, patch or modify anything"}
         </div>
       </div>
-    </div>
+      {error && <div className={errCls}>{error}</div>}
+    </ModalShell>
   );
 }
-
-// ── Edit User Modal ───────────────────────────────────────────────────────────
 
 function EditUserModal({ user, currentUser, onClose, onUpdated }) {
   const [role,     setRole]     = useState(user.role);
@@ -118,15 +136,15 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
   const [password, setPassword] = useState("");
   const [error,    setError]    = useState(null);
   const [loading,  setLoading]  = useState(false);
-  const isSelf   = user.id === currentUser?.id;
-  const isLdap   = user.auth_source === "ldap";
+  const isSelf = user.id === currentUser?.id;
+  const isLdap = user.auth_source === "ldap";
 
   const handleSave = async () => {
     setError(null); setLoading(true);
     try {
       const updates = {};
-      if (role !== user.role) updates.role = role;
-      if (isActive !== user.is_active) updates.is_active = isActive;
+      if (role !== user.role)           updates.role      = role;
+      if (isActive !== user.is_active)  updates.is_active = isActive;
       if (password.trim()) {
         if (password.length < 8) { setError("Password must be at least 8 characters"); setLoading(false); return; }
         updates.password = password;
@@ -139,74 +157,58 @@ function EditUserModal({ user, currentUser, onClose, onUpdated }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, backdropFilter: "blur(2px)" }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", overflow: "hidden" }}>
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Edit User</div>
-            <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>@{user.username}</div>
-          </div>
-          <button onClick={onClose} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 18, color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+    <ModalShell title="Edit User" subtitle={`@${user.username}`} onClose={onClose} footer={
+      <>
+        <button onClick={onClose} className="px-4 py-2 border border-border-base rounded-base bg-bg-card cursor-pointer text-md text-text-muted-c font-[inherit]">Cancel</button>
+        <button onClick={handleSave} disabled={loading}
+          className={`px-4 py-2 border-none rounded-base text-md font-bold font-[inherit] text-white cursor-pointer ${loading ? "bg-bg-subtle text-text-ghost cursor-not-allowed" : ""}`}
+          style={{ background: loading ? undefined : "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
+          {loading ? "Saving..." : "Save Changes"}
+        </button>
+      </>
+    }>
+      {isLdap && (
+        <div className="bg-cyan-tint border border-cyan-border rounded-base px-3.5 py-2.5 text-md text-cyan-dark flex items-center gap-2">
+          <span>🔒</span>
+          <span>This is an <strong>Active Directory</strong> account. Role is managed by AD group membership. Password cannot be changed here.</span>
         </div>
-        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {isLdap && (
-            <div style={{ background: "#e0f2fe", border: "1px solid #bae6fd", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#0369a1", display: "flex", alignItems: "center", gap: 8 }}>
-              <span>🔒</span>
-              <span>This is an <strong>Active Directory</strong> account. Role is managed by AD group membership. Password cannot be changed here.</span>
-            </div>
-          )}
-          <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              {["admin", "operator", "reader"].map(r => {
-                const cfg      = ROLE_CONFIG[r];
-                const disabled = isSelf && r !== "admin" || isLdap;
-                return (
-                  <button key={r} onClick={() => !disabled && setRole(r)}
-                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: `2px solid ${role === r ? cfg.dot : "#e2e8f0"}`, background: role === r ? cfg.bg : "#fff", color: disabled ? "#cbd5e1" : role === r ? cfg.color : "#64748b", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", textTransform: "capitalize", transition: "all 0.15s" }}>
-                    {r}
-                  </button>
-                );
-              })}
-            </div>
-            {isSelf  && !isLdap && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>⚠ You cannot change your own role</div>}
-            {isLdap  && <div style={{ fontSize: 11, color: "#0369a1", marginTop: 4 }}>Role is controlled by Active Directory group membership</div>}
-          </div>
-          <div>
-            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Account Status</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              {[true, false].map(active => (
-                <button key={String(active)} onClick={() => !isSelf && setIsActive(active)}
-                  style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: `2px solid ${isActive === active ? (active ? "#22c55e" : "#ef4444") : "#e2e8f0"}`, background: isActive === active ? (active ? "#f0fdf4" : "#fef2f2") : "#fff", color: isSelf ? "#cbd5e1" : isActive === active ? (active ? "#166534" : "#dc2626") : "#64748b", cursor: isSelf ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", transition: "all 0.15s" }}>
-                  {active ? "Active" : "Disabled"}
-                </button>
-              ))}
-            </div>
-            {isSelf && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>⚠ You cannot disable your own account</div>}
-          </div>
-          {!isLdap && (
-            <div>
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
-                New Password <span style={{ fontWeight: 400, textTransform: "none" }}>(leave blank to keep current)</span>
-              </label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters"
-                style={{ width: "100%", padding: "9px 12px", border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }} />
-            </div>
-          )}
-          {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", color: "#dc2626", fontSize: 13 }}>{error}</div>}
-        </div>
-        <div style={{ padding: "16px 24px", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={onClose} style={{ padding: "8px 18px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, color: "#64748b", fontFamily: "inherit" }}>Cancel</button>
-          <button onClick={handleSave} disabled={loading} style={{ padding: "8px 18px", border: "none", borderRadius: 8, background: loading ? "#e2e8f0" : "linear-gradient(135deg,#6366f1,#8b5cf6)", color: loading ? "#94a3b8" : "#fff", cursor: loading ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-            {loading ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
+      )}
+      <div>
+        <label className={labelCls}>Role</label>
+        <RoleSelector role={role} setRole={setRole} disabled={isSelf} isLdap={isLdap} />
+        {isSelf && !isLdap && <div className="text-xs text-amber mt-1">⚠ You cannot change your own role</div>}
+        {isLdap             && <div className="text-xs text-cyan mt-1">Role is controlled by Active Directory group membership</div>}
       </div>
-    </div>
+      <div>
+        <label className={labelCls}>Account Status</label>
+        <div className="flex gap-2">
+          {[true, false].map(active => {
+            const selected = isActive === active;
+            const selCls = selected
+              ? (active ? "bg-green-tint text-green-text border-green-border" : "bg-red-tint text-red-dark border-red-border")
+              : "bg-bg-card text-text-faint border-border-base";
+            return (
+              <button key={String(active)} onClick={() => !isSelf && setIsActive(active)}
+                className={`flex-1 py-2 px-3 rounded-base text-md font-bold font-[inherit] transition-all duration-150 border-2
+                  ${selCls} ${isSelf ? "text-text-disabled cursor-not-allowed" : "cursor-pointer"}`}
+              >{active ? "Active" : "Disabled"}</button>
+            );
+          })}
+        </div>
+        {isSelf && <div className="text-xs text-amber mt-1">⚠ You cannot disable your own account</div>}
+      </div>
+      {!isLdap && (
+        <div>
+          <label className={labelCls}>New Password <span className="normal-case font-normal text-text-ghost">(leave blank to keep current)</span></label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 8 characters" className={inputCls} />
+        </div>
+      )}
+      {error && <div className={errCls}>{error}</div>}
+    </ModalShell>
   );
 }
 
-// ── Main UsersTab ─────────────────────────────────────────────────────────────
+const thCls = "px-4 py-2.5 text-left text-xs font-bold tracking-widest uppercase text-text-ghost border-b border-border-base";
 
 export function UsersTab({ currentUser }) {
   const [activeUsers,   setActiveUsers]   = useState([]);
@@ -224,10 +226,7 @@ export function UsersTab({ currentUser }) {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const [all, pend] = await Promise.all([
-        apiFetch("/api/users"),
-        apiFetch("/api/users/pending"),
-      ]);
+      const [all, pend] = await Promise.all([apiFetch("/api/users"), apiFetch("/api/users/pending")]);
       setActiveUsers(all.filter(u => u.is_active));
       setPending(pend);
     } catch (e) { setError(e.message); }
@@ -245,129 +244,115 @@ export function UsersTab({ currentUser }) {
     } catch (e) { setError(e.message); }
     finally { setApproving(null); }
   };
-
   const handleReject = async (user) => {
     if (!window.confirm(`Reject and delete '${user.username}'s request?`)) return;
     setDeleting(user.id);
-    try {
-      await apiDelete(`/api/users/${user.id}`);
-      setPending(p => p.filter(x => x.id !== user.id));
-    } catch (e) { setError(e.message); }
+    try { await apiDelete(`/api/users/${user.id}`); setPending(p => p.filter(x => x.id !== user.id)); }
+    catch (e) { setError(e.message); }
     finally { setDeleting(null); }
   };
-
   const handleDelete = async (user) => {
     if (!window.confirm(`Delete '${user.username}'? This cannot be undone.`)) return;
     setDeleting(user.id);
-    try {
-      await apiDelete(`/api/users/${user.id}`);
-      setActiveUsers(u => u.filter(x => x.id !== user.id));
-    } catch (e) { setError(e.message); }
+    try { await apiDelete(`/api/users/${user.id}`); setActiveUsers(u => u.filter(x => x.id !== user.id)); }
+    catch (e) { setError(e.message); }
     finally { setDeleting(null); }
   };
 
-  const handleCreated = (user) => setActiveUsers(u => [...u, user]);
-  const handleUpdated = (updated) => setActiveUsers(u => u.map(x => x.id === updated.id ? updated : x));
-
-  const filteredActive  = activeUsers.filter(u =>
-    u.username.toLowerCase().includes(activeSearch.toLowerCase()) ||
-    u.role.toLowerCase().includes(activeSearch.toLowerCase())
-  );
-  const filteredPending = pending.filter(u =>
-    u.username.toLowerCase().includes(pendingSearch.toLowerCase())
-  );
-
-  const thStyle = { padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", borderBottom: "1px solid #e2e8f0" };
+  const filteredActive  = activeUsers.filter(u => u.username.toLowerCase().includes(activeSearch.toLowerCase()) || u.role.toLowerCase().includes(activeSearch.toLowerCase()));
+  const filteredPending = pending.filter(u => u.username.toLowerCase().includes(pendingSearch.toLowerCase()));
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
-      <div style={{ width: 32, height: 32, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+    <div className="flex items-center justify-center h-[300px]">
+      <div className="w-8 h-8 border-[3px] border-border-base border-t-indigo rounded-full animate-spin" />
     </div>
   );
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-
       {error && (
-        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 16px", marginBottom: 20, color: "#dc2626", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+        <div className="bg-red-tint border border-red-border rounded-lg px-4 py-3 mb-5 text-md text-red-dark flex justify-between">
           {error}
-          <button onClick={() => setError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: 16 }}>×</button>
+          <button onClick={() => setError(null)} className="bg-transparent border-none cursor-pointer text-red-dark text-lg">×</button>
         </div>
       )}
 
-      {/* ── Tab bar + search + actions ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, gap: 2 }}>
+      {/* Tab bar + search + actions */}
+      <div className="flex justify-between items-center mb-5">
+        <div className="flex bg-bg-subtle rounded-lg p-1 gap-0.5">
           {[
-            { key: "active",  label: "Active Users",     count: activeUsers.length,  amber: false },
-            { key: "pending", label: "Pending Approval", count: pending.length,       amber: true  },
+            { key: "active",  label: "Active Users",     count: activeUsers.length, amber: false },
+            { key: "pending", label: "Pending Approval", count: pending.length,     amber: true  },
           ].map(t => (
             <button key={t.key} onClick={() => setInnerTab(t.key)}
-              style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: innerTab === t.key ? "#fff" : "transparent", color: innerTab === t.key ? "#0f172a" : "#64748b", cursor: "pointer", fontSize: 13, fontWeight: innerTab === t.key ? 700 : 500, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 7, boxShadow: innerTab === t.key ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
+              className={`px-4 py-1.5 rounded-md border-none font-[inherit] cursor-pointer text-md flex items-center gap-1.5 transition-all duration-150
+                ${innerTab === t.key ? "bg-bg-card text-text-primary font-bold shadow-card" : "bg-transparent text-text-faint font-medium"}`}
+            >
               {t.label}
               {t.count > 0 && (
-                <span style={{ background: t.amber ? "#f59e0b" : innerTab === t.key ? "#6366f1" : "#94a3b8", color: "#fff", fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 999 }}>
+                <span className={`text-white text-xxs font-bold px-1.5 py-0.5 rounded-pill ${t.amber ? "bg-amber" : innerTab === t.key ? "bg-indigo" : "bg-text-ghost"}`}>
                   {t.count}
                 </span>
               )}
             </button>
           ))}
         </div>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div className="flex gap-2.5 items-center">
           {innerTab === "active"  && <SearchBar value={activeSearch}  onChange={setActiveSearch}  placeholder="Search by name or role..." />}
           {innerTab === "pending" && <SearchBar value={pendingSearch} onChange={setPendingSearch} placeholder="Search by username..." />}
           {innerTab === "active" && (
             <button onClick={() => setShowCreate(true)}
-              style={{ padding: "9px 18px", border: "none", borderRadius: 8, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(99,102,241,0.35)" }}>
+              className="px-4 py-2 border-none rounded-base text-md font-bold font-[inherit] text-white cursor-pointer whitespace-nowrap"
+              style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 2px 8px rgba(99,102,241,0.35)" }}>
               + Create User
             </button>
           )}
         </div>
       </div>
 
-      {/* ── Active Users ── */}
+      {/* Active Users table */}
       {innerTab === "active" && (
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead style={{ background: "#f8fafc" }}>
+        <div className="bg-bg-card border border-border-base rounded-2xl overflow-hidden shadow-card">
+          <table className="w-full border-collapse">
+            <thead className="bg-bg-page">
               <tr>
-                <th style={thStyle}>User</th>
-                <th style={thStyle}>Role</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Created</th>
-                <th style={thStyle}>Last Login</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Actions</th>
+                <th className={thCls}>User</th>
+                <th className={thCls}>Role</th>
+                <th className={thCls}>Status</th>
+                <th className={thCls}>Created</th>
+                <th className={thCls}>Last Login</th>
+                <th className={`${thCls} text-right`}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredActive.map((u, i) => {
                 const isSelf = u.id === currentUser?.id;
                 return (
-                  <tr key={u.id} style={{ borderBottom: i < filteredActive.length - 1 ? "1px solid #f1f5f9" : "none", background: isSelf ? "#fafaf9" : "#fff" }}>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
+                  <tr key={u.id} className={`border-b border-border-subtle ${isSelf ? "bg-bg-row" : "bg-bg-card"}`}>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-md font-bold text-white shrink-0"
+                          style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
                           {u.username[0].toUpperCase()}
                         </div>
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a", display: "flex", alignItems: "center", gap: 6 }}>
-                            {u.username}
-                            {isSelf && <span style={{ fontSize: 10, color: "#6366f1", background: "#eef2ff", border: "1px solid #c7d2fe", padding: "1px 6px", borderRadius: 999, fontWeight: 700 }}>You</span>}
-                            {u.auth_source === "ldap" && <span style={{ fontSize: 10, color: "#0369a1", background: "#e0f2fe", border: "1px solid #bae6fd", padding: "1px 6px", borderRadius: 999, fontWeight: 700 }}>AD</span>}
-                          </div>
+                        <div className="text-base font-semibold text-text-primary flex items-center gap-1.5">
+                          {u.username}
+                          {isSelf && <span className="text-xxs text-indigo bg-indigo-tint border border-indigo-border px-1.5 py-0.5 rounded-pill font-bold">You</span>}
+                          {u.auth_source === "ldap" && <span className="text-xxs text-cyan-dark bg-cyan-tint border border-cyan-border px-1.5 py-0.5 rounded-pill font-bold">AD</span>}
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: "14px 16px" }}><RoleBadge role={u.role} /></td>
-                    <td style={{ padding: "14px 16px" }}><StatusBadge active={u.is_active} /></td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "#64748b" }}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "#64748b" }}>{u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}</td>
-                    <td style={{ padding: "14px 16px", textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                        <button onClick={() => setEditUser(u)} style={{ padding: "5px 12px", border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 12, color: "#475569", fontFamily: "inherit", fontWeight: 600 }}>Edit</button>
+                    <td className="px-4 py-3.5"><RoleBadge role={u.role} /></td>
+                    <td className="px-4 py-3.5"><StatusBadge active={u.is_active} /></td>
+                    <td className="px-4 py-3.5 text-sm text-text-faint">{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
+                    <td className="px-4 py-3.5 text-sm text-text-faint">{u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}</td>
+                    <td className="px-4 py-3.5 text-right">
+                      <div className="flex gap-1.5 justify-end">
+                        <button onClick={() => setEditUser(u)} className="px-3 py-1 border border-border-base rounded-md bg-bg-card cursor-pointer text-sm text-text-muted-c font-[inherit] font-semibold hover:bg-bg-subtle transition-colors">Edit</button>
                         <button onClick={() => handleDelete(u)} disabled={isSelf || deleting === u.id}
-                          style={{ padding: "5px 12px", border: "1px solid #fecaca", borderRadius: 6, background: isSelf ? "#f8fafc" : "#fef2f2", cursor: isSelf ? "not-allowed" : "pointer", fontSize: 12, color: isSelf ? "#cbd5e1" : "#dc2626", fontFamily: "inherit", fontWeight: 600, opacity: deleting === u.id ? 0.5 : 1 }}
+                          className={`px-3 py-1 border border-red-border rounded-md text-sm font-[inherit] font-semibold transition-colors
+                            ${isSelf ? "bg-bg-page text-text-disabled cursor-not-allowed" : "bg-red-tint text-red-dark cursor-pointer hover:bg-red-tint-mid"}
+                            ${deleting === u.id ? "opacity-50" : ""}`}
                           title={isSelf ? "Cannot delete your own account" : ""}>
                           {deleting === u.id ? "..." : "Delete"}
                         </button>
@@ -379,57 +364,57 @@ export function UsersTab({ currentUser }) {
             </tbody>
           </table>
           {filteredActive.length === 0 && (
-            <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
+            <div className="py-12 text-center text-text-ghost text-base">
               {activeSearch ? `No users match "${activeSearch}"` : "No active users — click Create User to add one."}
             </div>
           )}
         </div>
       )}
 
-      {/* ── Pending Approval ── */}
+      {/* Pending Approval table */}
       {innerTab === "pending" && (
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div className="bg-bg-card border border-border-base rounded-2xl overflow-hidden shadow-card">
           {filteredPending.length === 0 ? (
-            <div style={{ padding: 64, textAlign: "center" }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>✓</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
+            <div className="py-16 text-center">
+              <div className="text-[40px] mb-3">✓</div>
+              <div className="text-xl font-bold text-text-primary mb-1.5">
                 {pendingSearch ? `No requests match "${pendingSearch}"` : "No pending requests"}
               </div>
-              <div style={{ fontSize: 13, color: "#94a3b8" }}>
+              <div className="text-md text-text-ghost">
                 {pendingSearch ? "Try a different search term" : "All access requests have been reviewed"}
               </div>
             </div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead style={{ background: "#fffbeb" }}>
+            <table className="w-full border-collapse">
+              <thead className="bg-amber-tint-lt">
                 <tr>
-                  <th style={{ ...thStyle, color: "#92400e" }}>Username</th>
-                  <th style={{ ...thStyle, color: "#92400e" }}>Requested</th>
-                  <th style={{ ...thStyle, color: "#92400e", textAlign: "right" }}>Actions</th>
+                  <th className={`${thCls} text-orange-text border-yellow-border`}>Username</th>
+                  <th className={`${thCls} text-orange-text border-yellow-border`}>Requested</th>
+                  <th className={`${thCls} text-orange-text border-yellow-border text-right`}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredPending.map((u, i) => (
-                  <tr key={u.id} style={{ borderBottom: i < filteredPending.length - 1 ? "1px solid #fef3c7" : "none" }}>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#f59e0b,#d97706)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
+                  <tr key={u.id} className="border-b border-yellow-border">
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-md font-bold text-white shrink-0"
+                          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}>
                           {u.username[0].toUpperCase()}
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{u.username}</div>
+                        <div className="text-base font-semibold text-text-primary">{u.username}</div>
                       </div>
                     </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "#64748b" }}>
-                      {u.created_at ? new Date(u.created_at).toLocaleString() : "—"}
-                    </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <td className="px-4 py-3.5 text-sm text-text-faint">{u.created_at ? new Date(u.created_at).toLocaleString() : "—"}</td>
+                    <td className="px-4 py-3.5 text-right">
+                      <div className="flex gap-2 justify-end">
                         <button onClick={() => handleApprove(u)} disabled={approving === u.id}
-                          style={{ padding: "6px 16px", border: "none", borderRadius: 7, background: approving === u.id ? "#e2e8f0" : "linear-gradient(135deg,#22c55e,#16a34a)", color: approving === u.id ? "#94a3b8" : "#fff", cursor: approving === u.id ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}>
+                          className={`px-4 py-1.5 border-none rounded-md text-sm font-bold font-[inherit] text-white ${approving === u.id ? "bg-bg-subtle text-text-ghost cursor-not-allowed" : "cursor-pointer"}`}
+                          style={{ background: approving === u.id ? undefined : "linear-gradient(135deg,#22c55e,#16a34a)" }}>
                           {approving === u.id ? "..." : "✓ Approve"}
                         </button>
                         <button onClick={() => handleReject(u)} disabled={deleting === u.id}
-                          style={{ padding: "6px 16px", border: "1px solid #fecaca", borderRadius: 7, background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit", opacity: deleting === u.id ? 0.5 : 1 }}>
+                          className={`px-4 py-1.5 border border-red-border rounded-md bg-red-tint text-red-dark text-sm font-bold font-[inherit] cursor-pointer ${deleting === u.id ? "opacity-50" : ""}`}>
                           {deleting === u.id ? "..." : "✕ Reject"}
                         </button>
                       </div>
@@ -442,10 +427,10 @@ export function UsersTab({ currentUser }) {
         </div>
       )}
 
-      {/* ── Role reference ── */}
-      <div style={{ marginTop: 24, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "20px 24px" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 14 }}>Role Permissions</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      {/* Role reference */}
+      <div className="mt-6 bg-bg-card border border-border-base rounded-2xl px-6 py-5">
+        <div className="text-md font-bold text-text-primary mb-3.5">Role Permissions</div>
+        <div className="grid grid-cols-3 gap-3">
           {[
             { role: "admin",    perms: ["Manage users", "All operator permissions", "Manage inventories & credentials", "Notification settings"] },
             { role: "operator", perms: ["Trigger scans", "Apply patches", "View all data", "Scheduler settings"] },
@@ -453,13 +438,13 @@ export function UsersTab({ currentUser }) {
           ].map(({ role, perms }) => {
             const cfg = ROLE_CONFIG[role];
             return (
-              <div key={role} style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 10, padding: "14px 16px" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: cfg.color, textTransform: "capitalize", marginBottom: 10 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot, display: "inline-block", marginRight: 6 }} />{role}
+              <div key={role} className={`rounded-lg px-4 py-3.5 border ${cfg.bg} ${cfg.border}`}>
+                <div className={`text-sm font-bold capitalize mb-2.5 flex items-center gap-1.5 ${cfg.text}`}>
+                  <span className={`w-2 h-2 rounded-full inline-block ${cfg.dot}`} />{role}
                 </div>
                 {perms.map(p => (
-                  <div key={p} style={{ fontSize: 12, color: cfg.color, opacity: 0.8, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 10 }}>✓</span> {p}
+                  <div key={p} className={`text-sm mb-1 flex items-center gap-1.5 opacity-80 ${cfg.text}`}>
+                    <span className="text-xxs">✓</span> {p}
                   </div>
                 ))}
               </div>
@@ -468,8 +453,8 @@ export function UsersTab({ currentUser }) {
         </div>
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />}
-      {editUser   && <EditUserModal user={editUser} currentUser={currentUser} onClose={() => setEditUser(null)} onUpdated={handleUpdated} />}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={u => setActiveUsers(prev => [...prev, u])} />}
+      {editUser   && <EditUserModal user={editUser} currentUser={currentUser} onClose={() => setEditUser(null)} onUpdated={u => setActiveUsers(prev => prev.map(x => x.id === u.id ? u : x))} />}
     </div>
   );
 }

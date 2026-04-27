@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { login } from "../utils/api";
 
-/* ── Icons ──────────────────────────────────────────────────────────────────── */
 const IconUser = ({ color }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="8" r="4" stroke={color} strokeWidth="1.5"/>
@@ -37,7 +36,6 @@ const IconArrow = () => (
   </svg>
 );
 
-/* ── Main component ─────────────────────────────────────────────────────────── */
 export function LoginPage({ onLogin, onRegister }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -50,8 +48,7 @@ export function LoginPage({ onLogin, onRegister }) {
   const handleSubmit = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     if (!username || !password) { setError("Username and password are required."); return; }
-    setError(null);
-    setLoading(true);
+    setError(null); setLoading(true);
     try {
       const data = await login(username, password);
       onLogin(data.user);
@@ -68,317 +65,144 @@ export function LoginPage({ onLogin, onRegister }) {
     hasError ? "#f87171" : focused ? "#00c9a7" : "rgba(255,255,255,0.1)";
   const iconColor = (focused, hasError) =>
     hasError ? "#f87171" : focused ? "#00c9a7" : "rgba(255,255,255,0.25)";
-  const inputStyle = (focused, hasError, withRight) => ({
-    width: "100%", boxSizing: "border-box",
-    padding: withRight ? "11px 42px 11px 40px" : "11px 14px 11px 40px",
-    background: focused ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.03)",
-    border: `1px solid ${borderColor(focused, hasError)}`,
-    borderRadius: 8,
-    color: "#f1f5f9", fontSize: 14,
-    fontFamily: "inherit",
-    outline: "none",
-    transition: "border-color 0.18s, background 0.18s, box-shadow 0.18s",
-    boxShadow: focused && !hasError ? "0 0 0 3px rgba(0,201,167,0.12)" : hasError ? "0 0 0 3px rgba(248,113,113,0.1)" : "none",
-    letterSpacing: "0.01em",
-  });
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      fontFamily: "'Inter', system-ui, sans-serif",
-      background: "#060d18",
-      position: "relative",
-    }}>
+    <div className="min-h-screen flex font-[Inter,system-ui,sans-serif] bg-[#060d18] relative">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@700;800&display=swap');
-
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(18px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50%       { transform: translateY(-8px); }
-        }
-        @keyframes orb1 {
-          0%, 100% { opacity: 0.55; transform: scale(1); }
-          50%       { opacity: 0.9; transform: scale(1.08); }
-        }
-
-        input::placeholder { color: rgba(148,163,184,0.35); }
-        input:disabled     { opacity: 0.45; cursor: not-allowed; }
-
-        .pw-toggle {
-          background: none; border: none; cursor: pointer;
-          padding: 4px; display: flex; align-items: center;
-          color: rgba(255,255,255,0.3); transition: color 0.15s;
-        }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes orb1   { 0%,100% { opacity:.55; transform:scale(1); } 50% { opacity:.9; transform:scale(1.08); } }
+        .login-input::placeholder { color: rgba(148,163,184,0.35); }
+        .login-input:disabled     { opacity: 0.45; cursor: not-allowed; }
+        .pw-toggle { background:none; border:none; cursor:pointer; padding:4px; display:flex; align-items:center; color:rgba(255,255,255,0.3); transition:color 0.15s; }
         .pw-toggle:hover { color: rgba(255,255,255,0.7); }
+        .sign-in-btn { width:100%; padding:13px; background:linear-gradient(135deg,#00c9a7 0%,#00a896 100%); border:none; border-radius:8px; color:#060d18; font-size:14px; font-weight:700; font-family:inherit; letter-spacing:0.01em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:filter 0.18s,transform 0.18s,box-shadow 0.18s; box-shadow:0 4px 20px rgba(0,201,167,0.3); }
+        .sign-in-btn:hover:not(:disabled) { filter:brightness(1.08); transform:translateY(-1px); box-shadow:0 8px 28px rgba(0,201,167,0.4); }
+        .sign-in-btn:disabled { opacity:0.45; cursor:not-allowed; transform:none; }
+        .req-link { color:#00c9a7; background:none; border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:600; padding:0; transition:color 0.15s; }
+        .req-link:hover { color:#5eead4; }
+        @media (max-width:900px) { .login-left { display:none !important; } .login-right { border-left:none !important; flex:1 1 100% !important; max-width:100% !important; } }
+      `}</style>
 
-        .sign-in-btn {
-          width: 100%; padding: 13px;
-          background: linear-gradient(135deg, #00c9a7 0%, #00a896 100%);
-          border: none; border-radius: 8px;
-          color: #060d18;
-          font-size: 14px; font-weight: 700;
-          font-family: inherit; letter-spacing: 0.01em;
-          cursor: pointer;
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-          transition: filter 0.18s, transform 0.18s, box-shadow 0.18s;
-          box-shadow: 0 4px 20px rgba(0,201,167,0.3);
-        }
-        .sign-in-btn:hover:not(:disabled) {
-          filter: brightness(1.08);
-          transform: translateY(-1px);
-          box-shadow: 0 8px 28px rgba(0,201,167,0.4);
-        }
-        .sign-in-btn:disabled {
-          opacity: 0.45; cursor: not-allowed; transform: none;
-        }
+      {/* Background atmosphere */}
+      <div className="fixed inset-0 pointer-events-none"
+        style={{ backgroundImage: "radial-gradient(rgba(0,201,167,0.055) 1px, transparent 1px)", backgroundSize: "36px 36px" }} />
+      <div className="fixed top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(0,201,167,0.09) 0%, transparent 65%)", animation: "orb1 8s ease-in-out infinite" }} />
+      <div className="fixed bottom-[-15%] right-[-5%] w-[500px] h-[500px] rounded-full pointer-events-none"
+        style={{ background: "radial-gradient(circle, rgba(6,182,212,0.07) 0%, transparent 65%)" }} />
 
-        .req-link {
-          color: #00c9a7; background: none; border: none;
-          cursor: pointer; font-family: inherit;
-          font-size: 13px; font-weight: 600; padding: 0;
-          transition: color 0.15s;
-        }
-        .req-link:hover { color: #5eead4; }
-
-        @media (max-width: 900px) {
-          .login-left  { display: none !important; }
-          .login-right { border-left: none !important; flex: 1 1 100% !important; max-width: 100% !important; }
-          .login-right-row2 { padding: 0 32px !important; }
-          .login-right-row1, .login-right-row3 { padding-left: 32px !important; padding-right: 32px !important; }
-          .mobile-logo { display: flex !important; }
-        }
-            `}</style>
-
-      {/* ── Background atmosphere ────────────────────────────────────────────── */}
-      <div style={{
-        position: "fixed", inset: 0, pointerEvents: "none",
-        backgroundImage: "radial-gradient(rgba(0,201,167,0.055) 1px, transparent 1px)",
-        backgroundSize: "36px 36px",
-      }} />
-      {/* Ambient glow — top-left */}
-      <div style={{
-        position: "fixed", top: "-20%", left: "-10%",
-        width: 600, height: 600, borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(0,201,167,0.09) 0%, transparent 65%)",
-        pointerEvents: "none", animation: "orb1 8s ease-in-out infinite",
-      }} />
-      {/* Ambient glow — bottom-right */}
-      <div style={{
-        position: "fixed", bottom: "-15%", right: "-5%",
-        width: 500, height: 500, borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(6,182,212,0.07) 0%, transparent 65%)",
-        pointerEvents: "none",
-      }} />
-
-      {/* ── LEFT PANEL ───────────────────────────────────────────────────────── */}
-      <div className="login-left" style={{
-        flex: "1 0 420px", minWidth: 420,
-        display: "flex", flexDirection: "column",
-        borderRight: "1px solid rgba(255,255,255,0.06)",
-        position: "relative", zIndex: 10,
-      }}>
-        {/* Row 1 — Logo */}
-        <div style={{
-          flexShrink: 0,
-          padding: "36px 60px",
-          display: "flex", alignItems: "center", gap: 12,
-          animation: "fadeUp 0.4s ease both",
-        }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 9,
-            background: "linear-gradient(135deg, #00c9a7, #0891b2)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 16px rgba(0,201,167,0.3)",
-          }}>
+      {/* LEFT PANEL */}
+      <div className="login-left flex-[1_0_420px] min-w-[420px] flex flex-col border-r border-[rgba(255,255,255,0.06)] relative z-10">
+        {/* Logo */}
+        <div className="shrink-0 px-[60px] py-9 flex items-center gap-3" style={{ animation: "fadeUp 0.4s ease both" }}>
+          <div className="w-9 h-9 rounded-[9px] flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#00c9a7,#0891b2)", boxShadow: "0 4px 16px rgba(0,201,167,0.3)" }}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V6L12 2z"
-                fill="rgba(255,255,255,0.15)" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
+              <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V6L12 2z" fill="rgba(255,255,255,0.15)" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
               <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <span style={{ fontSize: 17, fontWeight: 700, color: "#f8fafc", letterSpacing: "-0.2px", fontFamily: "'Outfit', sans-serif" }}>
-            Kermonix
-          </span>
+          <span className="text-[17px] font-bold text-[#f8fafc] tracking-[-0.2px] font-[Outfit,sans-serif]">Kermonix</span>
         </div>
 
-        {/* Row 2 — Marketing copy, vertically centred */}
-        <div style={{
-          flex: 1, display: "flex", alignItems: "center",
-          padding: "0 60px",
-          animation: "fadeUp 0.45s ease 0.08s both",
-        }}>
+        {/* Marketing copy */}
+        <div className="flex-1 flex items-center px-[60px]" style={{ animation: "fadeUp 0.45s ease 0.08s both" }}>
           <div>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 7,
-              background: "rgba(0,201,167,0.1)", border: "1px solid rgba(0,201,167,0.2)",
-              borderRadius: 20, padding: "4px 12px", marginBottom: 24,
-            }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#00c9a7" }} />
-              <span style={{ fontSize: 11, color: "#00c9a7", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                Security Compliance Platform
-              </span>
+            <div className="inline-flex items-center gap-1.5 border border-[rgba(0,201,167,0.2)] rounded-[20px] px-3 py-1 mb-6"
+              style={{ background: "rgba(0,201,167,0.1)" }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00c9a7]" />
+              <span className="text-xs text-[#00c9a7] font-semibold tracking-[0.08em] uppercase">Security Compliance Platform</span>
             </div>
-
-            <h1 style={{
-              fontSize: 38,
-              fontWeight: 800,
-              margin: "0 0 20px",
-              color: "#f8fafc",
-              lineHeight: 1.15,
-              fontFamily: "'Outfit', sans-serif",
-              letterSpacing: "-0.5px",
-            }}>
+            <h1 className="text-[38px] font-extrabold mb-5 text-[#f8fafc] leading-[1.15] font-[Outfit,sans-serif] tracking-[-0.5px]">
               Unified<br/>
-              <span style={{ background: "linear-gradient(90deg, #00c9a7, #22d3ee)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              <span style={{ background: "linear-gradient(90deg,#00c9a7,#22d3ee)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
                 Compliance
               </span><br/>
               Management
             </h1>
-
-            <p style={{ fontSize: 15, color: "rgba(148,163,184,0.7)", margin: 0, lineHeight: 1.7, maxWidth: 360 }}>
+            <p className="text-[15px] text-[rgba(148,163,184,0.7)] m-0 leading-[1.7] max-w-[360px]">
               Scan, enrich, and remediate vulnerabilities across your Linux and Windows estate — from a single pane of glass.
             </p>
-
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 32 }}>
+            <div className="flex flex-wrap gap-2.5 mt-8">
               {["Real-time CVE Scanning", "LDAP / Active Directory", "Multi-OS Asset Inventory"].map(f => (
-                <span key={f} style={{
-                  fontSize: 12, color: "rgba(148,163,184,0.6)",
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  borderRadius: 6, padding: "5px 12px",
-                }}>
-                  {f}
-                </span>
+                <span key={f} className="text-sm text-[rgba(148,163,184,0.6)] border border-[rgba(255,255,255,0.07)] rounded-md px-3 py-1"
+                  style={{ background: "rgba(255,255,255,0.04)" }}>{f}</span>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Row 3 — Copyright */}
-        <div style={{
-          flexShrink: 0,
-          padding: "24px 60px",
-          fontSize: 12, color: "rgba(100,116,139,0.45)", letterSpacing: "0.02em",
-          animation: "fadeUp 0.4s ease 0.15s both",
-        }}>
+        {/* Copyright */}
+        <div className="shrink-0 px-[60px] py-6 text-sm text-[rgba(100,116,139,0.45)] tracking-[0.02em]"
+          style={{ animation: "fadeUp 0.4s ease 0.15s both" }}>
           © {new Date().getFullYear()} Kermonix. All rights reserved.
         </div>
       </div>
 
-      {/* ── RIGHT PANEL ──────────────────────────────────────────────────────── */}
-      <div className="login-right" style={{
-        flex: "0 0 440px",
-        display: "flex", flexDirection: "column",
-        borderLeft: "1px solid rgba(255,255,255,0.06)",
-        position: "relative", zIndex: 10,
-      }}>
-        {/* Row 1 — Logo spacer */}
-        <div className="login-right-row1" style={{ flexShrink: 0, padding: "36px 52px", display: "flex", alignItems: "center" }}>
-          {/* Mobile: show logo here */}
-          <div className="mobile-logo" style={{ display: "none", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #00c9a7, #0891b2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V6L12 2z" fill="rgba(255,255,255,0.15)" stroke="white" strokeWidth="1.8" strokeLinejoin="round"/>
-                <path d="M9 12l2 2 4-4" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#f8fafc", fontFamily: "'Outfit', sans-serif" }}>Kermonix</span>
-          </div>
-        </div>
+      {/* RIGHT PANEL */}
+      <div className="login-right flex-[0_0_440px] flex flex-col border-l border-[rgba(255,255,255,0.06)] relative z-10">
+        <div className="shrink-0 px-[52px] py-9 flex items-center" />
 
-        {/* Row 2 — Form, vertically centred */}
-        <div className="login-right-row2" style={{
-          flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-          padding: "0 52px",
-          animation: "fadeUp 0.5s ease 0.05s both",
-        }}>
-          <div style={{ width: "100%", maxWidth: 340 }}>
-            <div style={{ marginBottom: 28 }}>
-              <h2 style={{ fontSize: 24, fontWeight: 700, color: "#f1f5f9", margin: "0 0 6px", letterSpacing: "-0.4px", fontFamily: "'Outfit', sans-serif" }}>
-                Sign in
-              </h2>
-              <p style={{ fontSize: 13, color: "rgba(148,163,184,0.5)", margin: 0 }}>
-                Enter your credentials to continue
-              </p>
+        {/* Form */}
+        <div className="flex-1 flex items-center justify-center px-[52px]" style={{ animation: "fadeUp 0.5s ease 0.05s both" }}>
+          <div className="w-full max-w-[340px]">
+            <div className="mb-7">
+              <h2 className="text-2xl font-bold text-[#f1f5f9] mb-1.5 tracking-[-0.4px] font-[Outfit,sans-serif]">Sign in</h2>
+              <p className="text-md text-[rgba(148,163,184,0.5)] m-0">Enter your credentials to continue</p>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="flex flex-col gap-4">
               {/* Username */}
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "rgba(203,213,225,0.65)", marginBottom: 7, letterSpacing: "0.02em" }}>
-                  Username
-                </label>
-                <div style={{ position: "relative" }}>
-                  <div style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                <label className="block text-sm font-semibold text-[rgba(203,213,225,0.65)] mb-1.5 tracking-[0.02em]">Username</label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
                     <IconUser color={iconColor(uFocused, !!error)} />
                   </div>
                   <input
-                    type="text"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    onKeyDown={onKey}
-                    placeholder="Enter your username"
-                    autoFocus
-                    autoComplete="username"
-                    disabled={loading}
-                    onFocus={() => setUFocused(true)}
-                    onBlur={() => setUFocused(false)}
-                    style={inputStyle(uFocused, !!error, false)}
+                    type="text" value={username} onChange={e => setUsername(e.target.value)}
+                    onKeyDown={onKey} placeholder="Enter your username" autoFocus autoComplete="username"
+                    disabled={loading} onFocus={() => setUFocused(true)} onBlur={() => setUFocused(false)}
+                    className="login-input w-full pl-10 pr-3.5 py-[11px] rounded-base text-[14px] text-[#f1f5f9] outline-none tracking-[0.01em] transition-all duration-[180ms]"
+                    style={{
+                      background: uFocused ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${borderColor(uFocused, !!error)}`,
+                      boxShadow: uFocused && !error ? "0 0 0 3px rgba(0,201,167,0.12)" : error ? "0 0 0 3px rgba(248,113,113,0.1)" : "none",
+                    }}
                   />
                 </div>
               </div>
 
               {/* Password */}
               <div>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "rgba(203,213,225,0.65)", marginBottom: 7, letterSpacing: "0.02em" }}>
-                  Password
-                </label>
-                <div style={{ position: "relative" }}>
-                  <div style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                <label className="block text-sm font-semibold text-[rgba(203,213,225,0.65)] mb-1.5 tracking-[0.02em]">Password</label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
                     <IconLock color={iconColor(pFocused, !!error)} />
                   </div>
                   <input
-                    type={showPw ? "text" : "password"}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    onKeyDown={onKey}
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                    disabled={loading}
-                    onFocus={() => setPFocused(true)}
-                    onBlur={() => setPFocused(false)}
-                    style={inputStyle(pFocused, !!error, true)}
+                    type={showPw ? "text" : "password"} value={password}
+                    onChange={e => setPassword(e.target.value)} onKeyDown={onKey}
+                    placeholder="Enter your password" autoComplete="current-password"
+                    disabled={loading} onFocus={() => setPFocused(true)} onBlur={() => setPFocused(false)}
+                    className="login-input w-full pl-10 pr-10 py-[11px] rounded-base text-[14px] text-[#f1f5f9] outline-none tracking-[0.01em] transition-all duration-[180ms]"
+                    style={{
+                      background: pFocused ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${borderColor(pFocused, !!error)}`,
+                      boxShadow: pFocused && !error ? "0 0 0 3px rgba(0,201,167,0.12)" : error ? "0 0 0 3px rgba(248,113,113,0.1)" : "none",
+                    }}
                   />
-                  <button
-                    className="pw-toggle"
-                    type="button"
-                    onClick={() => setShowPw(v => !v)}
-                    tabIndex={-1}
-                    title={showPw ? "Hide password" : "Show password"}
-                    style={{ position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)" }}
-                  >
+                  <button className="pw-toggle absolute right-2.5 top-1/2 -translate-y-1/2" type="button"
+                    onClick={() => setShowPw(v => !v)} tabIndex={-1} title={showPw ? "Hide password" : "Show password"}>
                     <IconEye off={showPw} />
                   </button>
                 </div>
               </div>
 
               {error && (
-                <div style={{
-                  background: "rgba(239,68,68,0.08)",
-                  border: "1px solid rgba(239,68,68,0.25)",
-                  borderRadius: 8, padding: "10px 14px",
-                  fontSize: 13, color: "#fca5a5",
-                  display: "flex", alignItems: "center", gap: 8,
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+                <div className="bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.25)] rounded-base px-3.5 py-2.5 text-md text-[#fca5a5] flex items-center gap-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="shrink-0">
                     <circle cx="12" cy="12" r="10" stroke="#f87171" strokeWidth="1.5"/>
                     <path d="M12 8v4m0 4h.01" stroke="#f87171" strokeWidth="1.5" strokeLinecap="round"/>
                   </svg>
@@ -389,31 +213,24 @@ export function LoginPage({ onLogin, onRegister }) {
               <button className="sign-in-btn" onClick={handleSubmit} disabled={loading} style={{ marginTop: 4 }}>
                 {loading ? (
                   <>
-                    <div style={{ width: 14, height: 14, border: "2px solid rgba(6,13,24,0.25)", borderTopColor: "#060d18", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                    <div className="w-3.5 h-3.5 rounded-full border-2 border-[rgba(6,13,24,0.25)] border-t-[#060d18] animate-spin" />
                     Signing in...
                   </>
-                ) : (
-                  <>Sign in <IconArrow /></>
-                )}
+                ) : <>Sign in <IconArrow /></>}
               </button>
             </div>
 
             {onRegister && (
-              <div style={{ textAlign: "center", marginTop: 20 }}>
-                <span style={{ fontSize: 13, color: "rgba(100,116,139,0.6)" }}>Don't have an account? </span>
+              <div className="text-center mt-5">
+                <span className="text-md text-[rgba(100,116,139,0.6)]">Don't have an account? </span>
                 <button className="req-link" onClick={onRegister}>Request access</button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Row 3 — TLS footer */}
-        <div className="login-right-row3" style={{
-          flexShrink: 0,
-          padding: "24px 52px",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          fontSize: 11, color: "rgba(100,116,139,0.4)",
-        }}>
+        {/* TLS footer */}
+        <div className="shrink-0 px-[52px] py-6 flex items-center justify-center gap-1.5 text-xs text-[rgba(100,116,139,0.4)]">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
             <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
             <path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>

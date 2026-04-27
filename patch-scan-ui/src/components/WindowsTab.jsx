@@ -14,8 +14,6 @@ function fmtWinDate(iso) {
   } catch { return null; }
 }
 
-// ── Shared badge helpers ──────────────────────────────────────────────────────
-
 function shortOsLabel(osName) {
   if (!osName) return "Unknown";
   const year     = osName.match(/\b(2008|2012|2016|2019|2022|2025|10|11)\b/)?.[1] || "";
@@ -29,47 +27,52 @@ function shortOsLabel(osName) {
   return `Win ${year}${evalTag}`.trim() || osName.slice(0, 20);
 }
 
+const OS_BADGE_CLS = {
+  "2022": "bg-blue-tint text-blue-deep border-blue-border",
+  "2019": "bg-green-tint text-green-deeper border-green-border",
+  "2016": "bg-purple-tint text-purple-dark border-purple-border",
+  "2012": "bg-orange-tint text-orange-dark border-orange-border",
+  "10":   "bg-yellow-tint text-yellow-dark border-yellow-border",
+  "11":   "bg-teal-tint text-teal border-teal-border",
+};
+
 function osVersionBadge(osName) {
   if (!osName) return null;
   const lower = osName.toLowerCase();
-  let bg, color, border;
-  if      (lower.includes("2022")) { bg = "var(--blue-tint)";   color = "var(--blue-deep)";    border = "var(--blue-border)";   }
-  else if (lower.includes("2019")) { bg = "var(--green-tint)";  color = "var(--green-deeper)"; border = "var(--green-border)";  }
-  else if (lower.includes("2016")) { bg = "var(--purple-tint)"; color = "var(--purple-dark)";  border = "var(--purple-border)"; }
-  else if (lower.includes("2012")) { bg = "var(--orange-tint)"; color = "var(--orange-dark)";  border = "var(--orange-border)"; }
-  else if (lower.includes("10"))   { bg = "var(--yellow-tint)"; color = "var(--yellow-dark)";  border = "var(--yellow-border)"; }
-  else if (lower.includes("11"))   { bg = "var(--teal-tint)";   color = "var(--teal)";         border = "var(--teal-border)";   }
-  else                              { bg = "var(--bg-subtle)";   color = "var(--text-muted)";   border = "var(--border-muted)";  }
+  const key   = ["2022","2019","2016","2012","10","11"].find(k => lower.includes(k));
+  const cls   = key ? OS_BADGE_CLS[key] : "bg-bg-subtle text-text-muted-c border-border-muted";
   return (
-    <span style={{ background: bg, color, border: `1px solid ${border}`, padding: "2px 8px", borderRadius: "var(--radius-pill)", fontSize: "var(--text-sm)", fontWeight: 700, whiteSpace: "nowrap" }}>
+    <span className={`border px-2 py-[2px] rounded-pill text-sm font-bold whitespace-nowrap ${cls}`}>
       {shortOsLabel(osName)}
     </span>
   );
 }
 
+const SEV_CLS = {
+  Critical:  "bg-red-tint text-red-dark border-red-border",
+  Important: "bg-orange-tint text-orange border-orange-border",
+  Moderate:  "bg-amber-tint text-amber border-yellow-border",
+  Low:       "bg-green-tint text-green-dark border-green-border",
+};
+
 function severityBadge(sev) {
-  if (!sev || sev === "NotAvailable") return <span style={{ color: "var(--text-ghost)", fontSize: "var(--text-sm)" }}>—</span>;
-  const map = {
-    Critical:  ["var(--red-tint)",    "var(--red-dark)",   "var(--red-border)"   ],
-    Important: ["var(--orange-tint)", "var(--orange)",     "var(--orange-border)"],
-    Moderate:  ["var(--amber-tint)",  "var(--amber)",      "var(--yellow-border)"],
-    Low:       ["var(--green-tint)",  "var(--green-dark)", "var(--green-border)" ],
-  };
-  const [bg, color, border] = map[sev] || ["var(--bg-subtle)", "var(--text-muted)", "var(--border)"];
-  return <span style={{ background: bg, color, border: `1px solid ${border}`, padding: "2px 8px", borderRadius: "var(--radius-pill)", fontSize: "var(--text-sm)", fontWeight: 700 }}>{sev}</span>;
+  if (!sev || sev === "NotAvailable") return <span className="text-text-ghost text-sm">—</span>;
+  const cls = SEV_CLS[sev] || "bg-bg-subtle text-text-muted-c border-border-base";
+  return <span className={`border px-2 py-[2px] rounded-pill text-sm font-bold ${cls}`}>{sev}</span>;
 }
 
-// ── Exposure badge ────────────────────────────────────────────────────────────
+const EXPOSURE_CLS = {
+  external:  { card: "bg-blue-tint text-blue-deep border-blue-border",     outline: "var(--blue-deep)"  },
+  internal:  { card: "bg-green-tint text-green-dark border-green-border",  outline: "var(--green-dark)" },
+  interface: { card: "bg-amber-tint text-amber border-yellow-border",      outline: "var(--amber)"      },
+};
+const EXPOSURE_LABELS = { external: "External", internal: "Internal", interface: "Interface" };
 
 function ExposureBadge({ exposure, bindAddress }) {
-  const cfg = {
-    external:  { bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)",   label: "External"  },
-    internal:  { bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)",  label: "Internal"  },
-    interface: { bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)", label: "Interface" },
-  }[exposure] || { bg: "var(--bg-subtle)", color: "var(--text-faint)", border: "var(--border)", label: exposure };
+  const cls = EXPOSURE_CLS[exposure]?.card || "bg-bg-subtle text-text-faint border-border-base";
   return (
-    <span title={bindAddress} style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`, borderRadius: "var(--radius-md)", padding: "2px 8px", fontSize: "var(--text-sm)", fontWeight: 700, whiteSpace: "nowrap" }}>
-      {cfg.label}
+    <span title={bindAddress} className={`border rounded-md px-2 py-[2px] text-sm font-bold whitespace-nowrap ${cls}`}>
+      {EXPOSURE_LABELS[exposure] || exposure}
     </span>
   );
 }
@@ -109,78 +112,73 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
 
   const portCounts = ports.reduce((acc, p) => { acc[p.exposure] = (acc[p.exposure] || 0) + 1; return acc; }, {});
 
-  const thStyle = { padding: "10px 12px", textAlign: "left", fontSize: 11, fontWeight: 700,
-    letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-ghost)",
-    background: "var(--bg-subtle)", borderBottom: "1px solid var(--border)" };
-
   const tabs = [
     { id: "patches", label: `Patches (${updates.length})` },
     { id: "ports",   label: `Open Ports${ports.length > 0 ? ` (${ports.length})` : ""}` },
   ];
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "var(--backdrop-dark)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--space-6)", backdropFilter: "blur(2px)" }}>
-      <div style={{ background: "var(--bg-card)", borderRadius: "var(--radius-3xl)", width: "100%", maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-modal-lg)", overflow: "hidden" }}>
+    <div className="fixed inset-0 bg-[var(--backdrop-dark)] z-[1000] flex items-center justify-center p-6 backdrop-blur-sm">
+      <div className="bg-bg-card border border-border-base rounded-3xl w-full max-w-[760px] max-h-[90vh] flex flex-col shadow-modal-lg overflow-hidden">
 
         {/* Header */}
-        <div style={{ padding: "var(--space-5) var(--space-6) 0", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "var(--space-3)" }}>
+        <div className="px-6 pt-5 border-b border-border-base">
+          <div className="flex justify-between items-start mb-3">
             <div>
-              <div style={{ fontWeight: 800, fontSize: "var(--text-xl)", color: "var(--text-primary)", fontFamily: "monospace" }}>🪟 {hostname}</div>
-              <div style={{ fontSize: "var(--text-base)", color: "var(--text-faint)", marginTop: 2 }}>{osName} · {osVersion}</div>
-              <div style={{ marginTop: "var(--space-2)", display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+              <div className="font-extrabold text-xl text-text-primary font-mono">🪟 {hostname}</div>
+              <div className="text-base text-text-faint mt-0.5">{osName} · {osVersion}</div>
+              <div className="mt-2 flex gap-2 flex-wrap">
                 {sortedCls.map(cls => (
-                  <span key={cls} style={{ fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>
+                  <span key={cls} className="text-base text-text-secondary">
                     <strong>{byClass[cls].length}</strong> {cls}
                   </span>
                 ))}
               </div>
             </div>
             <button onClick={onClose}
-              style={{ background: "var(--bg-subtle)", border: "1px solid var(--border-muted)", borderRadius: "var(--radius-base)", width: 32, height: 32, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--text-secondary)", flexShrink: 0 }}
-              onMouseEnter={e => e.currentTarget.style.background = "var(--border)"}
-              onMouseLeave={e => e.currentTarget.style.background = "var(--bg-subtle)"}
-            >×</button>
+              className="bg-bg-subtle border border-border-muted rounded-base w-8 h-8 cursor-pointer flex items-center justify-center text-base text-text-secondary shrink-0 hover:bg-border-base transition-colors">
+              ×
+            </button>
           </div>
 
           {/* Tabs */}
-          <div style={{ display: "flex", gap: 2 }}>
+          <div className="flex gap-0.5">
             {tabs.map(t => (
-              <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-                padding: "8px 16px", fontSize: "var(--text-md)", fontWeight: 600, cursor: "pointer",
-                border: "none", background: "none", fontFamily: "inherit",
-                color: activeTab === t.id ? "var(--indigo)" : "var(--text-faint)",
-                borderBottom: `2px solid ${activeTab === t.id ? "var(--indigo)" : "transparent"}`,
-                transition: "all 0.15s",
-              }}>{t.label}</button>
+              <button key={t.id} onClick={() => setActiveTab(t.id)}
+                className="px-4 py-2 text-md font-semibold cursor-pointer border-none bg-transparent font-[inherit] transition-colors"
+                style={{
+                  color: activeTab === t.id ? "var(--indigo)" : "var(--text-faint)",
+                  borderBottom: `2px solid ${activeTab === t.id ? "var(--indigo)" : "transparent"}`,
+                }}
+              >{t.label}</button>
             ))}
           </div>
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "var(--space-4) var(--space-6)" }}>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
 
           {/* ── Patches tab ── */}
           {activeTab === "patches" && sortedCls.map(cls => (
-            <div key={cls} style={{ marginBottom: "var(--space-5)" }}>
-              <div style={{ fontSize: "var(--text-sm)", fontWeight: 700, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--space-2)" }}>
+            <div key={cls} className="mb-5">
+              <div className="text-sm font-bold text-text-faint uppercase tracking-[0.05em] mb-2">
                 {cls} ({byClass[cls].length})
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+              <div className="flex flex-col gap-2">
                 {byClass[cls].map((u, i) => (
-                  <div key={i} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: "12px 14px", background: "var(--bg-row)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--space-2)", marginBottom: "var(--space-1)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                        <span style={{ fontFamily: "monospace", fontSize: "var(--text-base)", fontWeight: 700, color: "var(--indigo)" }}>KB{u.KBID}</span>
+                  <div key={i} className="border border-border-base rounded-lg px-[14px] py-3 bg-bg-row">
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-base font-bold text-indigo">KB{u.KBID}</span>
                         {severityBadge(u.msrcSeverity)}
                         {badge(u.rebootRequired === "NeverReboots" ? "No Reboot" : u.rebootRequired === "AlwaysRequiresReboot" ? "Reboot Required" : "May Reboot",
                           u.rebootRequired === "NeverReboots" ? "green" : u.rebootRequired === "AlwaysRequiresReboot" ? "red" : "yellow")}
                       </div>
-                      {u.version && <span style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)", fontFamily: "monospace" }}>v{u.version}</span>}
+                      {u.version && <span className="text-sm text-text-ghost font-mono">v{u.version}</span>}
                     </div>
-                    <div style={{ fontSize: "var(--text-base)", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 4 }}>{u.patchName}</div>
+                    <div className="text-base text-text-secondary leading-relaxed mb-1">{u.patchName}</div>
                     {u.publishedDateTime && fmtWinDate(u.publishedDateTime) && (
-                      <div style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>Published: {fmtWinDate(u.publishedDateTime)}</div>
+                      <div className="text-sm text-text-ghost">Published: {fmtWinDate(u.publishedDateTime)}</div>
                     )}
                   </div>
                 ))}
@@ -192,27 +190,26 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
           {activeTab === "ports" && (
             <div>
               {loadingPorts ? (
-                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)" }}>Loading port data...</div>
+                <div className="text-center py-10 text-text-ghost">Loading port data...</div>
               ) : ports.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-ghost)" }}>No port data available. Run a Windows scan to collect port information.</div>
+                <div className="text-center py-10 text-text-ghost">No port data available. Run a Windows scan to collect port information.</div>
               ) : (
                 <div>
                   {/* Exposure summary cards */}
-                  <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+                  <div className="flex gap-2 mb-4">
                     {[
-                      { key: "external",  label: "External",  bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)",   desc: "0.0.0.0"    },
-                      { key: "internal",  label: "Internal",  bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)",  desc: "127.0.0.1"  },
-                      { key: "interface", label: "Interface", bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)", desc: "Specific IP" },
+                      { key: "external",  label: "External",  cls: "bg-blue-tint text-blue-deep border-blue-border",    desc: "0.0.0.0"     },
+                      { key: "internal",  label: "Internal",  cls: "bg-green-tint text-green-dark border-green-border", desc: "127.0.0.1"   },
+                      { key: "interface", label: "Interface", cls: "bg-amber-tint text-amber border-yellow-border",     desc: "Specific IP" },
                     ].map(s => (
-                      <div key={s.key} style={{
-                        flex: 1, background: s.bg, border: `1px solid ${s.border}`,
-                        borderRadius: "var(--radius-base)", padding: "10px 14px", textAlign: "center",
-                        cursor: "pointer", outline: portFilter === s.key ? `2px solid ${s.color}` : "none",
-                        transition: "all 0.15s",
-                      }} onClick={() => setPortFilter(portFilter === s.key ? "all" : s.key)}>
-                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 700, color: s.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: s.color, marginTop: 2 }}>{portCounts[s.key] || 0}</div>
-                        <div style={{ fontSize: "var(--text-xs)", color: s.color, opacity: 0.7 }}>{s.desc}</div>
+                      <div key={s.key}
+                        className={`flex-1 border rounded-base px-[14px] py-2.5 text-center cursor-pointer transition-all ${s.cls}`}
+                        style={{ outline: portFilter === s.key ? `2px solid ${EXPOSURE_CLS[s.key]?.outline}` : "none" }}
+                        onClick={() => setPortFilter(portFilter === s.key ? "all" : s.key)}
+                      >
+                        <div className="text-xs font-bold uppercase tracking-[0.05em]">{s.label}</div>
+                        <div className="text-[22px] font-extrabold mt-0.5">{portCounts[s.key] || 0}</div>
+                        <div className="text-xs opacity-70">{s.desc}</div>
                       </div>
                     ))}
                   </div>
@@ -220,43 +217,40 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
                   {/* Search */}
                   <input value={portSearch} onChange={e => setPortSearch(e.target.value)}
                     placeholder="Search port, service, or bind address..."
-                    style={{ width: "100%", padding: "8px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-md)", marginBottom: "var(--space-3)", fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "var(--bg-page)", color: "var(--text-primary)" }}
+                    className="w-full px-3 py-2 border border-border-base rounded-base text-md mb-3 font-[inherit] outline-none bg-bg-page text-text-primary box-border"
                   />
 
                   {/* Ports table */}
-                  <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <div className="border border-border-base rounded-lg overflow-hidden">
+                    <table className="w-full border-collapse">
                       <thead>
                         <tr>
                           {["Port", "Protocol", "Bind Address", "Service", "Exposure"].map(h => (
-                            <th key={h} style={thStyle}>{h}</th>
+                            <th key={h} className="px-3 py-[10px] text-left text-xs font-bold tracking-[0.06em] uppercase text-text-ghost bg-bg-subtle border-b border-border-base">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {filteredPorts.length === 0 ? (
-                          <tr><td colSpan={5} style={{ padding: "24px", textAlign: "center", color: "var(--text-ghost)" }}>No ports match your filter</td></tr>
+                          <tr><td colSpan={5} className="p-6 text-center text-text-ghost">No ports match your filter</td></tr>
                         ) : filteredPorts.map((p, i) => (
-                          <tr key={i}
-                            style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.1s" }}
-                            onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
-                            onMouseLeave={e => e.currentTarget.style.background = ""}
-                          >
-                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontWeight: 700, fontSize: "var(--text-md)", color: "var(--text-primary)" }}>{p.port}</td>
-                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 600 }}>{p.protocol}</td>
-                            <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: "var(--text-base)", color: "var(--text-secondary)" }}>{p.bind_address}</td>
-                            <td style={{ padding: "10px 12px", fontSize: "var(--text-base)", color: "var(--text-secondary)", fontFamily: "monospace" }}>{p.service || "—"}</td>
-                            <td style={{ padding: "10px 12px" }}><ExposureBadge exposure={p.exposure} bindAddress={p.bind_address} /></td>
+                          <tr key={i} className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
+                            <td className="px-3 py-[10px] font-mono font-bold text-md text-text-primary">{p.port}</td>
+                            <td className="px-3 py-[10px] text-base text-text-muted-c uppercase font-semibold">{p.protocol}</td>
+                            <td className="px-3 py-[10px] font-mono text-base text-text-secondary">{p.bind_address}</td>
+                            <td className="px-3 py-[10px] text-base text-text-secondary font-mono">{p.service || "—"}</td>
+                            <td className="px-3 py-[10px]"><ExposureBadge exposure={p.exposure} bindAddress={p.bind_address} /></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
 
-                  <div style={{ marginTop: "var(--space-3)", fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>
+                  <div className="mt-3 text-sm text-text-ghost">
                     {filteredPorts.length} of {ports.length} ports shown
                     {portFilter !== "all" && (
-                      <button onClick={() => setPortFilter("all")} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--blue-deep)", cursor: "pointer", fontSize: "var(--text-sm)", padding: 0, fontFamily: "inherit" }}>
+                      <button onClick={() => setPortFilter("all")}
+                        className="ml-2 bg-transparent border-none text-blue-deep cursor-pointer text-sm p-0 font-[inherit]">
                         clear filter ×
                       </button>
                     )}
@@ -273,6 +267,12 @@ function WinHostDetailPanel({ hostname, osName, osVersion, updates, onClose }) {
 
 // ── Windows host row ──────────────────────────────────────────────────────────
 
+const portChipCls = {
+  external:  "bg-blue-tint text-blue-deep border-blue-border",
+  internal:  "bg-green-tint text-green-dark border-green-border",
+  interface: "bg-amber-tint text-amber border-yellow-border",
+};
+
 function WinHostRow({ hostname, osName, osVersion, updates }) {
   const [showDetail,   setShowDetail]   = useState(false);
   const [ports,        setPorts]        = useState(null);
@@ -284,7 +284,6 @@ function WinHostRow({ hostname, osName, osVersion, updates }) {
   const definitionCount = updates.filter(u => u.classification === "Definition Updates").length;
   const needsReboot     = updates.some(u => u.rebootRequired === "AlwaysRequiresReboot" || u.rebootRequired === "CanRequestReboot");
 
-  // Fetch ports eagerly on mount
   useEffect(() => {
     setLoadingPorts(true);
     fetch(`/api/hosts/${encodeURIComponent(hostname)}/ports`)
@@ -301,73 +300,63 @@ function WinHostRow({ hostname, osName, osVersion, updates }) {
   const shown          = allChips.slice(0, MAX);
   const overflow       = allChips.length - MAX;
 
-  const colorMap = {
-    external:  { bg: "var(--blue-tint)",  color: "var(--blue-deep)",  border: "var(--blue-border)"   },
-    internal:  { bg: "var(--green-tint)", color: "var(--green-dark)", border: "var(--green-border)"  },
-    interface: { bg: "var(--amber-tint)", color: "var(--amber)",      border: "var(--yellow-border)" },
-  };
-
   return (
     <>
-      <tr style={{ borderBottom: "1px solid var(--border-subtle)", transition: "background 0.15s" }}
-        onMouseEnter={e => e.currentTarget.style.background = "var(--bg-hover)"}
-        onMouseLeave={e => e.currentTarget.style.background = ""}>
+      <tr className="border-b border-border-subtle hover:bg-bg-hover transition-colors">
 
-        <td style={{ padding: "12px 16px", overflow: "hidden" }}>
+        <td className="px-4 py-3 overflow-hidden">
           <button onClick={() => setShowDetail(true)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 600, fontSize: "var(--text-md)", color: "var(--text-primary)", fontFamily: "monospace", textAlign: "left", display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            onMouseEnter={e => e.currentTarget.style.color = "var(--blue)"}
-            onMouseLeave={e => e.currentTarget.style.color = "var(--text-primary)"}
+            className="bg-transparent border-none p-0 cursor-pointer font-semibold text-md text-text-primary font-mono text-left block max-w-full overflow-hidden text-ellipsis whitespace-nowrap hover:text-blue transition-colors"
             title={hostname}
           >
             {hostname.includes(".") && !/^\d+\.\d+\.\d+\.\d+$/.test(hostname)
-              ? <>{hostname.split(".")[0]}<span style={{ color: "var(--text-ghost)", fontWeight: 400, fontSize: "var(--text-sm)" }}>.{hostname.split(".").slice(1).join(".")}</span></>
+              ? <>{hostname.split(".")[0]}<span className="text-text-ghost font-normal text-sm">.{hostname.split(".").slice(1).join(".")}</span></>
               : hostname
             }
           </button>
         </td>
 
-        <td style={{ padding: "14px 16px", width: 140 }}>{osVersionBadge(osName)}</td>
-        <td style={{ padding: "14px 16px", fontSize: "var(--text-base)", color: "var(--text-muted)", fontFamily: "monospace", width: 110 }}>{osVersion || "—"}</td>
-        <td style={{ padding: "14px 16px", width: 90 }}>
+        <td className="px-4 py-[14px] w-[140px]">{osVersionBadge(osName)}</td>
+        <td className="px-4 py-[14px] text-base text-text-muted-c font-mono w-[110px]">{osVersion || "—"}</td>
+        <td className="px-4 py-[14px] w-[90px]">
           {updates.length > 0
-            ? <span style={{ fontWeight: 700, fontSize: "var(--text-lg)", color: "var(--red-dark)" }}>{updates.length}</span>
-            : <span style={{ color: "var(--green)", fontWeight: 700 }}>✓ Clean</span>}
+            ? <span className="font-bold text-lg text-red-dark">{updates.length}</span>
+            : <span className="text-green font-bold">✓ Clean</span>}
         </td>
-        <td style={{ padding: "14px 16px", width: 190 }}>
-          <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
-            {securityCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint-mid)",  color: "var(--red-text)",    border: "1px solid var(--red-border-lt)",  padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🔒 {securityCount}</span>}
-            {criticalCount   > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--red-tint)",     color: "var(--red-dark)",    border: "1px solid var(--red-border)",     padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>⚠ {criticalCount}</span>}
-            {rollupCount     > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--orange-tint)",  color: "var(--orange-dark)", border: "1px solid var(--orange-border)",  padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>📦 {rollupCount}</span>}
-            {definitionCount > 0 && <span style={{ fontSize: "var(--text-sm)", fontWeight: 700, background: "var(--blue-tint)",    color: "var(--blue-deep)",   border: "1px solid var(--blue-border)",    padding: "1px 7px", borderRadius: "var(--radius-pill)" }}>🛡 {definitionCount}</span>}
-            {updates.length === 0 && <span style={{ fontSize: "var(--text-sm)", color: "var(--text-ghost)" }}>—</span>}
+        <td className="px-4 py-[14px] w-[190px]">
+          <div className="flex gap-1 flex-wrap">
+            {securityCount   > 0 && <span className="text-sm font-bold bg-red-tint-mid text-red-text border border-red-border-lt px-[7px] py-px rounded-pill">🔒 {securityCount}</span>}
+            {criticalCount   > 0 && <span className="text-sm font-bold bg-red-tint text-red-dark border border-red-border px-[7px] py-px rounded-pill">⚠ {criticalCount}</span>}
+            {rollupCount     > 0 && <span className="text-sm font-bold bg-orange-tint text-orange-dark border border-orange-border px-[7px] py-px rounded-pill">📦 {rollupCount}</span>}
+            {definitionCount > 0 && <span className="text-sm font-bold bg-blue-tint text-blue-deep border border-blue-border px-[7px] py-px rounded-pill">🛡 {definitionCount}</span>}
+            {updates.length === 0 && <span className="text-sm text-text-ghost">—</span>}
           </div>
         </td>
-        <td style={{ padding: "14px 16px", width: 110 }}>
+        <td className="px-4 py-[14px] w-[110px]">
           {needsReboot ? badge("May Reboot", "yellow") : badge("No Reboot", "green")}
         </td>
 
         {/* Open Ports column */}
-        <td style={{ padding: "10px 16px", width: 160 }}>
+        <td className="px-4 py-[10px] w-[160px]">
           {loadingPorts ? (
-            <span style={{ color: "var(--text-ghost)", fontSize: "var(--text-sm)" }}>...</span>
+            <span className="text-text-ghost text-sm">...</span>
           ) : ports === null || allChips.length === 0 ? (
-            <span style={{ color: "var(--text-disabled)", fontSize: "var(--text-sm)" }}>—</span>
+            <span className="text-text-disabled text-sm">—</span>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+            <div className="flex flex-wrap gap-[3px]">
               {shown.map((p, i) => {
-                const c = colorMap[p.exposure] || colorMap.external;
+                const cls = portChipCls[p.exposure] || portChipCls.external;
                 return (
                   <span key={i}
                     title={`${p.protocol?.toUpperCase()} ${p.bind_address}:${p.port} — ${p.service}`}
-                    style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}`, borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: "var(--text-xs)", fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
+                    className={`border rounded-sm px-1.5 py-px text-xs font-mono font-bold whitespace-nowrap ${cls}`}>
                     {p.port}{p.service && p.service !== "unknown" ? ` ${p.service}` : ""}
                   </span>
                 );
               })}
               {overflow > 0 && (
                 <span title={allChips.slice(MAX).map(p => `${p.port} ${p.service}`).join(", ")}
-                  style={{ background: "var(--bg-subtle)", color: "var(--text-ghost)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "1px 6px", fontSize: "var(--text-xs)", fontWeight: 600, whiteSpace: "nowrap", cursor: "default" }}>
+                  className="bg-bg-subtle text-text-ghost border border-border-base rounded-sm px-1.5 py-px text-xs font-semibold whitespace-nowrap cursor-default">
                   +{overflow}
                 </span>
               )}
@@ -375,8 +364,9 @@ function WinHostRow({ hostname, osName, osVersion, updates }) {
           )}
         </td>
 
-        <td style={{ padding: "14px 16px", width: 75 }}>
-          <button onClick={() => setShowDetail(true)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "4px 10px", cursor: "pointer", fontSize: "var(--text-base)", color: "var(--text-muted)", fontFamily: "inherit" }}>
+        <td className="px-4 py-[14px] w-[75px]">
+          <button onClick={() => setShowDetail(true)}
+            className="bg-transparent border border-border-base rounded-md px-2.5 py-1 cursor-pointer text-base text-text-muted-c font-[inherit] hover:bg-bg-subtle transition-colors">
             View
           </button>
         </td>
@@ -402,6 +392,8 @@ function exportWindowsCSV(records) {
 }
 
 // ── Main WindowsTab ───────────────────────────────────────────────────────────
+
+const thCls = "px-4 py-3 text-left text-sm font-bold tracking-[0.06em] uppercase text-text-faint whitespace-nowrap bg-transparent cursor-default select-none";
 
 export function WindowsTab() {
   const [records,   setRecords]   = useState([]);
@@ -451,76 +443,80 @@ export function WindowsTab() {
     return matchSearch && matchOS && matchCls;
   });
 
-  const thStyle      = { padding: "12px 16px", textAlign: "left", fontSize: "var(--text-sm)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-faint)", whiteSpace: "nowrap", background: "transparent" };
-  const selectStyle  = { padding: "6px 10px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-base)", fontFamily: "inherit", background: "var(--bg-card)", color: "var(--text-secondary)", outline: "none", cursor: "pointer" };
+  const selectCls = "px-2.5 py-1.5 border border-border-base rounded-base text-base font-[inherit] bg-bg-card text-text-secondary outline-none cursor-pointer";
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
-      <div style={{ width: 32, height: 32, border: "3px solid var(--border)", borderTopColor: "var(--cyan)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+    <div className="flex items-center justify-center h-[300px]">
+      <div className="w-8 h-8 border-[3px] border-border-base border-t-cyan rounded-full animate-spin" />
     </div>
   );
 
   if (error === "no_data") return (
-    <div style={{ textAlign: "center", padding: "80px 32px", background: "var(--bg-card)", borderRadius: "var(--radius-3xl)", border: "1px solid var(--border)" }}>
-      <div style={{ fontSize: 48, marginBottom: "var(--space-4)" }}>🪟</div>
-      <div style={{ fontSize: "var(--text-3xl)", fontWeight: 700, color: "var(--text-secondary)" }}>No Windows scan data yet</div>
-      <div style={{ fontSize: "var(--text-lg)", color: "var(--text-ghost)", marginTop: 6 }}>Click <strong>Win Scan</strong> in the top bar to run your first Windows patch compliance scan.</div>
+    <div className="text-center py-20 px-8 bg-bg-card rounded-3xl border border-border-base">
+      <div className="text-5xl mb-4">🪟</div>
+      <div className="text-3xl font-bold text-text-secondary">No Windows scan data yet</div>
+      <div className="text-lg text-text-ghost mt-1.5">Click <strong>Win Scan</strong> in the top bar to run your first Windows patch compliance scan.</div>
     </div>
   );
 
   if (error) return (
-    <div style={{ background: "var(--red-tint)", border: "1px solid var(--red-border)", borderRadius: "var(--radius-lg)", padding: "16px 20px", color: "var(--red-dark)", fontSize: "var(--text-md)" }}>
+    <div className="bg-red-tint border border-red-border rounded-lg px-5 py-4 text-red-dark text-md">
       Error loading Windows scan data: {error}
-      <button onClick={load} style={{ marginLeft: "var(--space-3)", padding: "4px 12px", border: "1px solid var(--red-border-lt)", borderRadius: "var(--radius-md)", background: "var(--bg-card)", color: "var(--red-dark)", cursor: "pointer", fontSize: "var(--text-base)", fontFamily: "inherit" }}>Retry</button>
+      <button onClick={load} className="ml-3 px-3 py-1 border border-red-border-lt rounded-md bg-bg-card text-red-dark cursor-pointer text-base font-[inherit]">Retry</button>
     </div>
   );
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <StatCard icon="host"    label="Windows Hosts"   value={totalHosts}      sub={scannedAt ? `Last scan: ${scannedAt}` : "in latest scan"} accent="var(--cyan)"   />
         <StatCard icon="warning" label="Pending KBs"     value={totalKBs}        sub="total across all hosts"                                    accent="var(--amber)"  />
         <StatCard icon="scan"    label="Security / Crit" value={hostsWithSec}    sub="hosts with sec updates"                                    accent="var(--red)"    />
         <StatCard icon="refresh" label="Reboot Pending"  value={hostsNeedReboot} sub="hosts may need reboot"                                     accent="var(--purple)" />
       </div>
 
-      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-2xl)", overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-        <div style={{ padding: "var(--space-4) var(--space-5)", borderBottom: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ fontWeight: 700, fontSize: "var(--text-lg)", color: "var(--text-primary)" }}>
+      <div className="bg-bg-card border border-border-base rounded-2xl overflow-hidden shadow-card">
+        <div className="px-5 py-4 border-b border-border-subtle flex justify-between items-center flex-wrap gap-2.5">
+          <div className="font-bold text-lg text-text-primary">
             {filteredHosts.length} of {totalHosts} Windows hosts
           </div>
-          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", flexWrap: "wrap" }}>
-            <select value={filterOS}  onChange={e => setFilterOS(e.target.value)}  style={selectStyle}>{osOptions.map(o  => <option key={o} value={o}>{o  === "all" ? "All OS versions"    : o}</option>)}</select>
-            <select value={filterCls} onChange={e => setFilterCls(e.target.value)} style={selectStyle}>{clsOptions.map(o => <option key={o} value={o}>{o  === "all" ? "All classifications" : o}</option>)}</select>
-            <div style={{ position: "relative" }}>
+          <div className="flex gap-2 items-center flex-wrap">
+            <select value={filterOS}  onChange={e => setFilterOS(e.target.value)}  className={selectCls}>
+              {osOptions.map(o  => <option key={o} value={o}>{o  === "all" ? "All OS versions"    : o}</option>)}
+            </select>
+            <select value={filterCls} onChange={e => setFilterCls(e.target.value)} className={selectCls}>
+              {clsOptions.map(o => <option key={o} value={o}>{o  === "all" ? "All classifications" : o}</option>)}
+            </select>
+            <div className="relative">
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search hostname or KB..."
-                style={{ padding: "6px 10px 6px 30px", border: "1px solid var(--border)", borderRadius: "var(--radius-base)", fontSize: "var(--text-base)", outline: "none", width: 200, fontFamily: "inherit" }} />
-              <div style={{ position: "absolute", top: "50%", left: 9, transform: "translateY(-50%)" }}>
+                className="pl-[30px] pr-2.5 py-1.5 border border-border-base rounded-base text-base outline-none w-[200px] font-[inherit] bg-bg-card text-text-primary" />
+              <div className="absolute top-1/2 left-[9px] -translate-y-1/2">
                 <Icon d={Icons.search} size={13} color="var(--text-ghost)" />
               </div>
             </div>
-            <button onClick={() => exportWindowsCSV(records)} style={{ padding: "6px 14px", border: "1px solid var(--blue-border)", borderRadius: "var(--radius-base)", background: "var(--blue-tint)", cursor: "pointer", fontSize: "var(--text-base)", color: "var(--blue-dark)", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => exportWindowsCSV(records)}
+              className="px-3.5 py-1.5 border border-blue-border rounded-base bg-blue-tint cursor-pointer text-base text-blue-dark font-semibold font-[inherit] flex items-center gap-1.5">
               <Icon d={Icons.export} size={13} color="var(--blue-dark)" /> Export CSV
             </button>
           </div>
         </div>
 
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead style={{ background: "var(--bg-hover)", borderBottom: "1px solid var(--border-subtle)" }}>
+        <table className="w-full border-collapse">
+          <thead className="bg-bg-hover border-b border-border-subtle">
             <tr>
-              <th style={thStyle}>Host</th>
-              <th style={{ ...thStyle, width: 140 }}>OS</th>
-              <th style={{ ...thStyle, width: 110 }}>Version</th>
-              <th style={{ ...thStyle, width: 90  }}>Pending KBs</th>
-              <th style={{ ...thStyle, width: 190 }}>By Type</th>
-              <th style={{ ...thStyle, width: 110 }}>Reboot</th>
-              <th style={{ ...thStyle, width: 160 }}>Open Ports</th>
-              <th style={{ ...thStyle, width: 75  }}></th>
+              <th className={thCls}>Host</th>
+              <th className={`${thCls} w-[140px]`}>OS</th>
+              <th className={`${thCls} w-[110px]`}>Version</th>
+              <th className={`${thCls} w-[90px]`}>Pending KBs</th>
+              <th className={`${thCls} w-[190px]`}>By Type</th>
+              <th className={`${thCls} w-[110px]`}>Reboot</th>
+              <th className={`${thCls} w-[160px]`}>Open Ports</th>
+              <th className={`${thCls} w-[75px]`}></th>
             </tr>
           </thead>
           <tbody>
             {filteredHosts.length === 0
-              ? <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "var(--text-ghost)", fontSize: "var(--text-md)" }}>No hosts match your filters</td></tr>
+              ? <tr><td colSpan={8} className="p-8 text-center text-text-ghost text-md">No hosts match your filters</td></tr>
               : filteredHosts.map(h => <WinHostRow key={h.hostname} hostname={h.hostname} osName={h.osName} osVersion={h.osVersion} updates={h.updates} />)
             }
           </tbody>
